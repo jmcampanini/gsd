@@ -28,8 +28,12 @@ milestone exists so every later chunk lands on rails.
 - Minimal `README.md`: purpose, build, verify — rewritten as the full
   landing page in Milestone 7 (CLI-DOCS-001).
 - CI workflow running `make check`; dependabot (gomod + actions);
-  scheduled update-go workflow (CLI-GO-002); Dependency Review workflow
-  and an observe-first CodeQL run (CLI-SEC-004).
+  Dependency Review workflow and an observe-first CodeQL run
+  (CLI-SEC-004).
+- Go directive updates remain manual, matching the current cmdk, overlay,
+  and grove-cli fleet behavior while the authentication model is revisited
+  in [cli-standards#9](https://github.com/jmcampanini/cli-standards/issues/9)
+  (`cli-standards: exception CLI-GO-002`).
 - `AGENTS.md` filled in: make-targets-only rule, `.sandbox/` scratch
   convention, comment policy, review-guardrail section that grows over
   time. `CLAUDE.md` stays exactly `@AGENTS.md` (CLI-AGENTS-001/002).
@@ -46,8 +50,8 @@ Out of scope: any command beyond help/version, SQLite, Homebrew formula
 1. **Buildable skeleton** — module, `main.go`, `cmd/root.go`, exit-code
    mapping, Makefile, `.golangci.yml`, `.gitignore`, e2e harness skeleton.
    Reviewable as: "is this the shape every future PR builds on?"
-2. **Automation and settings** — CI, dependabot, update-go, Dependency
-   Review, CodeQL (observe first), `SECURITY.md`, `README.md`,
+2. **Automation and settings** — CI, dependabot, Dependency Review,
+   CodeQL (observe first), `SECURITY.md`, `README.md`,
    `AGENTS.md` content, live GitHub settings (applied via `gh`, with the
    checklist and verification values recorded in the PR).
 
@@ -94,5 +98,5 @@ Standard exit criteria (see `MILESTONES.md`), plus:
 ## Standards
 
 CLI-LAYOUT-001/002/003, CLI-CMD-001/002/003, CLI-QUALITY-001/002/004,
-CLI-GO-001/002/003, CLI-SEC-001..006, CLI-PR-001/002, CLI-RELEASE-002,
+CLI-GO-001, CLI-SEC-001..006, CLI-PR-001/002, CLI-RELEASE-002,
 CLI-AGENTS-001/002, CLI-DOCS-001.
