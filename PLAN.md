@@ -55,7 +55,7 @@ contract.
 
 ## Chunks
 
-- [ ] **Chunk 1 — Store and output spine**
+- [x] **Chunk 1 — Store and output spine**
 
   Update the reviewed milestone and command specifications before writing
   behavior. Add the SQLite dependency, database-path resolution, safe

@@ -23,12 +23,14 @@ Staging note: columns and CHECKs from `SCHEMA.md` that reference projects,
 areas, or dates arrive in their own milestones; the table converges on the
 spec by end of Milestone 5.
 
-Database bootstrap: path precedence `--db` flag > `GSD_DB` env >
-`$XDG_DATA_HOME/gsd/gsd.db`; parent directories created; every connection
-sets `PRAGMA foreign_keys = ON`. Throwaway-db guard: `PRAGMA user_version`
-stamped per schema revision in a dev-only range (`9000 + N`, disjoint
-from future migration numbers); mismatch = fail loud, "delete your dev
-db."
+Database bootstrap: path precedence `--db` flag > nonempty `GSD_DB` env >
+`$XDG_DATA_HOME/gsd/gsd.db`, falling back to
+`~/.local/share/gsd/gsd.db`; parent directories created when the database is
+opened. Every connection enables foreign keys and a short busy timeout; WAL
+is not enabled without a demonstrated need. Schema revision `9001` bootstraps
+only a genuinely empty version-0 database. An existing revision-9001 database
+opens normally; a nonempty version-0 or differently versioned database fails
+with `conflict` and delete-your-dev-db guidance.
 
 ## Commands
 
@@ -45,25 +47,35 @@ gsd delete N
 ```
 
 Output contract from day one (COMMANDS.md § Output contract): global
-`--json`; mutations echo the affected entity as its row (including derived
-`status`); errors are `{"error": {"code": ..., "message": ...}}` on
-stderr; exit codes 0/1/2. Initial stable error codes: `not_found`,
-`invalid_argument`, `conflict`. Human output: aligned columns; color via
-destination-aware detection evaluated per stream (off when the
-destination is not a TTY or `TERM=dumb`), `NO_COLOR` honored (`--color`
-flag itself lands in Milestone 6).
+`--json` controls the complete output mode; mutations echo the affected entity
+as its row, including derived `status`; every JSON error is a compact
+`{"error":{"code":...,"message":...}}` value on stderr; exit codes are
+0/1/2. Stable error codes are `not_found`, `invalid_argument`, `conflict`,
+`usage`, and `internal`. Human collections and `show` use unstyled
+`charm.land/lipgloss/v2/table` tables; mutations use concise action-prefixed
+stdout payloads; empty collections print nothing. Logging and color are out of
+scope until Milestone 6.
 
-## Proposed defaults (flag in review if wrong)
+Positive decimal IDs, nonblank titles, and valid UTF-8 are required. Semantic
+validation failures are `invalid_argument` with exit 1; syntax failures are
+`usage` with exit 2. JSON entities contain every current table column,
+nullable timestamps are `null`, collections are arrays including `[]`, and
+`tags` remains absent until Milestone 5. JSON is one compact value plus a
+newline; field order and message wording are not stable.
 
-- `done`/`cancel` on an already-resolved task, and `reopen` on an open
-  task, are `conflict` errors — state transitions are explicit, no
-  toggling.
-- `delete` does not prompt (non-interactive contract, CLI-CMD-004); it
-  echoes the deleted row.
-- The CLI stamps `updated_at` on every mutation (no triggers).
-- `position` append = `COALESCE(MAX(position), -1) + 1` over the inbox.
-- `tags` is absent from JSON output until tags exist (Milestone 5 adds it
-  as an additive field).
+## Lifecycle and data defaults
+
+- `done`/`cancel` on an already-resolved task, and `reopen` on an open task,
+  are `conflict` errors — state transitions are explicit, no toggling.
+- `delete` does not prompt (non-interactive contract, CLI-CMD-004); it echoes
+  the deleted row as it existed.
+- UTC millisecond timestamps are stamped on creation and every mutation.
+- `position` append follows the maximum position across all inbox tasks,
+  including resolved tasks; lifecycle changes preserve it.
+- `--note ""` clears a note; `--note -` reads stdin through EOF without
+  stripping trailing newlines.
+- `tags` is absent from JSON output until tags exist (Milestone 5 adds it as an
+  additive field).
 
 ## Chunks
 
@@ -101,9 +113,9 @@ $ gsd reopen 1 && gsd cancel 1
 
 ```text
 $ gsd add "From a script" --json
-{"id": 2, "title": "From a script", "status": "open", ...}
+{"id":2,"title":"From a script","note":"","done_at":null,"cancelled_at":null,"status":"open","position":1,"created_at":"...","updated_at":"..."}
 $ gsd show 99 --json; echo $status
-{"error": {"code": "not_found", "message": "no task 99"}}
+{"error":{"code":"not_found","message":"no task 99"}}
 1
 ```
 
