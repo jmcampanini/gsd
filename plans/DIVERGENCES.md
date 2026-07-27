@@ -35,6 +35,8 @@ Entry format:
   flag > env > config file > default; add a Config section covering the
   file location, keys, the report command, and color modes.
 
+## Closed
+
 ### D-002: TUI is out of the v1 milestone map
 
 - Recorded: 2026-07-26, during milestone planning
@@ -44,9 +46,5 @@ Entry format:
   shared-core design in the spec stay as the target so nothing in v1
   forecloses it, but no TUI work is scheduled in this map.
 - Consolidate by: start of Milestone 0
-- Consolidation: mark `COMMANDS.md` § TUI as post-v1; adjust the "three
-  surfaces" framing to name the TUI as planned, not shipping in v1.
-
-## Closed
-
-(none yet)
+- Consolidation: completed 2026-07-27. `COMMANDS.md` now identifies the CLI
+  as the v1 surface and marks the planned TUI as post-v1.

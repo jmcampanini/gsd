@@ -1,9 +1,9 @@
 # Command Spec (v1)
 
-Three surfaces, one grammar. The CLI is the canonical surface; the TUI
-embeds the same grammar; agents consume the CLI directly (`--json`) plus
-raw SQL through `gsd query`. Full parity: every operation exists in both
-human surfaces. The data contract behind `query` lives in `SCHEMA.md`.
+The CLI is the canonical v1 surface; agents consume it directly (`--json`)
+plus raw SQL through `gsd query`. A post-v1 TUI is planned to embed the same
+grammar and call the same parser and core. The data contract behind `query`
+lives in `SCHEMA.md`.
 
 ## Grammar
 
@@ -152,9 +152,9 @@ Default path `$XDG_DATA_HOME/gsd/gsd.db`
 (`~/.local/share/gsd/gsd.db`). Precedence: `--db PATH`, then `GSD_DB`,
 then the default. No config file in v1.
 
-## TUI
+## TUI (post-v1)
 
-Full parity with the CLI, achieved structurally:
+The planned TUI targets full parity with the CLI, achieved structurally:
 
 - **`:` opens a command line that accepts the CLI grammar verbatim**,
   minus the binary name (`:projects add "Kitchen reno" --area 3`). It
