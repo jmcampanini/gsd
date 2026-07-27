@@ -129,28 +129,45 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
   `tomorrow`, weekday names (`mon`..`sun` = next occurrence), `+Nd`,
   `+Nw`. Nothing else parses.
 - **Notes are markdown by convention** but never parsed or interpreted by
-  any tool. `--note -` reads stdin.
+  any tool. `--note ""` clears a note. `--note -` reads stdin through EOF
+  without stripping trailing newlines.
+- **Validation is semantic, not lossy.** IDs are positive decimals; titles are
+  valid UTF-8 and nonblank after surrounding-space inspection, but accepted
+  text is stored unchanged. Notes must be valid UTF-8. Semantic failures use
+  `invalid_argument`; command grammar and flag failures use `usage`.
 
 ## Output contract
 
-- `--json` (global flag) makes any command machine-readable. An entity in
-  JSON is its table row — same column names, same formats, including the
-  derived `status` — plus `tags` as an array of names.
-- **Mutations echo the affected entity**: `gsd add --json` returns the
-  created row (agents capture the new ID without a second call).
+- `--json` is a global complete-output-mode flag. Successful entity output is
+  its table row — the same column names and formats, including derived
+  `status`. Nullable timestamps are `null`; collections are arrays, including
+  `[]`. `tags` is absent until Milestone 5, when it becomes an additive array
+  field.
+- JSON output is exactly one compact value followed by a newline. Field names,
+  types, and error codes are stable; field order and message wording are not.
+- **Mutations echo the affected entity**: `gsd add --json` returns the created
+  row so agents can capture its ID without another call.
 - **Cascades report what they touched**:
-  `{"project": {...}, "cancelled_tasks": [{...}, ...]}`.
-- **Errors are structured, on stderr**:
-  `{"error": {"code": "not_found", "message": "no task 42"}}`. Codes are
-  stable API; messages are not.
-- **Exit codes stay coarse**: `0` success, `1` domain error, `2` usage
+  `{"project":{...},"cancelled_tasks":[{...},...]}`.
+- **Every JSON-mode error is structured, on stderr**:
+  `{"error":{"code":"not_found","message":"no task 42"}}`. Initial stable
+  codes are `not_found`, `invalid_argument`, `conflict`, `usage`, and
+  `internal`. Default mode keeps human-readable stderr diagnostics.
+- **Exit codes stay coarse**: `0` success, `1` application error, `2` usage
   error. Fine distinctions live in the JSON error code.
+- Human collections are headerless aligned tables, `show` is a field/value
+  table, mutations use concise action-prefixed payloads, and empty collections
+  print nothing. Human tables are unstyled until color support arrives in
+  Milestone 6.
 
 ## Database
 
-Default path `$XDG_DATA_HOME/gsd/gsd.db`
-(`~/.local/share/gsd/gsd.db`). Precedence: `--db PATH`, then `GSD_DB`,
-then the default. No config file in v1.
+Default path `$XDG_DATA_HOME/gsd/gsd.db`, falling back to
+`~/.local/share/gsd/gsd.db`. Precedence is `--db PATH`, then nonempty `GSD_DB`,
+then the default. Parent directories are created when opening the database.
+During throwaway-data milestones, only a genuinely empty version-0 database is
+bootstrapped; a nonempty version-0 or differently versioned database fails
+with `conflict` and delete-your-dev-db guidance. No config file in v1.
 
 ## TUI (post-v1)
 
