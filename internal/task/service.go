@@ -18,15 +18,15 @@ func NewService(repository Repository) *Service {
 	return &Service{repository: repository, now: time.Now}
 }
 
-func (s *Service) Add(ctx context.Context, title, note string) (Task, error) {
-	if err := validateTitle(title); err != nil {
+func (s *Service) Add(ctx context.Context, fields AddFields) (Task, error) {
+	if err := validateTitle(fields.Title); err != nil {
 		return Task{}, err
 	}
-	if !utf8.ValidString(note) {
+	if !utf8.ValidString(fields.Note) {
 		return Task{}, NewError(ErrorInvalidArgument, "note must be valid UTF-8", nil)
 	}
 
-	return s.repository.Add(ctx, title, note, formatTimestamp(s.now()))
+	return s.repository.Add(ctx, fields, formatTimestamp(s.now()))
 }
 
 func (s *Service) Inbox(ctx context.Context) ([]Task, error) {
@@ -172,5 +172,5 @@ func validateTitle(title string) error {
 }
 
 func formatTimestamp(value time.Time) string {
-	return value.UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
+	return value.UTC().Format("2006-01-02T15:04:05.000Z")
 }

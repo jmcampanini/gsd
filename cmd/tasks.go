@@ -22,7 +22,10 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 			}
 
 			return withApplication(command, options, factory, func(application task.Application) error {
-				created, err := application.Add(command.Context(), args[0], resolvedNote)
+				created, err := application.Add(command.Context(), task.AddFields{
+					Title: args[0],
+					Note:  resolvedNote,
+				})
 				if err != nil {
 					return err
 				}
@@ -221,8 +224,8 @@ func resolveNote(command *cobra.Command, value string) (string, error) {
 	if err != nil {
 		return "", task.NewError(
 			task.ErrorInternal,
-			"internal error",
-			fmt.Errorf("read task note: %w", err),
+			fmt.Sprintf("read task note: %v", err),
+			err,
 		)
 	}
 

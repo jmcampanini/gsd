@@ -23,31 +23,36 @@ type Task struct {
 	UpdatedAt   string  `json:"updated_at"`
 }
 
+type AddFields struct {
+	Title string
+	Note  string
+}
+
 type EditFields struct {
 	Title *string
 	Note  *string
 }
 
 type Repository interface {
-	Add(context.Context, string, string, string) (Task, error)
-	Inbox(context.Context) ([]Task, error)
-	Find(context.Context, int64) (Task, error)
-	List(context.Context, ListStatus) ([]Task, error)
-	Edit(context.Context, int64, EditFields, string) (Task, error)
-	Done(context.Context, int64, string) (Task, error)
-	Cancel(context.Context, int64, string) (Task, error)
-	Reopen(context.Context, int64, string) (Task, error)
-	Delete(context.Context, int64) (Task, error)
+	Add(ctx context.Context, fields AddFields, timestamp string) (Task, error)
+	Inbox(ctx context.Context) ([]Task, error)
+	Find(ctx context.Context, id int64) (Task, error)
+	List(ctx context.Context, status ListStatus) ([]Task, error)
+	Edit(ctx context.Context, id int64, fields EditFields, timestamp string) (Task, error)
+	Done(ctx context.Context, id int64, timestamp string) (Task, error)
+	Cancel(ctx context.Context, id int64, timestamp string) (Task, error)
+	Reopen(ctx context.Context, id int64, timestamp string) (Task, error)
+	Delete(ctx context.Context, id int64) (Task, error)
 }
 
 type Application interface {
-	Add(context.Context, string, string) (Task, error)
-	Inbox(context.Context) ([]Task, error)
-	Show(context.Context, int64) (Task, error)
-	List(context.Context, ListStatus) ([]Task, error)
-	Edit(context.Context, int64, EditFields) (Task, error)
-	Done(context.Context, int64) (Task, error)
-	Cancel(context.Context, int64) (Task, error)
-	Reopen(context.Context, int64) (Task, error)
-	Delete(context.Context, int64) (Task, error)
+	Add(ctx context.Context, fields AddFields) (Task, error)
+	Inbox(ctx context.Context) ([]Task, error)
+	Show(ctx context.Context, id int64) (Task, error)
+	List(ctx context.Context, status ListStatus) ([]Task, error)
+	Edit(ctx context.Context, id int64, fields EditFields) (Task, error)
+	Done(ctx context.Context, id int64) (Task, error)
+	Cancel(ctx context.Context, id int64) (Task, error)
+	Reopen(ctx context.Context, id int64) (Task, error)
+	Delete(ctx context.Context, id int64) (Task, error)
 }

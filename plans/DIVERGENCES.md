@@ -37,6 +37,22 @@ Entry format:
 
 ## Closed
 
+### D-003: usage errors are always human-readable
+
+- Recorded: 2026-07-27, during Milestone 1
+- Diverges from: `COMMANDS.md` § Output contract ("Every JSON-mode error is
+  structured")
+- Decision: `--json` governs successful output and application errors
+  (exit 1). Command grammar and flag failures (exit 2) always render as
+  human-readable stderr diagnostics: emitting them structurally required
+  re-scanning argv with a hand-maintained list of value-taking flags, which
+  would silently rot as commands grow. Exit code 2 remains the machine
+  signal for usage errors.
+- Consolidate by: start of Milestone 2
+- Consolidation: completed 2026-07-27. `COMMANDS.md` § Output contract now
+  scopes structured errors to application errors and drops `usage` from the
+  stable JSON code list.
+
 ### D-002: TUI is out of the v1 milestone map
 
 - Recorded: 2026-07-26, during milestone planning
