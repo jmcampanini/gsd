@@ -324,6 +324,89 @@ END
 	}
 }
 
+func TestEditAtomicallyUpdatesRequestedFieldsAndReturnsTask(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	created, err := storage.Add(ctx, "original", "original note", "2026-01-01T00:00:00.000Z")
+	if err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	done, err := storage.Done(ctx, created.ID, "2026-01-02T00:00:00.000Z")
+	if err != nil {
+		t.Fatalf("Done() error = %v", err)
+	}
+
+	title := "  revised  "
+	titleEdited, err := storage.Edit(
+		ctx,
+		created.ID,
+		task.EditFields{Title: &title},
+		"2026-01-03T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Edit(title) error = %v", err)
+	}
+	if titleEdited.Title != title || titleEdited.Note != done.Note {
+		t.Errorf("Edit(title) = %#v, want exact title and preserved note", titleEdited)
+	}
+	if titleEdited.Status != done.Status || !reflect.DeepEqual(titleEdited.DoneAt, done.DoneAt) {
+		t.Errorf("Edit(title) lifecycle = %#v, want preserved done state", titleEdited)
+	}
+	if titleEdited.Position != done.Position || titleEdited.CreatedAt != done.CreatedAt {
+		t.Errorf("Edit(title) changed stable fields: %#v", titleEdited)
+	}
+	if titleEdited.UpdatedAt != "2026-01-03T00:00:00.000Z" {
+		t.Errorf("Edit(title) updated_at = %q, want edit timestamp", titleEdited.UpdatedAt)
+	}
+
+	note := ""
+	noteEdited, err := storage.Edit(
+		ctx,
+		created.ID,
+		task.EditFields{Note: &note},
+		"2026-01-04T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Edit(note) error = %v", err)
+	}
+	if noteEdited.Title != title || noteEdited.Note != "" {
+		t.Errorf("Edit(note) = %#v, want preserved title and cleared note", noteEdited)
+	}
+	persisted, err := storage.Find(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if !reflect.DeepEqual(persisted, noteEdited) {
+		t.Errorf("Find() = %#v, want returned edit %#v", persisted, noteEdited)
+	}
+}
+
+func TestEditRejectsNoFieldsAndReportsMissingTask(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	if _, err := storage.Edit(ctx, 1, task.EditFields{}, "2026-01-01T00:00:00.000Z"); errorCode(err) != task.ErrorInvalidArgument {
+		t.Errorf("Edit(no fields) error = %v, want invalid_argument", err)
+	}
+	title := "missing"
+	if _, err := storage.Edit(ctx, 99, task.EditFields{Title: &title}, "2026-01-01T00:00:00.000Z"); errorCode(err) != task.ErrorNotFound {
+		t.Errorf("Edit(missing) error = %v, want not_found", err)
+	}
+}
+
 func TestLifecycleTransitionsPreserveTaskAndEnforceState(t *testing.T) {
 	t.Parallel()
 

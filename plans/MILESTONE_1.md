@@ -99,6 +99,15 @@ $ gsd inbox
   1  Renew passport
 ```
 
+### You can refine a task without losing note formatting
+
+```text
+$ printf 'Bring a passport photo\n' | gsd edit 1 --title "Renew passport soon" --note -
+Edited: 1  Renew passport soon
+$ gsd show 1 --json
+{"id":1,"title":"Renew passport soon","note":"Bring a passport photo\n","done_at":null,"cancelled_at":null,"status":"open","position":0,"created_at":"...","updated_at":"..."}
+```
+
 ### You can work the inbox down and see where things went
 
 ```text
@@ -138,7 +147,7 @@ Against a fresh temp `--db`, using `--json` throughout:
 
 Standard exit criteria (see `MILESTONES.md`), plus:
 
-- [ ] Chunk 1's store/output patterns written into `AGENTS.md` as the
+- [x] Chunk 1's store/output patterns written into `AGENTS.md` as the
       template for all future commands.
 
 ## Standards

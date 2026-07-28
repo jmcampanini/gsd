@@ -15,6 +15,10 @@ type recordingRepository struct {
 	listCalls          int
 	listedStatus       ListStatus
 	listResult         []Task
+	editCalls          int
+	editID             int64
+	editFields         EditFields
+	editTimestamp      string
 	doneCalls          int
 	cancelCalls        int
 	reopenCalls        int
@@ -50,6 +54,20 @@ func (r *recordingRepository) List(_ context.Context, status ListStatus) ([]Task
 	r.listCalls++
 	r.listedStatus = status
 	return r.listResult, nil
+}
+
+func (r *recordingRepository) Edit(
+	_ context.Context,
+	id int64,
+	fields EditFields,
+	timestamp string,
+) (Task, error) {
+	r.editCalls++
+	r.editID = id
+	r.editFields = fields
+	r.editTimestamp = timestamp
+
+	return Task{ID: id, UpdatedAt: timestamp}, nil
 }
 
 func (r *recordingRepository) Done(_ context.Context, id int64, timestamp string) (Task, error) {
@@ -253,6 +271,90 @@ func TestListValidatesStatusAndNormalizesNil(t *testing.T) {
 	}
 	if repository.listCalls != 1 {
 		t.Errorf("repository List() calls = %d, want 1", repository.listCalls)
+	}
+}
+
+func TestEditPreservesRequestedFieldsAndNormalizesTimestamp(t *testing.T) {
+	t.Parallel()
+
+	repository := &recordingRepository{}
+	service := NewService(repository)
+	service.now = func() time.Time {
+		return time.Date(2026, time.July, 27, 12, 34, 56, 987654321, time.FixedZone("offset", -4*60*60))
+	}
+
+	title := "  Revised title  "
+	note := "line one\nline two\n"
+	edited, err := service.Edit(context.Background(), 7, EditFields{Title: &title, Note: &note})
+	if err != nil {
+		t.Fatalf("Edit() error = %v", err)
+	}
+	if repository.editCalls != 1 || repository.editID != 7 {
+		t.Errorf("repository Edit() calls/ID = %d/%d, want 1/7", repository.editCalls, repository.editID)
+	}
+	if repository.editFields.Title == nil || *repository.editFields.Title != title {
+		t.Errorf("edited title = %#v, want exact %q", repository.editFields.Title, title)
+	}
+	if repository.editFields.Note == nil || *repository.editFields.Note != note {
+		t.Errorf("edited note = %#v, want exact %q", repository.editFields.Note, note)
+	}
+	if repository.editTimestamp != "2026-07-27T16:34:56.987Z" || edited.UpdatedAt != repository.editTimestamp {
+		t.Errorf("timestamp = %q, want UTC milliseconds", repository.editTimestamp)
+	}
+}
+
+func TestEditDistinguishesClearedNoteFromOmittedTitle(t *testing.T) {
+	t.Parallel()
+
+	repository := &recordingRepository{}
+	note := ""
+	_, err := NewService(repository).Edit(context.Background(), 7, EditFields{Note: &note})
+	if err != nil {
+		t.Fatalf("Edit() error = %v", err)
+	}
+	if repository.editFields.Title != nil {
+		t.Errorf("edited title = %#v, want omitted", repository.editFields.Title)
+	}
+	if repository.editFields.Note == nil || *repository.editFields.Note != "" {
+		t.Errorf("edited note = %#v, want explicit empty string", repository.editFields.Note)
+	}
+}
+
+func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
+	t.Parallel()
+
+	blankTitle := " \t\n"
+	invalidTitle := string([]byte{0xff})
+	invalidNote := string([]byte{0xff})
+	validTitle := "valid"
+	tests := []struct {
+		name   string
+		id     int64
+		fields EditFields
+	}{
+		{name: "nonpositive ID", fields: EditFields{Title: &validTitle}},
+		{name: "no fields", id: 1},
+		{name: "blank title", id: 1, fields: EditFields{Title: &blankTitle}},
+		{name: "invalid title UTF-8", id: 1, fields: EditFields{Title: &invalidTitle}},
+		{name: "invalid note UTF-8", id: 1, fields: EditFields{Note: &invalidNote}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			repository := &recordingRepository{}
+			_, err := NewService(repository).Edit(context.Background(), test.id, test.fields)
+			if err == nil {
+				t.Fatal("Edit() error = nil, want invalid_argument")
+			}
+			if code, ok := ErrorCodeOf(err); !ok || code != ErrorInvalidArgument {
+				t.Errorf("Edit() error = %v, want invalid_argument", err)
+			}
+			if repository.editCalls != 0 {
+				t.Errorf("repository Edit() calls = %d, want 0", repository.editCalls)
+			}
+		})
 	}
 }
 

@@ -78,7 +78,7 @@ contract.
   Prove status filtering, position ordering, conflicts, not-found behavior,
   and deletion without prompting.
 
-- [ ] **Chunk 3 — Editing, stdin, and complete presentation**
+- [x] **Chunk 3 — Editing, stdin, and complete presentation**
 
   Deliver atomic `edit` support for `--title` and `--note`, reject edits with no
   requested field, and implement `--note -` for both `add` and `edit`. Preserve

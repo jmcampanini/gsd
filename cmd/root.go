@@ -60,6 +60,7 @@ func newRootCommandWithFactory(factory applicationFactory) *cobra.Command {
 		newCancelCommand(options, factory),
 		newDeleteCommand(options, factory),
 		newDoneCommand(options, factory),
+		newEditCommand(options, factory),
 		newInboxCommand(options, factory),
 		newListCommand(options, factory),
 		newReopenCommand(options, factory),
@@ -145,7 +146,7 @@ func jsonModeRequested(args []string) bool {
 		if argument == "--" {
 			break
 		}
-		if argument == "--db" || argument == "--note" || argument == "--status" {
+		if argument == "--db" || argument == "--note" || argument == "--status" || argument == "--title" {
 			skipValue = true
 			continue
 		}
