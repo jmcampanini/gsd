@@ -13,15 +13,28 @@ import (
 )
 
 type fakeApplication struct {
-	addResult   task.Task
-	addError    error
-	inboxResult []task.Task
-	inboxError  error
-	showResult  task.Task
-	showError   error
-	addTitle    string
-	addNote     string
-	showID      int64
+	addResult    task.Task
+	addError     error
+	inboxResult  []task.Task
+	inboxError   error
+	listResult   []task.Task
+	listError    error
+	showResult   task.Task
+	showError    error
+	doneResult   task.Task
+	doneError    error
+	cancelResult task.Task
+	cancelError  error
+	reopenResult task.Task
+	reopenError  error
+	deleteResult task.Task
+	deleteError  error
+	addTitle     string
+	addNote      string
+	listStatus   task.ListStatus
+	showID       int64
+	mutation     string
+	mutationID   int64
 }
 
 func (f *fakeApplication) Add(_ context.Context, title, note string) (task.Task, error) {
@@ -34,9 +47,38 @@ func (f *fakeApplication) Inbox(context.Context) ([]task.Task, error) {
 	return f.inboxResult, f.inboxError
 }
 
+func (f *fakeApplication) List(_ context.Context, status task.ListStatus) ([]task.Task, error) {
+	f.listStatus = status
+	return f.listResult, f.listError
+}
+
 func (f *fakeApplication) Show(_ context.Context, id int64) (task.Task, error) {
 	f.showID = id
 	return f.showResult, f.showError
+}
+
+func (f *fakeApplication) Done(_ context.Context, id int64) (task.Task, error) {
+	f.mutation = "done"
+	f.mutationID = id
+	return f.doneResult, f.doneError
+}
+
+func (f *fakeApplication) Cancel(_ context.Context, id int64) (task.Task, error) {
+	f.mutation = "cancel"
+	f.mutationID = id
+	return f.cancelResult, f.cancelError
+}
+
+func (f *fakeApplication) Reopen(_ context.Context, id int64) (task.Task, error) {
+	f.mutation = "reopen"
+	f.mutationID = id
+	return f.reopenResult, f.reopenError
+}
+
+func (f *fakeApplication) Delete(_ context.Context, id int64) (task.Task, error) {
+	f.mutation = "delete"
+	f.mutationID = id
+	return f.deleteResult, f.deleteError
 }
 
 type commandResult struct {
@@ -187,6 +229,138 @@ func TestEmptyInboxJSONIsArray(t *testing.T) {
 	}
 }
 
+func TestListAdaptsStatusAndOutputMode(t *testing.T) {
+	t.Parallel()
+
+	tasks := []task.Task{
+		{ID: 1, Title: "first", Status: "done"},
+		{ID: 2, Title: "second", Status: "cancelled"},
+	}
+	jsonApplication := &fakeApplication{listResult: tasks}
+	jsonResult := runCommand(t, jsonApplication, "list", "--status", "all", "--json")
+	if jsonResult.exitCode != 0 || jsonResult.stderr != "" {
+		t.Fatalf("JSON list result = %#v, want success", jsonResult)
+	}
+	var decoded []task.Task
+	if err := json.Unmarshal([]byte(jsonResult.stdout), &decoded); err != nil {
+		t.Fatalf("decode list JSON: %v", err)
+	}
+	if len(decoded) != len(tasks) || decoded[0] != tasks[0] || decoded[1] != tasks[1] {
+		t.Errorf("list JSON = %#v, want %#v", decoded, tasks)
+	}
+	if jsonApplication.listStatus != task.ListStatusAll {
+		t.Errorf("list status = %q, want all", jsonApplication.listStatus)
+	}
+
+	humanApplication := &fakeApplication{listResult: tasks}
+	humanResult := runCommand(t, humanApplication, "list")
+	if humanResult.exitCode != 0 || humanResult.stderr != "" {
+		t.Fatalf("human list result = %#v, want success", humanResult)
+	}
+	if humanApplication.listStatus != task.ListStatusOpen {
+		t.Errorf("default list status = %q, want open", humanApplication.listStatus)
+	}
+	lines := strings.Split(strings.TrimSpace(humanResult.stdout), "\n")
+	if len(lines) != 2 ||
+		strings.Join(strings.Fields(lines[0]), " ") != "1 first done" ||
+		strings.Join(strings.Fields(lines[1]), " ") != "2 second cancelled" {
+		t.Errorf("human list = %q, want distinct ID, title, and status columns", humanResult.stdout)
+	}
+
+	emptyResult := runCommand(t, &fakeApplication{listResult: []task.Task{}}, "list")
+	if emptyResult.exitCode != 0 || emptyResult.stdout != "" || emptyResult.stderr != "" {
+		t.Errorf("empty human list = %#v, want no output", emptyResult)
+	}
+}
+
+func TestLifecycleCommandsAdaptIDsAndHumanActions(t *testing.T) {
+	t.Parallel()
+
+	affected := task.Task{ID: 7, Title: "ship it", Status: "done"}
+	tests := []struct {
+		command     string
+		action      string
+		application *fakeApplication
+	}{
+		{command: "done", action: "Done", application: &fakeApplication{doneResult: affected}},
+		{command: "cancel", action: "Cancelled", application: &fakeApplication{cancelResult: affected}},
+		{command: "reopen", action: "Reopened", application: &fakeApplication{reopenResult: affected}},
+		{command: "delete", action: "Deleted", application: &fakeApplication{deleteResult: affected}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.command, func(t *testing.T) {
+			t.Parallel()
+
+			result := runCommand(t, test.application, test.command, "7")
+			if result.exitCode != 0 || result.stderr != "" {
+				t.Fatalf("result = %#v, want success", result)
+			}
+			if result.stdout != test.action+": 7  ship it\n" {
+				t.Errorf("stdout = %q, want action and affected task", result.stdout)
+			}
+			if test.application.mutation != test.command || test.application.mutationID != 7 {
+				t.Errorf(
+					"mutation call = (%q, %d), want (%q, 7)",
+					test.application.mutation,
+					test.application.mutationID,
+					test.command,
+				)
+			}
+		})
+	}
+}
+
+func TestLifecycleJSONReturnsAffectedTask(t *testing.T) {
+	t.Parallel()
+
+	deleted := task.Task{ID: 7, Title: "gone", Status: "cancelled", Position: 4}
+	result := runCommand(t, &fakeApplication{deleteResult: deleted}, "delete", "7", "--json")
+	if result.exitCode != 0 || result.stderr != "" {
+		t.Fatalf("result = %#v, want success", result)
+	}
+	var decoded task.Task
+	if err := json.Unmarshal([]byte(result.stdout), &decoded); err != nil {
+		t.Fatalf("decode deleted task: %v", err)
+	}
+	if decoded != deleted {
+		t.Errorf("deleted task = %#v, want %#v", decoded, deleted)
+	}
+}
+
+func TestLifecycleValidationDoesNotOpenDatabase(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "invalid status", args: []string{"list", "--status", "later", "--json"}},
+		{name: "done ID", args: []string{"done", "0", "--json"}},
+		{name: "cancel ID", args: []string{"--json", "cancel", "--", "-1"}},
+		{name: "reopen ID", args: []string{"reopen", "+1", "--json"}},
+		{name: "delete ID", args: []string{"delete", "nope", "--json"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := runCommand(t, &fakeApplication{}, test.args...)
+			if result.exitCode != 1 || result.opens != 0 || result.stdout != "" {
+				t.Errorf("result = %#v, want stderr-only invalid_argument without open", result)
+			}
+			var envelope errorEnvelope
+			if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
+				t.Fatalf("decode error: %v", err)
+			}
+			if envelope.Error.Code != task.ErrorInvalidArgument {
+				t.Errorf("error code = %q, want invalid_argument", envelope.Error.Code)
+			}
+		})
+	}
+}
+
 func TestHumanOutputUsesPlainTables(t *testing.T) {
 	t.Parallel()
 
@@ -282,6 +456,17 @@ func TestJSONErrorsUseStableCodesAndStreams(t *testing.T) {
 			)},
 			args:     []string{"show", "99", "--json"},
 			wantCode: task.ErrorNotFound,
+			wantExit: 1,
+		},
+		{
+			name: "conflict",
+			application: &fakeApplication{doneError: task.NewError(
+				task.ErrorConflict,
+				"task 1 is not open",
+				nil,
+			)},
+			args:     []string{"done", "1", "--json"},
+			wantCode: task.ErrorConflict,
 			wantExit: 1,
 		},
 		{

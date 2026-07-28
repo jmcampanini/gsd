@@ -42,11 +42,68 @@ func (s *Service) Inbox(ctx context.Context) ([]Task, error) {
 }
 
 func (s *Service) Show(ctx context.Context, id int64) (Task, error) {
-	if id <= 0 {
-		return Task{}, NewError(ErrorInvalidArgument, "task ID must be positive", nil)
+	if err := validateID(id); err != nil {
+		return Task{}, err
 	}
 
 	return s.repository.Find(ctx, id)
+}
+
+func (s *Service) List(ctx context.Context, status ListStatus) ([]Task, error) {
+	if !validListStatus(status) {
+		return nil, NewError(ErrorInvalidArgument, fmt.Sprintf("invalid list status %q", status), nil)
+	}
+
+	tasks, err := s.repository.List(ctx, status)
+	if err != nil {
+		return nil, err
+	}
+	if tasks == nil {
+		return []Task{}, nil
+	}
+
+	return tasks, nil
+}
+
+func (s *Service) Done(ctx context.Context, id int64) (Task, error) {
+	if err := validateID(id); err != nil {
+		return Task{}, err
+	}
+
+	return s.repository.Done(ctx, id, formatTimestamp(s.now()))
+}
+
+func (s *Service) Cancel(ctx context.Context, id int64) (Task, error) {
+	if err := validateID(id); err != nil {
+		return Task{}, err
+	}
+
+	return s.repository.Cancel(ctx, id, formatTimestamp(s.now()))
+}
+
+func (s *Service) Reopen(ctx context.Context, id int64) (Task, error) {
+	if err := validateID(id); err != nil {
+		return Task{}, err
+	}
+
+	return s.repository.Reopen(ctx, id, formatTimestamp(s.now()))
+}
+
+func (s *Service) Delete(ctx context.Context, id int64) (Task, error) {
+	if err := validateID(id); err != nil {
+		return Task{}, err
+	}
+
+	return s.repository.Delete(ctx, id)
+}
+
+func ParseListStatus(value string) (ListStatus, error) {
+	status := ListStatus(value)
+	if !validListStatus(status) {
+		return "", NewError(ErrorInvalidArgument, fmt.Sprintf("invalid list status %q", value), nil)
+	}
+
+	return status, nil
 }
 
 func ParseID(value string) (int64, error) {
@@ -65,6 +122,23 @@ func ParseID(value string) (int64, error) {
 	}
 
 	return id, nil
+}
+
+func validListStatus(status ListStatus) bool {
+	switch status {
+	case ListStatusOpen, ListStatusDone, ListStatusCancelled, ListStatusAll:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateID(id int64) error {
+	if id <= 0 {
+		return NewError(ErrorInvalidArgument, "task ID must be positive", nil)
+	}
+
+	return nil
 }
 
 func validateTitle(title string) error {

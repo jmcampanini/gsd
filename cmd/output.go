@@ -70,6 +70,34 @@ func writeInbox(writer io.Writer, tasks []task.Task) error {
 	return writeTable(writer, rows)
 }
 
+func writeTaskList(writer io.Writer, tasks []task.Task) error {
+	if len(tasks) == 0 {
+		return nil
+	}
+
+	rows := make([][]string, 0, len(tasks))
+	for _, current := range tasks {
+		rows = append(rows, []string{
+			strconv.FormatInt(current.ID, 10),
+			humanText(current.Title, false),
+			humanText(current.Status, false),
+		})
+	}
+
+	return writeTable(writer, rows)
+}
+
+func writeTaskMutation(writer io.Writer, action string, current task.Task) error {
+	_, err := fmt.Fprintf(
+		writer,
+		"%s: %d  %s\n",
+		action,
+		current.ID,
+		humanText(current.Title, false),
+	)
+	return err
+}
+
 func writeTask(writer io.Writer, current task.Task) error {
 	rows := [][]string{
 		{"ID", strconv.FormatInt(current.ID, 10)},
@@ -87,6 +115,7 @@ func writeTask(writer io.Writer, current task.Task) error {
 }
 
 func writeTable(writer io.Writer, rows [][]string) error {
+	columnCount := len(rows[0])
 	renderer := table.New().
 		Rows(rows...).
 		BorderTop(false).
@@ -99,7 +128,10 @@ func writeTable(writer io.Writer, rows [][]string) error {
 		StyleFunc(func(_ int, column int) lipgloss.Style {
 			style := lipgloss.NewStyle()
 			if column == 0 {
-				return style.PaddingLeft(2).PaddingRight(2)
+				style = style.PaddingLeft(2)
+			}
+			if column < columnCount-1 {
+				style = style.PaddingRight(2)
 			}
 
 			return style
