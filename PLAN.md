@@ -67,7 +67,7 @@ contract.
   store path. Record the proven command/service/store/output pattern in
   `AGENTS.md` as the template for later commands.
 
-- [ ] **Chunk 2 — Lifecycle verbs**
+- [x] **Chunk 2 — Lifecycle verbs**
 
   Deliver `done`, `cancel`, `reopen`, `delete`, and
   `list --status open|done|cancelled|all`. Implement strict transitions with

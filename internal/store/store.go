@@ -112,6 +112,131 @@ func (s *Store) Find(ctx context.Context, id int64) (task.Task, error) {
 	return found, nil
 }
 
+func (s *Store) List(ctx context.Context, status task.ListStatus) ([]task.Task, error) {
+	query := "SELECT " + taskColumns + " FROM tasks"
+	switch status {
+	case task.ListStatusOpen, task.ListStatusDone, task.ListStatusCancelled:
+		query += " WHERE status = ? ORDER BY position, id"
+	case task.ListStatusAll:
+		query += " ORDER BY position, id"
+	default:
+		return nil, task.NewError(task.ErrorInvalidArgument, fmt.Sprintf("invalid list status %q", status), nil)
+	}
+
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if status == task.ListStatusAll {
+		rows, err = s.database.QueryContext(ctx, query)
+	} else {
+		rows, err = s.database.QueryContext(ctx, query, status)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list tasks: %w", err)
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	tasks := make([]task.Task, 0)
+	for rows.Next() {
+		current, scanErr := scanTask(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan listed task: %w", scanErr)
+		}
+		tasks = append(tasks, current)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate listed tasks: %w", err)
+	}
+
+	return tasks, nil
+}
+
+func (s *Store) Done(ctx context.Context, id int64, timestamp string) (task.Task, error) {
+	return s.transition(
+		ctx,
+		id,
+		"complete",
+		`UPDATE tasks
+SET done_at = ?, updated_at = ?
+WHERE id = ? AND done_at IS NULL AND cancelled_at IS NULL
+RETURNING `+taskColumns,
+		timestamp,
+		timestamp,
+		id,
+	)
+}
+
+func (s *Store) Cancel(ctx context.Context, id int64, timestamp string) (task.Task, error) {
+	return s.transition(
+		ctx,
+		id,
+		"cancel",
+		`UPDATE tasks
+SET cancelled_at = ?, updated_at = ?
+WHERE id = ? AND done_at IS NULL AND cancelled_at IS NULL
+RETURNING `+taskColumns,
+		timestamp,
+		timestamp,
+		id,
+	)
+}
+
+func (s *Store) Reopen(ctx context.Context, id int64, timestamp string) (task.Task, error) {
+	return s.transition(
+		ctx,
+		id,
+		"reopen",
+		`UPDATE tasks
+SET done_at = NULL, cancelled_at = NULL, updated_at = ?
+WHERE id = ? AND (done_at IS NOT NULL OR cancelled_at IS NOT NULL)
+RETURNING `+taskColumns,
+		timestamp,
+		id,
+	)
+}
+
+func (s *Store) Delete(ctx context.Context, id int64) (task.Task, error) {
+	row := s.database.QueryRowContext(ctx, "DELETE FROM tasks WHERE id = ? RETURNING "+taskColumns, id)
+	deleted, err := scanTask(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return task.Task{}, task.NewError(task.ErrorNotFound, fmt.Sprintf("no task %d", id), err)
+	}
+	if err != nil {
+		return task.Task{}, fmt.Errorf("delete task: %w", err)
+	}
+
+	return deleted, nil
+}
+
+func (s *Store) transition(
+	ctx context.Context,
+	id int64,
+	action string,
+	query string,
+	arguments ...any,
+) (task.Task, error) {
+	updated, err := scanTask(s.database.QueryRowContext(ctx, query, arguments...))
+	if err == nil {
+		return updated, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return task.Task{}, fmt.Errorf("%s task: %w", action, err)
+	}
+
+	if _, findErr := s.Find(ctx, id); findErr != nil {
+		return task.Task{}, findErr
+	}
+
+	return task.Task{}, task.NewError(
+		task.ErrorConflict,
+		fmt.Sprintf("cannot %s task %d in its current state", action, id),
+		err,
+	)
+}
+
 func ResolvePath(flagValue string) (string, error) {
 	if flagValue != "" {
 		return flagValue, nil

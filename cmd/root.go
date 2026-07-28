@@ -57,7 +57,12 @@ func newRootCommandWithFactory(factory applicationFactory) *cobra.Command {
 	root.PersistentFlags().BoolVar(&options.json, "json", false, "emit JSON output")
 	root.AddCommand(
 		newAddCommand(options, factory),
+		newCancelCommand(options, factory),
+		newDeleteCommand(options, factory),
+		newDoneCommand(options, factory),
 		newInboxCommand(options, factory),
+		newListCommand(options, factory),
+		newReopenCommand(options, factory),
 		newShowCommand(options, factory),
 	)
 
@@ -140,7 +145,7 @@ func jsonModeRequested(args []string) bool {
 		if argument == "--" {
 			break
 		}
-		if argument == "--db" || argument == "--note" {
+		if argument == "--db" || argument == "--note" || argument == "--status" {
 			skipValue = true
 			continue
 		}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -196,7 +197,7 @@ func TestParseError(t *testing.T) {
 	}
 }
 
-func TestCaptureWorkflow(t *testing.T) {
+func TestTaskWorkflow(t *testing.T) {
 	t.Parallel()
 
 	workflowDir, err := os.MkdirTemp(workDir, "capture-")
@@ -237,16 +238,15 @@ func TestCaptureWorkflow(t *testing.T) {
 		t.Errorf("second task = %#v, want ID 2 at position 1", second)
 	}
 
+	third := decodeTask(t, runGSD(t, "add", "third", "--db", databasePath, "--json"))
+	if third.ID != 3 || third.Position != 2 {
+		t.Errorf("third task = %#v, want ID 3 at position 2", third)
+	}
+
 	inboxResult := runGSD(t, "inbox", "--db", databasePath, "--json")
-	if inboxResult.exitCode != 0 || inboxResult.stderr != "" {
-		t.Fatalf("inbox result = %#v, want success", inboxResult)
-	}
-	var inbox []task.Task
-	if err := json.Unmarshal([]byte(inboxResult.stdout), &inbox); err != nil {
-		t.Fatalf("decode inbox: %v", err)
-	}
-	if len(inbox) != 2 || inbox[0].ID != first.ID || inbox[1].ID != second.ID {
-		t.Errorf("inbox = %#v, want both tasks in position order", inbox)
+	inbox := decodeTasks(t, inboxResult)
+	if len(inbox) != 3 || inbox[0].ID != first.ID || inbox[1].ID != second.ID || inbox[2].ID != third.ID {
+		t.Errorf("inbox = %#v, want three tasks in position order", inbox)
 	}
 	if strings.Contains(inboxResult.stdout, "\x1b[") {
 		t.Errorf("inbox JSON = %q, want no terminal control sequences", inboxResult.stdout)
@@ -258,21 +258,54 @@ func TestCaptureWorkflow(t *testing.T) {
 		t.Errorf("shown task = %#v, want %#v", shown, second)
 	}
 
-	missingResult := runGSD(t, "show", "99", "--db", databasePath, "--json")
-	if missingResult.exitCode != 1 || missingResult.stdout != "" {
-		t.Errorf("missing result = %#v, want stderr-only exit 1", missingResult)
+	done := decodeTask(t, runGSD(t, "done", "1", "--db", databasePath, "--json"))
+	if done.Status != "done" || done.DoneAt == nil || done.CancelledAt != nil || done.Position != first.Position {
+		t.Errorf("done task = %#v, want completed first task with preserved position", done)
 	}
-	var envelope struct {
-		Error struct {
-			Code task.ErrorCode `json:"code"`
-		} `json:"error"`
+	cancelled := decodeTask(t, runGSD(t, "cancel", "2", "--db", databasePath, "--json"))
+	if cancelled.Status != "cancelled" || cancelled.CancelledAt == nil || cancelled.DoneAt != nil || cancelled.Position != second.Position {
+		t.Errorf("cancelled task = %#v, want cancelled second task with preserved position", cancelled)
 	}
-	if err := json.Unmarshal([]byte(missingResult.stderr), &envelope); err != nil {
-		t.Fatalf("decode missing error: %v", err)
+
+	remaining := decodeTasks(t, runGSD(t, "inbox", "--db", databasePath, "--json"))
+	if len(remaining) != 1 || remaining[0].ID != third.ID {
+		t.Errorf("remaining inbox = %#v, want only third task", remaining)
 	}
-	if envelope.Error.Code != task.ErrorNotFound {
-		t.Errorf("missing error code = %q, want not_found", envelope.Error.Code)
+	all := decodeTasks(t, runGSD(t, "list", "--status", "all", "--db", databasePath, "--json"))
+	if len(all) != 3 || all[0].Status != "done" || all[1].Status != "cancelled" || all[2].Status != "open" {
+		t.Errorf("all tasks = %#v, want done, cancelled, and open in position order", all)
 	}
+	doneTasks := decodeTasks(t, runGSD(t, "list", "--status", "done", "--db", databasePath, "--json"))
+	if len(doneTasks) != 1 || doneTasks[0].ID != first.ID {
+		t.Errorf("done tasks = %#v, want only first task", doneTasks)
+	}
+
+	reopened := decodeTask(t, runGSD(t, "reopen", "1", "--db", databasePath, "--json"))
+	if reopened.Status != "open" || reopened.DoneAt != nil || reopened.CancelledAt != nil {
+		t.Errorf("reopened task = %#v, want open task", reopened)
+	}
+	redone := decodeTask(t, runGSD(t, "done", "1", "--db", databasePath, "--json"))
+	if redone.Status != "done" || redone.DoneAt == nil {
+		t.Errorf("completed reopened task = %#v, want done task", redone)
+	}
+	repeatedDone := runGSD(t, "done", "1", "--db", databasePath, "--json")
+	assertJSONError(t, repeatedDone, task.ErrorConflict)
+
+	deleted := decodeTask(t, runGSD(t, "delete", "2", "--db", databasePath, "--json"))
+	if !reflect.DeepEqual(deleted, cancelled) {
+		t.Errorf("deleted task = %#v, want snapshot %#v", deleted, cancelled)
+	}
+	assertJSONError(
+		t,
+		runGSD(t, "show", "2", "--db", databasePath, "--json"),
+		task.ErrorNotFound,
+	)
+
+	assertJSONError(
+		t,
+		runGSD(t, "show", "99", "--db", databasePath, "--json"),
+		task.ErrorNotFound,
+	)
 
 	emptyResult := runGSD(t, "inbox", "--db", filepath.Join(workflowDir, "empty.db"))
 	if emptyResult.exitCode != 0 || emptyResult.stdout != "" || emptyResult.stderr != "" {
@@ -308,4 +341,42 @@ func decodeTask(t *testing.T, result processResult) task.Task {
 		t.Fatalf("decode task: %v", err)
 	}
 	return decoded
+}
+
+func decodeTasks(t *testing.T, result processResult) []task.Task {
+	t.Helper()
+	if result.exitCode != 0 || result.stderr != "" {
+		t.Fatalf("command result = %#v, want JSON success", result)
+	}
+	if !strings.HasSuffix(result.stdout, "\n") || strings.Count(result.stdout, "\n") != 1 {
+		t.Fatalf("stdout = %q, want one newline-terminated JSON value", result.stdout)
+	}
+
+	var decoded []task.Task
+	if err := json.Unmarshal([]byte(result.stdout), &decoded); err != nil {
+		t.Fatalf("decode tasks: %v", err)
+	}
+	return decoded
+}
+
+func assertJSONError(t *testing.T, result processResult, wantCode task.ErrorCode) {
+	t.Helper()
+	if result.exitCode != 1 || result.stdout != "" {
+		t.Fatalf("command result = %#v, want stderr-only exit 1", result)
+	}
+	if !strings.HasSuffix(result.stderr, "\n") || strings.Count(result.stderr, "\n") != 1 {
+		t.Fatalf("stderr = %q, want one newline-terminated JSON value", result.stderr)
+	}
+
+	var envelope struct {
+		Error struct {
+			Code task.ErrorCode `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if envelope.Error.Code != wantCode {
+		t.Errorf("error code = %q, want %q", envelope.Error.Code, wantCode)
+	}
 }
