@@ -29,16 +29,15 @@ type recordingRepository struct {
 
 func (r *recordingRepository) Add(
 	_ context.Context,
-	title string,
-	note string,
+	fields AddFields,
 	timestamp string,
 ) (Task, error) {
 	r.addCalls++
-	r.title = title
-	r.note = note
+	r.title = fields.Title
+	r.note = fields.Note
 	r.timestamp = timestamp
 
-	return Task{ID: 1, Title: title, Note: note, CreatedAt: timestamp, UpdatedAt: timestamp}, nil
+	return Task{ID: 1, Title: fields.Title, Note: fields.Note, CreatedAt: timestamp, UpdatedAt: timestamp}, nil
 }
 
 func (*recordingRepository) Inbox(context.Context) ([]Task, error) {
@@ -110,7 +109,7 @@ func TestAddPreservesAcceptedTextAndNormalizesTimestamp(t *testing.T) {
 
 	title := "  Keep surrounding space  "
 	note := "line one\nline two\n"
-	created, err := service.Add(context.Background(), title, note)
+	created, err := service.Add(context.Background(), AddFields{Title: title, Note: note})
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -144,7 +143,7 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 
 			repository := &recordingRepository{}
 			service := NewService(repository)
-			_, err := service.Add(context.Background(), test.title, test.note)
+			_, err := service.Add(context.Background(), AddFields{Title: test.title, Note: test.note})
 			if err == nil {
 				t.Fatal("Add() error = nil, want invalid_argument")
 			}

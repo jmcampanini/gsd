@@ -41,9 +41,9 @@ type fakeApplication struct {
 	mutationID   int64
 }
 
-func (f *fakeApplication) Add(_ context.Context, title, note string) (task.Task, error) {
-	f.addTitle = title
-	f.addNote = note
+func (f *fakeApplication) Add(_ context.Context, fields task.AddFields) (task.Task, error) {
+	f.addTitle = fields.Title
+	f.addNote = fields.Note
 	return f.addResult, f.addError
 }
 
@@ -619,6 +619,7 @@ func TestJSONErrorsUseStableCodesAndStreams(t *testing.T) {
 		application *fakeApplication
 		args        []string
 		wantCode    task.ErrorCode
+		wantMessage string
 		wantExit    int
 	}{
 		{
@@ -628,9 +629,10 @@ func TestJSONErrorsUseStableCodesAndStreams(t *testing.T) {
 				"no task 99",
 				nil,
 			)},
-			args:     []string{"show", "99", "--json"},
-			wantCode: task.ErrorNotFound,
-			wantExit: 1,
+			args:        []string{"show", "99", "--json"},
+			wantCode:    task.ErrorNotFound,
+			wantMessage: "no task 99",
+			wantExit:    1,
 		},
 		{
 			name: "conflict",
@@ -639,15 +641,17 @@ func TestJSONErrorsUseStableCodesAndStreams(t *testing.T) {
 				"task 1 is not open",
 				nil,
 			)},
-			args:     []string{"done", "1", "--json"},
-			wantCode: task.ErrorConflict,
-			wantExit: 1,
+			args:        []string{"done", "1", "--json"},
+			wantCode:    task.ErrorConflict,
+			wantMessage: "task 1 is not open",
+			wantExit:    1,
 		},
 		{
 			name:        "internal",
-			application: &fakeApplication{inboxError: errors.New("private database detail")},
+			application: &fakeApplication{inboxError: errors.New("open database: permission denied")},
 			args:        []string{"inbox", "--json"},
 			wantCode:    task.ErrorInternal,
+			wantMessage: "open database: permission denied",
 			wantExit:    1,
 		},
 	}
@@ -670,8 +674,8 @@ func TestJSONErrorsUseStableCodesAndStreams(t *testing.T) {
 			if envelope.Error.Code != test.wantCode {
 				t.Errorf("error code = %q, want %q", envelope.Error.Code, test.wantCode)
 			}
-			if strings.Contains(result.stderr, "private database detail") {
-				t.Errorf("stderr = %q, want internal detail hidden", result.stderr)
+			if envelope.Error.Message != test.wantMessage {
+				t.Errorf("error message = %q, want diagnostic %q", envelope.Error.Message, test.wantMessage)
 			}
 		})
 	}
@@ -711,22 +715,35 @@ func TestInvalidIDIsApplicationErrorWithoutOpeningDatabase(t *testing.T) {
 	}
 }
 
-func TestUsageErrorUsesJSONWhenRequested(t *testing.T) {
+func TestUsageErrorsAreHumanReadableEvenWithJSON(t *testing.T) {
 	t.Parallel()
 
-	result := runCommand(t, &fakeApplication{}, "--unknown", "--json")
-	if result.exitCode != 2 {
-		t.Errorf("exit code = %d, want 2", result.exitCode)
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "json unparsed", args: []string{"--unknown", "--json"}},
+		{name: "json parsed", args: []string{"--json", "--unknown"}},
 	}
-	if result.stdout != "" {
-		t.Errorf("stdout = %q, want empty", result.stdout)
-	}
-	var envelope errorEnvelope
-	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
-		t.Fatalf("decode stderr: %v", err)
-	}
-	if envelope.Error.Code != task.ErrorUsage {
-		t.Errorf("error code = %q, want usage", envelope.Error.Code)
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := runCommand(t, &fakeApplication{}, test.args...)
+			if result.exitCode != 2 {
+				t.Errorf("exit code = %d, want 2", result.exitCode)
+			}
+			if result.stdout != "" {
+				t.Errorf("stdout = %q, want empty", result.stdout)
+			}
+			if strings.HasPrefix(result.stderr, "{") {
+				t.Errorf("stderr = %q, want human-readable diagnostic, not JSON", result.stderr)
+			}
+			if !strings.Contains(result.stderr, "unknown flag: --unknown") {
+				t.Errorf("stderr = %q, want parse diagnostic", result.stderr)
+			}
+		})
 	}
 }
 

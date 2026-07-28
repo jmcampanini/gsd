@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -34,21 +33,11 @@ func writeJSON(writer io.Writer, value any) error {
 }
 
 func writeCommandError(writer io.Writer, jsonMode bool, err error) error {
-	code, ok := task.ErrorCodeOf(err)
-	if !ok {
-		code = task.ErrorUsage
-	}
-	if jsonMode {
+	if code, ok := task.ErrorCodeOf(err); ok && jsonMode {
 		return writeJSON(writer, errorEnvelope{Error: errorPayload{Code: code, Message: err.Error()}})
 	}
 
-	visibleError := err
-	if code == task.ErrorInternal {
-		if cause := errors.Unwrap(err); cause != nil {
-			visibleError = cause
-		}
-	}
-	_, writeErr := fmt.Fprintf(writer, "Error: %v\n", visibleError)
+	_, writeErr := fmt.Fprintf(writer, "Error: %v\n", err)
 	return writeErr
 }
 

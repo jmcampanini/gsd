@@ -15,6 +15,11 @@ semantics: containment, re-parenting, RESTRICT deletes.
 - `tasks` gains `project_id REFERENCES projects(id) ON DELETE RESTRICT`.
   (The containment CHECK needs both container columns, so it arrives with
   `area_id` in Milestone 4.)
+- Task insertion's `MAX(position)` append becomes scoped to the destination
+  container per `SCHEMA.md` — the Milestone 1 whole-table MAX would still
+  *look* correct (globally largest = largest in-container), so tests won't
+  catch a missed scoping; the predicate must match containment here and
+  extend with `area_id` in Milestone 4.
 - `inbox` view gains `project_id IS NULL`; `available` gains the
   project-open clause and `project_title` enrichment.
 - `logbook` view + command: `kind` discriminator, common column set,

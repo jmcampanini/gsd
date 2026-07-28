@@ -4,8 +4,6 @@ import (
 	"context"
 	"io"
 	"os"
-	"strconv"
-	"strings"
 
 	"github.com/jmcampanini/gsd/internal/store"
 	"github.com/jmcampanini/gsd/internal/task"
@@ -28,7 +26,8 @@ func Execute() int {
 func execute(root *cobra.Command, args []string) int {
 	root.SetArgs(args)
 	if err := root.Execute(); err != nil {
-		_ = writeCommandError(root.ErrOrStderr(), jsonModeForError(root, args, err), err)
+		jsonMode, _ := root.PersistentFlags().GetBool("json")
+		_ = writeCommandError(root.ErrOrStderr(), jsonMode, err)
 		return exitCodeForError(err)
 	}
 
@@ -112,57 +111,16 @@ func normalizeApplicationError(err error) error {
 		return err
 	}
 
-	return task.NewError(task.ErrorInternal, "internal error", err)
+	return task.NewError(task.ErrorInternal, err.Error(), err)
 }
 
 func exitCodeForError(err error) int {
 	if err == nil {
 		return 0
 	}
-	if code, ok := task.ErrorCodeOf(err); ok && code != task.ErrorUsage {
+	if _, ok := task.ErrorCodeOf(err); ok {
 		return 1
 	}
 
 	return 2
-}
-
-func jsonModeForError(root *cobra.Command, args []string, err error) bool {
-	if _, applicationError := task.ErrorCodeOf(err); applicationError {
-		enabled, _ := root.PersistentFlags().GetBool("json")
-		return enabled
-	}
-
-	return jsonModeRequested(args)
-}
-
-func jsonModeRequested(args []string) bool {
-	enabled := false
-	skipValue := false
-	for _, argument := range args {
-		if skipValue {
-			skipValue = false
-			continue
-		}
-		if argument == "--" {
-			break
-		}
-		if argument == "--db" || argument == "--note" || argument == "--status" || argument == "--title" {
-			skipValue = true
-			continue
-		}
-		if argument == "--json" {
-			enabled = true
-			continue
-		}
-		value, found := strings.CutPrefix(argument, "--json=")
-		if !found {
-			continue
-		}
-		parsed, parseErr := strconv.ParseBool(value)
-		if parseErr == nil {
-			enabled = parsed
-		}
-	}
-
-	return enabled
 }

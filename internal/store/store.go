@@ -60,14 +60,14 @@ func (s *Store) Close() error {
 	return s.database.Close()
 }
 
-func (s *Store) Add(ctx context.Context, title, note, timestamp string) (task.Task, error) {
+func (s *Store) Add(ctx context.Context, fields task.AddFields, timestamp string) (task.Task, error) {
 	query := `
 INSERT INTO tasks (title, note, position, created_at, updated_at)
 SELECT ?, ?, COALESCE(MAX(position), -1) + 1, ?, ?
 FROM tasks
 RETURNING ` + taskColumns
 
-	row := s.database.QueryRowContext(ctx, query, title, note, timestamp, timestamp)
+	row := s.database.QueryRowContext(ctx, query, fields.Title, fields.Note, timestamp, timestamp)
 	created, err := scanTask(row)
 	if err != nil {
 		return task.Task{}, fmt.Errorf("insert task: %w", err)
@@ -121,7 +121,7 @@ func (s *Store) List(ctx context.Context, status task.ListStatus) ([]task.Task, 
 	case task.ListStatusAll:
 		query += " ORDER BY position, id"
 	default:
-		return nil, task.NewError(task.ErrorInvalidArgument, fmt.Sprintf("invalid list status %q", status), nil)
+		return nil, fmt.Errorf("invalid list status %q", status)
 	}
 
 	var (
@@ -172,7 +172,7 @@ func (s *Store) Edit(
 		arguments = append(arguments, *fields.Note)
 	}
 	if len(assignments) == 0 {
-		return task.Task{}, task.NewError(task.ErrorInvalidArgument, "edit requires at least one field", nil)
+		return task.Task{}, errors.New("edit requires at least one field")
 	}
 
 	assignments = append(assignments, "updated_at = ?")

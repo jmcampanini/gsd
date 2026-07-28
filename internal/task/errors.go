@@ -8,7 +8,6 @@ const (
 	ErrorNotFound        ErrorCode = "not_found"
 	ErrorInvalidArgument ErrorCode = "invalid_argument"
 	ErrorConflict        ErrorCode = "conflict"
-	ErrorUsage           ErrorCode = "usage"
 	ErrorInternal        ErrorCode = "internal"
 )
 

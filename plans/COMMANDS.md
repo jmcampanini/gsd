@@ -149,16 +149,24 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
   row so agents can capture its ID without another call.
 - **Cascades report what they touched**:
   `{"project":{...},"cancelled_tasks":[{...},...]}`.
-- **Every JSON-mode error is structured, on stderr**:
+- **Collections are position-ordered**: `inbox` and `list` return rows
+  ordered by `position`, then `id`, for every status filter, in both output
+  modes.
+- **Every JSON-mode application error is structured, on stderr**:
   `{"error":{"code":"not_found","message":"no task 42"}}`. Initial stable
-  codes are `not_found`, `invalid_argument`, `conflict`, `usage`, and
-  `internal`. Default mode keeps human-readable stderr diagnostics.
+  codes are `not_found`, `invalid_argument`, `conflict`, and `internal`;
+  `internal` messages carry the underlying diagnostic. Command grammar and
+  flag failures stay human-readable on stderr even under `--json` — exit
+  code `2` is their machine signal. Default mode keeps human-readable
+  stderr diagnostics for every error.
 - **Exit codes stay coarse**: `0` success, `1` application error, `2` usage
   error. Fine distinctions live in the JSON error code.
 - Human collections are headerless aligned tables, `show` is a field/value
   table, mutations use concise action-prefixed payloads, and empty collections
   print nothing. Human tables are unstyled until color support arrives in
   Milestone 6.
+- Human output escapes ASCII control characters (`show` preserves note line
+  breaks) so stored text cannot inject terminal control sequences.
 
 ## Database
 
