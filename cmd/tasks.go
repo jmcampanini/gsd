@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"fmt"
+	"io"
 
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/spf13/cobra"
@@ -14,8 +16,13 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 		Short: "Add a task to the inbox",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
+			resolvedNote, err := resolveNote(command, note)
+			if err != nil {
+				return err
+			}
+
 			return withApplication(command, options, factory, func(application task.Application) error {
-				created, err := application.Add(command.Context(), args[0], note)
+				created, err := application.Add(command.Context(), args[0], resolvedNote)
 				if err != nil {
 					return err
 				}
@@ -27,7 +34,7 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 			})
 		},
 	}
-	command.Flags().StringVar(&note, "note", "", "task note")
+	command.Flags().StringVar(&note, "note", "", "task note or - to read stdin")
 
 	return command
 }
@@ -77,6 +84,50 @@ func newShowCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 			})
 		},
 	}
+}
+
+func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	var title string
+	var note string
+	command := &cobra.Command{
+		Use:   "edit ID",
+		Short: "Edit a task",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			id, err := task.ParseID(args[0])
+			if err != nil {
+				return err
+			}
+
+			fields := task.EditFields{}
+			if command.Flags().Changed("title") {
+				fields.Title = &title
+			}
+			if command.Flags().Changed("note") {
+				resolvedNote, resolveErr := resolveNote(command, note)
+				if resolveErr != nil {
+					return resolveErr
+				}
+				fields.Note = &resolvedNote
+			}
+
+			return withApplication(command, options, factory, func(application task.Application) error {
+				edited, editErr := application.Edit(command.Context(), id, fields)
+				if editErr != nil {
+					return editErr
+				}
+				if options.json {
+					return writeJSON(command.OutOrStdout(), edited)
+				}
+
+				return writeTaskMutation(command.OutOrStdout(), "Edited", edited)
+			})
+		},
+	}
+	command.Flags().StringVar(&title, "title", "", "task title")
+	command.Flags().StringVar(&note, "note", "", "task note or - to read stdin")
+
+	return command
 }
 
 func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
@@ -159,6 +210,23 @@ func newDeleteCommand(options *rootOptions, factory applicationFactory) *cobra.C
 			return application.Delete(ctx, id)
 		},
 	)
+}
+
+func resolveNote(command *cobra.Command, value string) (string, error) {
+	if value != "-" {
+		return value, nil
+	}
+
+	contents, err := io.ReadAll(command.InOrStdin())
+	if err != nil {
+		return "", task.NewError(
+			task.ErrorInternal,
+			"internal error",
+			fmt.Errorf("read task note: %w", err),
+		)
+	}
+
+	return string(contents), nil
 }
 
 type taskMutation func(context.Context, task.Application, int64) (task.Task, error)

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jmcampanini/gsd/internal/task"
 	_ "modernc.org/sqlite"
@@ -152,6 +153,40 @@ func (s *Store) List(ctx context.Context, status task.ListStatus) ([]task.Task, 
 	}
 
 	return tasks, nil
+}
+
+func (s *Store) Edit(
+	ctx context.Context,
+	id int64,
+	fields task.EditFields,
+	timestamp string,
+) (task.Task, error) {
+	assignments := make([]string, 0, 3)
+	arguments := make([]any, 0, 4)
+	if fields.Title != nil {
+		assignments = append(assignments, "title = ?")
+		arguments = append(arguments, *fields.Title)
+	}
+	if fields.Note != nil {
+		assignments = append(assignments, "note = ?")
+		arguments = append(arguments, *fields.Note)
+	}
+	if len(assignments) == 0 {
+		return task.Task{}, task.NewError(task.ErrorInvalidArgument, "edit requires at least one field", nil)
+	}
+
+	assignments = append(assignments, "updated_at = ?")
+	arguments = append(arguments, timestamp, id)
+	query := "UPDATE tasks SET " + strings.Join(assignments, ", ") + " WHERE id = ? RETURNING " + taskColumns
+	edited, err := scanTask(s.database.QueryRowContext(ctx, query, arguments...))
+	if errors.Is(err, sql.ErrNoRows) {
+		return task.Task{}, task.NewError(task.ErrorNotFound, fmt.Sprintf("no task %d", id), err)
+	}
+	if err != nil {
+		return task.Task{}, fmt.Errorf("edit task: %w", err)
+	}
+
+	return edited, nil
 }
 
 func (s *Store) Done(ctx context.Context, id int64, timestamp string) (task.Task, error) {

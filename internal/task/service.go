@@ -65,6 +65,25 @@ func (s *Service) List(ctx context.Context, status ListStatus) ([]Task, error) {
 	return tasks, nil
 }
 
+func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, error) {
+	if err := validateID(id); err != nil {
+		return Task{}, err
+	}
+	if fields.Title == nil && fields.Note == nil {
+		return Task{}, NewError(ErrorInvalidArgument, "edit requires --title or --note", nil)
+	}
+	if fields.Title != nil {
+		if err := validateTitle(*fields.Title); err != nil {
+			return Task{}, err
+		}
+	}
+	if fields.Note != nil && !utf8.ValidString(*fields.Note) {
+		return Task{}, NewError(ErrorInvalidArgument, "note must be valid UTF-8", nil)
+	}
+
+	return s.repository.Edit(ctx, id, fields, formatTimestamp(s.now()))
+}
+
 func (s *Service) Done(ctx context.Context, id int64) (Task, error) {
 	if err := validateID(id); err != nil {
 		return Task{}, err

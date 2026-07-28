@@ -21,6 +21,8 @@ type fakeApplication struct {
 	listError    error
 	showResult   task.Task
 	showError    error
+	editResult   task.Task
+	editError    error
 	doneResult   task.Task
 	doneError    error
 	cancelResult task.Task
@@ -33,6 +35,8 @@ type fakeApplication struct {
 	addNote      string
 	listStatus   task.ListStatus
 	showID       int64
+	editID       int64
+	editFields   task.EditFields
 	mutation     string
 	mutationID   int64
 }
@@ -55,6 +59,16 @@ func (f *fakeApplication) List(_ context.Context, status task.ListStatus) ([]tas
 func (f *fakeApplication) Show(_ context.Context, id int64) (task.Task, error) {
 	f.showID = id
 	return f.showResult, f.showError
+}
+
+func (f *fakeApplication) Edit(
+	_ context.Context,
+	id int64,
+	fields task.EditFields,
+) (task.Task, error) {
+	f.editID = id
+	f.editFields = fields
+	return f.editResult, f.editError
 }
 
 func (f *fakeApplication) Done(_ context.Context, id int64) (task.Task, error) {
@@ -92,6 +106,16 @@ type commandResult struct {
 
 func runCommand(t *testing.T, application task.Application, args ...string) commandResult {
 	t.Helper()
+	return runCommandWithInput(t, application, strings.NewReader(""), args...)
+}
+
+func runCommandWithInput(
+	t *testing.T,
+	application task.Application,
+	input io.Reader,
+	args ...string,
+) commandResult {
+	t.Helper()
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -102,6 +126,7 @@ func runCommand(t *testing.T, application task.Application, args ...string) comm
 		return application, closeRecorder{close: func() { result.closes++ }}, nil
 	}
 	root := newRootCommandWithFactory(factory)
+	root.SetIn(input)
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
 	result.exitCode = execute(root, args)
@@ -113,6 +138,12 @@ func runCommand(t *testing.T, application task.Application, args ...string) comm
 
 type closeRecorder struct {
 	close func()
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) {
+	return 0, errors.New("stdin failed")
 }
 
 func (c closeRecorder) Close() error {
@@ -214,6 +245,119 @@ func TestJSONCommandOutput(t *testing.T) {
 	}
 	if result.openPath != "chosen.db" || result.opens != 1 || result.closes != 1 {
 		t.Errorf("factory lifecycle = %#v, want chosen path and one open/close", result)
+	}
+}
+
+func TestAddAndEditReadNotesFromStdinExactly(t *testing.T) {
+	t.Parallel()
+
+	note := "line one\nline two\n"
+	addApplication := &fakeApplication{addResult: task.Task{ID: 1, Title: "capture", Note: note}}
+	addResult := runCommandWithInput(
+		t,
+		addApplication,
+		strings.NewReader(note),
+		"add",
+		"capture",
+		"--note",
+		"-",
+		"--json",
+	)
+	if addResult.exitCode != 0 || addResult.stderr != "" {
+		t.Fatalf("add result = %#v, want success", addResult)
+	}
+	if addApplication.addNote != note {
+		t.Errorf("Add() note = %q, want exact stdin %q", addApplication.addNote, note)
+	}
+
+	editApplication := &fakeApplication{editResult: task.Task{ID: 7, Title: "capture", Note: note}}
+	editResult := runCommandWithInput(
+		t,
+		editApplication,
+		strings.NewReader(note),
+		"edit",
+		"7",
+		"--note",
+		"-",
+		"--json",
+	)
+	if editResult.exitCode != 0 || editResult.stderr != "" {
+		t.Fatalf("edit result = %#v, want success", editResult)
+	}
+	if editApplication.editID != 7 || editApplication.editFields.Title != nil {
+		t.Errorf("Edit() ID/title = %d/%#v, want 7/omitted", editApplication.editID, editApplication.editFields.Title)
+	}
+	if editApplication.editFields.Note == nil || *editApplication.editFields.Note != note {
+		t.Errorf("Edit() note = %#v, want exact stdin %q", editApplication.editFields.Note, note)
+	}
+}
+
+func TestNoteStdinReadFailureIsInternalWithoutOpeningApplication(t *testing.T) {
+	t.Parallel()
+
+	result := runCommandWithInput(
+		t,
+		&fakeApplication{},
+		failingReader{},
+		"add",
+		"capture",
+		"--note",
+		"-",
+		"--json",
+	)
+	if result.exitCode != 1 || result.stdout != "" || result.opens != 0 {
+		t.Errorf("result = %#v, want stderr-only internal error without application open", result)
+	}
+	var envelope errorEnvelope
+	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if envelope.Error.Code != task.ErrorInternal {
+		t.Errorf("error code = %q, want internal", envelope.Error.Code)
+	}
+}
+
+func TestEditAdaptsFieldsAndHumanOutput(t *testing.T) {
+	t.Parallel()
+
+	edited := task.Task{ID: 7, Title: "  revised  ", Status: "open"}
+	application := &fakeApplication{editResult: edited}
+	result := runCommand(t, application, "edit", "7", "--title", "  revised  ", "--note", "")
+	if result.exitCode != 0 || result.stderr != "" {
+		t.Fatalf("result = %#v, want success", result)
+	}
+	if result.stdout != "Edited: 7    revised  \n" {
+		t.Errorf("stdout = %q, want edited task", result.stdout)
+	}
+	if application.editFields.Title == nil || *application.editFields.Title != "  revised  " {
+		t.Errorf("Edit() title = %#v, want exact requested title", application.editFields.Title)
+	}
+	if application.editFields.Note == nil || *application.editFields.Note != "" {
+		t.Errorf("Edit() note = %#v, want explicit empty string", application.editFields.Note)
+	}
+}
+
+func TestEditWithoutFieldsReturnsApplicationError(t *testing.T) {
+	t.Parallel()
+
+	application := &fakeApplication{editError: task.NewError(
+		task.ErrorInvalidArgument,
+		"edit requires --title or --note",
+		nil,
+	)}
+	result := runCommand(t, application, "edit", "7", "--json")
+	if result.exitCode != 1 || result.stdout != "" || result.opens != 1 || result.closes != 1 {
+		t.Errorf("result = %#v, want stderr-only invalid_argument with one application lifecycle", result)
+	}
+	if application.editFields.Title != nil || application.editFields.Note != nil {
+		t.Errorf("Edit() fields = %#v, want both omitted", application.editFields)
+	}
+	var envelope errorEnvelope
+	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if envelope.Error.Code != task.ErrorInvalidArgument {
+		t.Errorf("error code = %q, want invalid_argument", envelope.Error.Code)
 	}
 }
 
@@ -374,6 +518,36 @@ func TestHumanOutputUsesPlainTables(t *testing.T) {
 	}
 	if !strings.Contains(result.stdout, "1") || !strings.Contains(result.stdout, "twenty") {
 		t.Errorf("stdout = %q, want task rows", result.stdout)
+	}
+	if strings.Contains(result.stdout, "\x1b[") {
+		t.Errorf("stdout = %q, want no ANSI sequences", result.stdout)
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n") {
+		if strings.HasSuffix(line, " ") {
+			t.Errorf("stdout line = %q, want no trailing spaces", line)
+		}
+	}
+}
+
+func TestHumanShowUsesPlainFieldValueTableForMultilineNotes(t *testing.T) {
+	t.Parallel()
+
+	result := runCommand(t, &fakeApplication{showResult: task.Task{
+		ID:        7,
+		Title:     "capture",
+		Note:      "first line\nsecond line\n",
+		Status:    "open",
+		Position:  2,
+		CreatedAt: "2026-07-27T12:00:00.000Z",
+		UpdatedAt: "2026-07-27T13:00:00.000Z",
+	}}, "show", "7")
+	if result.exitCode != 0 || result.stderr != "" {
+		t.Fatalf("result = %#v, want success", result)
+	}
+	for _, value := range []string{"ID", "Title", "Note", "first line", "second line", "Status", "Created at", "Updated at"} {
+		if !strings.Contains(result.stdout, value) {
+			t.Errorf("stdout = %q, want %q", result.stdout, value)
+		}
 	}
 	if strings.Contains(result.stdout, "\x1b[") {
 		t.Errorf("stdout = %q, want no ANSI sequences", result.stdout)

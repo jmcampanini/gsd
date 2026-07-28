@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/jmcampanini/gsd/internal/task"
+	_ "modernc.org/sqlite"
 )
 
 var (
@@ -79,15 +81,31 @@ type processResult struct {
 
 func runGSD(t *testing.T, args ...string) processResult {
 	t.Helper()
-	return runGSDWithEnv(t, nil, args...)
+	return runGSDProcess(t, nil, "", args...)
 }
 
 func runGSDWithEnv(t *testing.T, environment map[string]string, args ...string) processResult {
+	t.Helper()
+	return runGSDProcess(t, environment, "", args...)
+}
+
+func runGSDWithInput(t *testing.T, input string, args ...string) processResult {
+	t.Helper()
+	return runGSDProcess(t, nil, input, args...)
+}
+
+func runGSDProcess(
+	t *testing.T,
+	environment map[string]string,
+	input string,
+	args ...string,
+) processResult {
 	t.Helper()
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	command := exec.Command(binaryPath, args...)
+	command.Stdin = strings.NewReader(input)
 	command.Stdout = &stdout
 	command.Stderr = &stderr
 	command.Env = filteredEnvironment(environment)
@@ -291,6 +309,33 @@ func TestTaskWorkflow(t *testing.T) {
 	repeatedDone := runGSD(t, "done", "1", "--db", databasePath, "--json")
 	assertJSONError(t, repeatedDone, task.ErrorConflict)
 
+	editedNote := "line one\nline two\n"
+	edited := decodeTask(t, runGSDWithInput(
+		t,
+		editedNote,
+		"edit",
+		"3",
+		"--title",
+		"  revised third  ",
+		"--note",
+		"-",
+		"--db",
+		databasePath,
+		"--json",
+	))
+	if edited.Title != "  revised third  " || edited.Note != editedNote {
+		t.Errorf("edited task = %#v, want exact title and note", edited)
+	}
+	shownEdited := decodeTask(t, runGSD(t, "show", "3", "--db", databasePath, "--json"))
+	if !reflect.DeepEqual(shownEdited, edited) {
+		t.Errorf("shown edited task = %#v, want %#v", shownEdited, edited)
+	}
+	assertJSONError(
+		t,
+		runGSD(t, "edit", "3", "--db", databasePath, "--json"),
+		task.ErrorInvalidArgument,
+	)
+
 	deleted := decodeTask(t, runGSD(t, "delete", "2", "--db", databasePath, "--json"))
 	if !reflect.DeepEqual(deleted, cancelled) {
 		t.Errorf("deleted task = %#v, want snapshot %#v", deleted, cancelled)
@@ -325,6 +370,24 @@ func TestTaskWorkflow(t *testing.T) {
 			t.Errorf("informational command %v = %#v, want success without database open", args, result)
 		}
 	}
+
+	wrongRevisionPath := filepath.Join(workflowDir, "wrong-revision.db")
+	wrongRevisionDatabase, err := sql.Open("sqlite", wrongRevisionPath)
+	if err != nil {
+		t.Fatalf("open wrong-revision database: %v", err)
+	}
+	if _, err := wrongRevisionDatabase.Exec("PRAGMA user_version = 42"); err != nil {
+		_ = wrongRevisionDatabase.Close()
+		t.Fatalf("set wrong database revision: %v", err)
+	}
+	if err := wrongRevisionDatabase.Close(); err != nil {
+		t.Fatalf("close wrong-revision database: %v", err)
+	}
+	assertJSONError(
+		t,
+		runGSD(t, "inbox", "--db", wrongRevisionPath, "--json"),
+		task.ErrorConflict,
+	)
 }
 
 func decodeTask(t *testing.T, result processResult) task.Task {
