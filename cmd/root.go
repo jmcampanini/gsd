@@ -1,31 +1,33 @@
 package cmd
 
 import (
-	"errors"
-	"fmt"
+	"context"
+	"io"
+	"os"
 
+	"github.com/jmcampanini/gsd/internal/store"
+	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/spf13/cobra"
 )
 
 var Version = "dev"
 
-type errorCategory uint8
-
-const (
-	errorCategoryNone errorCategory = iota
-	errorCategoryApplication
-	errorCategoryUsage
-)
-
-type categorizedError interface {
-	error
-	exitCategory() errorCategory
+type rootOptions struct {
+	databasePath string
+	json         bool
 }
 
+type applicationFactory func(context.Context, string) (task.Application, io.Closer, error)
+
 func Execute() int {
-	root := newRootCommand()
+	return execute(newRootCommand(), os.Args[1:])
+}
+
+func execute(root *cobra.Command, args []string) int {
+	root.SetArgs(args)
 	if err := root.Execute(); err != nil {
-		_, _ = fmt.Fprintf(root.ErrOrStderr(), "Error: %v\n", err)
+		jsonMode, _ := root.PersistentFlags().GetBool("json")
+		_ = writeCommandError(root.ErrOrStderr(), jsonMode, err)
 		return exitCodeForError(err)
 	}
 
@@ -33,6 +35,11 @@ func Execute() int {
 }
 
 func newRootCommand() *cobra.Command {
+	return newRootCommandWithFactory(defaultApplicationFactory)
+}
+
+func newRootCommandWithFactory(factory applicationFactory) *cobra.Command {
+	options := &rootOptions{}
 	root := &cobra.Command{
 		Use:           "gsd",
 		Short:         "Get shit done",
@@ -45,31 +52,75 @@ func newRootCommand() *cobra.Command {
 		},
 	}
 
+	root.PersistentFlags().StringVar(&options.databasePath, "db", "", "path to the SQLite database")
+	root.PersistentFlags().BoolVar(&options.json, "json", false, "emit JSON output")
+	root.AddCommand(
+		newAddCommand(options, factory),
+		newCancelCommand(options, factory),
+		newDeleteCommand(options, factory),
+		newDoneCommand(options, factory),
+		newEditCommand(options, factory),
+		newInboxCommand(options, factory),
+		newListCommand(options, factory),
+		newReopenCommand(options, factory),
+		newShowCommand(options, factory),
+	)
+
 	return root
 }
 
-func exitCodeForError(err error) int {
-	switch classifyError(err) {
-	case errorCategoryNone:
-		return 0
-	case errorCategoryApplication:
-		return 1
-	case errorCategoryUsage:
-		return 2
-	default:
-		return 2
+func defaultApplicationFactory(
+	ctx context.Context,
+	requestedPath string,
+) (task.Application, io.Closer, error) {
+	path, err := store.ResolvePath(requestedPath)
+	if err != nil {
+		return nil, nil, err
 	}
+
+	database, err := store.Open(ctx, path)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return task.NewService(database), database, nil
 }
 
-func classifyError(err error) errorCategory {
+func withApplication(
+	command *cobra.Command,
+	options *rootOptions,
+	factory applicationFactory,
+	run func(task.Application) error,
+) error {
+	application, closer, err := factory(command.Context(), options.databasePath)
+	if err != nil {
+		return normalizeApplicationError(err)
+	}
+	defer func() {
+		_ = closer.Close()
+	}()
+
+	return normalizeApplicationError(run(application))
+}
+
+func normalizeApplicationError(err error) error {
 	if err == nil {
-		return errorCategoryNone
+		return nil
+	}
+	if _, ok := task.ErrorCodeOf(err); ok {
+		return err
 	}
 
-	var categorized categorizedError
-	if errors.As(err, &categorized) && categorized.exitCategory() == errorCategoryApplication {
-		return errorCategoryApplication
+	return task.NewError(task.ErrorInternal, err.Error(), err)
+}
+
+func exitCodeForError(err error) int {
+	if err == nil {
+		return 0
+	}
+	if _, ok := task.ErrorCodeOf(err); ok {
+		return 1
 	}
 
-	return errorCategoryUsage
+	return 2
 }
