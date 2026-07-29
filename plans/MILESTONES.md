@@ -2,13 +2,15 @@
 
 gsd is built as vertical slices. Every active milestone ends with working,
 demonstrable capability, never a horizontal layer. The canonical product
-specification lives in `OVERVIEW.md`, `COMMANDS.md`, and `SCHEMA.md`; active
-milestone files define scope, chunks, user stories, and an agent-verified
-end-to-end workflow.
+specification lives in `OVERVIEW.md`, `COMMANDS.md`, and `SCHEMA.md`. An active
+milestone file defines the authoritative outcomes and acceptance boundary; any
+implementation details or chunks it contains are suggestive. Root `PLAN.md` is
+the authoritative implementation and verification plan for the active
+milestone.
 
 [`PROCESS.md`](PROCESS.md) is the canonical contract for planning, branch
-ancestry, chunk pull requests, review and verification gates, consolidation,
-plan retirement, and landing a milestone in `main`.
+ancestry, chunk design, pull requests, review and verification gates,
+consolidation, plan retirement, and landing a milestone in `main`.
 
 ## Completed
 

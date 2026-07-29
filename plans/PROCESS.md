@@ -1,8 +1,13 @@
 # Development Process
 
 This is the canonical contract for taking a gsd milestone from plan to
-`main`. Milestone files are temporary execution plans; `OVERVIEW.md`,
-`COMMANDS.md`, and `SCHEMA.md` are the canonical product specifications.
+`main`. `OVERVIEW.md`, `COMMANDS.md`, and `SCHEMA.md` are the canonical product
+specifications. An active milestone file in `plans/` is authoritative for the
+outcomes and acceptance boundary of that milestone; any implementation detail
+or chunking it contains is suggestive. Root `PLAN.md` is the authoritative
+implementation plan: it defines how the active milestone will be delivered and
+verified. Both planning artifacts are temporary and are retired when the
+milestone is consolidated.
 
 ## Branch roles and ancestry
 
@@ -20,24 +25,61 @@ Branch names may follow the repository's current convention; the roles,
 ancestry, and pull-request targets above are the contract, not exact name
 strings.
 
+## Chunk design
+
+Every milestone has multiple chunks, recorded in root `PLAN.md` in dependency
+order. Chunks are vertical slices through the implementation, not consecutive
+storage, service, and presentation layers. Prefer every chunk to add a
+capability a human can exercise through the product's interaction surface.
+When isolated review work is necessary, an individual chunk may omit a new
+human-facing capability, but two such chunks may never be consecutive.
+
+Each root plan begins with a progress checklist containing one unchecked item
+per chunk. Each chunk states the human outcome it delivers, or why it is
+review-only, then records its implementation and verification work as
+unchecked task-list items. Those items cover:
+
+- its implementation boundary and dependencies;
+- the primary test owner for each behavior and the cheapest faithful
+  verification;
+- a human proof for any new interaction; and
+- the agent verification required before review.
+
+Update these checkboxes as work is completed. Check a chunk in the progress
+list only after all of its implementation and verification items are checked
+and its human proof and local `make check` pass. Pull-request, CI, review, and
+merge state remain governed by the workflow below rather than being implied by
+the plan checkbox.
+
+A human proof demonstrates the built product from its real interaction surface;
+it does not replace automated tests, `make check`, code review, or the final
+milestone acceptance workflow. Chunk boundaries should optimize for coherent
+human review without withholding working behavior merely to keep architectural
+layers separate.
+
 ## Milestone workflow
 
-1. **Plan the milestone.** Review and update its milestone file before writing
-   implementation code. Define a demonstrable capability, reviewable chunks,
-   test ownership, user stories, and an agent-verified end-to-end workflow.
-   One chunk must be small enough for meaningful human review.
+1. **Plan the milestone.** Review its milestone file to settle the authoritative
+   outcomes and acceptance boundary, then create root `PLAN.md` before writing
+   implementation code. Translate the milestone into reviewable vertical
+   chunks, architecture and dependency decisions, test ownership, per-chunk
+   human proofs, and an agent-verified end-to-end workflow. Review and approve
+   `PLAN.md`; if implementation strategy changes later, update it before the
+   affected work proceeds. Milestone implementation notes remain inputs, not
+   constraints on the root plan.
 2. **Create the milestone branch.** Branch from the current `main` tip. This is
    the integration line for the milestone.
 3. **Deliver each chunk in sequence.** For each planned chunk:
    1. branch from the current milestone-branch tip;
    2. implement the chunk and its cheapest faithful verification;
-   3. run `make check` locally;
-   4. open a pull request targeting the milestone branch and require green CI;
-   5. have Javier code-review it, codify any lasting review guardrail, and
+   3. build the real product and run the chunk's human proof when it has one;
+   4. run `make check` locally;
+   5. open a pull request targeting the milestone branch and require green CI;
+   6. have Javier code-review it, codify any lasting review guardrail, and
       squash-merge it; then
-   6. start the next chunk from the resulting milestone-branch tip.
+   7. start the next chunk from the resulting milestone-branch tip.
 4. **Review the complete milestone end to end.** After every chunk is merged,
-   run the real built binary through the milestone's documented workflow and
+   run the real built binary through root `PLAN.md`'s documented workflow and
    retain a clean transcript. The equivalent durable subprocess coverage
    belongs in `e2e/` and runs inside `make check`. Javier then performs the
    milestone's user-story demo; the agent workflow does not replace that human
@@ -69,10 +111,11 @@ baseline:
 - Codify review findings that must hold in future work in `AGENTS.md`, lint or
   build configuration, or tests. Do not leave permanent guardrails only in
   review comments or memory.
-- Update the roadmap and all links, then retire the completed milestone plan.
-  **Plan deletion is permanent:** completed execution plans are deleted, not
-  archived, and must not remain as an alternative description of shipped
-  behavior. Git history retains the implementation record.
+- Update the roadmap and all links, then retire both the completed milestone
+  file and root `PLAN.md`. **Plan deletion is permanent:** completed planning
+  artifacts are deleted, not archived, and must not remain as alternative
+  descriptions of shipped behavior. Git history retains the implementation
+  record.
 
 ## Standard exit workflow
 
@@ -81,15 +124,16 @@ criteria, hold:
 
 - [ ] Every planned chunk was reviewed, passed local `make check` and CI, and
       was squash-merged into the milestone branch in sequence.
-- [ ] The milestone's automated end-to-end workflow passes from `e2e/` inside
-      `make check`.
-- [ ] An agent drove the real built binary through the documented end-to-end
-      workflow and reported a clean transcript.
+- [ ] The automated end-to-end workflow from root `PLAN.md` passes from `e2e/`
+      inside `make check`.
+- [ ] An agent drove the real built binary through root `PLAN.md`'s documented
+      end-to-end workflow and reported a clean transcript.
 - [ ] Javier successfully demoed the milestone's user stories.
 - [ ] Canonical documentation was reconciled with decided and shipped
       behavior, and temporary divergence entries due now were removed.
 - [ ] Review-derived guardrails were codified in the repository.
-- [ ] The completed plan was deleted and roadmap/document links were checked.
+- [ ] The completed milestone file and root `PLAN.md` were deleted, and
+      roadmap/document links were checked.
 - [ ] `make check` is green on the consolidated milestone branch and the final
       pull request's CI is green.
 - [ ] The consolidated milestone pull request was reviewed and squash-merged
