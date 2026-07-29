@@ -3,7 +3,8 @@
 The CLI is the canonical v1 surface; agents consume it directly (`--json`)
 plus raw SQL through `gsd query`. A post-v1 TUI is planned to embed the same
 grammar and call the same parser and core. The data contract behind `query`
-lives in `SCHEMA.md`.
+lives in `SCHEMA.md`. This document specifies the canonical v1 target; the
+roadmap in `MILESTONES.md` delivers it incrementally.
 
 ## Grammar
 
@@ -168,14 +169,36 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
 - Human output escapes ASCII control characters (`show` preserves note line
   breaks) so stored text cannot inject terminal control sequences.
 
+## Configuration
+
+The Config milestone implements this canonical v1 contract; specifying it here
+before implementation keeps the v1 target authoritative while earlier
+milestones use the narrower baseline behavior.
+
+- The discovered config file is TOML at
+  `$XDG_CONFIG_HOME/gsd/config.toml`. It is optional. When `--config PATH` is
+  given, that exact file is required: a missing, unreadable, or invalid file
+  fails rather than falling back to discovery.
+- The only v1 keys are `db_path` and `color`. New keys are permanent API and
+  require a demonstrated need.
+- `gsd config` prints valid, redirectable TOML for the effective config.
+  `gsd config --provenance` also identifies each field's source: default,
+  file, environment, or flag.
+- Color accepts `--color=auto|always|never`, `GSD_COLOR` with the same values,
+  and the `color` TOML key. Resolution is explicit `--color` flag, then
+  nonempty `NO_COLOR`, then `GSD_COLOR`, then the file value, then
+  destination-aware `auto`. Auto-detection is evaluated per output stream and
+  disables color for non-terminals and `TERM=dumb`. JSON output never contains
+  ANSI sequences, including under `--color=always`.
+
 ## Database
 
-Default path `$XDG_DATA_HOME/gsd/gsd.db`, falling back to
+The default path is `$XDG_DATA_HOME/gsd/gsd.db`, falling back to
 `~/.local/share/gsd/gsd.db`. Precedence is `--db PATH`, then nonempty `GSD_DB`,
-then the default. Parent directories are created when opening the database.
-During throwaway-data milestones, only a genuinely empty version-0 database is
-bootstrapped; a nonempty version-0 or differently versioned database fails
-with `conflict` and delete-your-dev-db guidance. No config file in v1.
+then config-file `db_path`, then the default. Parent directories are created
+when opening the database. During throwaway-data milestones, only a genuinely
+empty version-0 database is bootstrapped; a nonempty version-0 or differently
+versioned database fails with `conflict` and delete-your-dev-db guidance.
 
 ## TUI (post-v1)
 

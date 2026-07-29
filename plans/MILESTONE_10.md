@@ -71,7 +71,7 @@ On a copy of the live database:
 
 ## Exit criteria
 
-Standard exit criteria (see `MILESTONES.md`), plus:
+Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
 - [ ] v1 retrospective: remaining wishes filed as post-v1 candidates
       (TUI, recurrence, Today — see `OVERVIEW.md` § "Deferred to v2+"),

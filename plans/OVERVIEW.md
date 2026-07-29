@@ -1,9 +1,12 @@
 # gsd — Distilled Design Spec (v1)
 
-`gsd` (get shit done) is a CLI (TUI planned) wrapping a personal to-do
-system. Design
-goals: simple, extendable primitives. Things-inspired. SQLite backend.
-Implementation deferred. The SQL schema lives in `SCHEMA.md`.
+`gsd` (get shit done) is a CLI (with a post-v1 TUI planned) wrapping a
+personal to-do system. Its design goals are simple, extendable primitives, a
+Things-inspired workflow, and a SQLite backend. The current baseline provides
+the repository and CLI foundation plus a complete bare-inbox task lifecycle.
+The broader model below remains the forward-looking canonical v1 target and is
+delivered incrementally through `MILESTONES.md`. The SQL schema lives in
+`SCHEMA.md`.
 
 ## Primitives
 

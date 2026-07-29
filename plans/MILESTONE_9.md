@@ -71,7 +71,7 @@ On a copy of the live database:
 
 ## Exit criteria
 
-Standard exit criteria (see `MILESTONES.md`), plus:
+Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
 - [ ] Live db migrated with zero data loss (row counts by kind unchanged).
 

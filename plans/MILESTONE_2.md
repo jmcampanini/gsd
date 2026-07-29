@@ -1,6 +1,6 @@
 # Milestone 2 — Time
 
-Data mode: throwaway. Depends on: Milestone 1.
+Data mode: throwaway. Depends on: the consolidated capture-loop baseline.
 
 ## Capability
 
@@ -95,7 +95,7 @@ Fresh temp db, `--json`:
 
 ## Exit criteria
 
-Standard exit criteria (see `MILESTONES.md`).
+Standard exit workflow (see [`PROCESS.md`](PROCESS.md)).
 
 ## Standards
 

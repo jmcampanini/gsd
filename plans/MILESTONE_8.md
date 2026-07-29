@@ -9,8 +9,8 @@ scope. Re-review this file at its plan gate.
 ## Capability
 
 Manual ordering — the thing a list tool is for. `position` has existed
-since Milestone 1 (append-only); this milestone makes it manipulable.
-Chosen as the first live-data milestone because it needs **no schema
+since the capture-loop baseline (append-only); this milestone makes it
+manipulable. Chosen as the first live-data milestone because it needs **no schema
 change**: zero migration risk while the migration muscle is fresh.
 
 ## Commands
@@ -71,7 +71,7 @@ On a **copy** of the live database (never the live file):
 
 ## Exit criteria
 
-Standard exit criteria (see `MILESTONES.md`).
+Standard exit workflow (see [`PROCESS.md`](PROCESS.md)).
 
 ## Standards
 

@@ -16,14 +16,14 @@ Exit condition is not a feature — it's "Javier lives in gsd."
 - Numbered, embedded SQL migrations; `PRAGMA user_version` tracks the
   applied revision; applied automatically on open, each migration in its
   own transaction.
-- `0001_baseline.sql` = the accumulated Milestone 1–5 schema, verbatim
-  from the Milestone 5 convergence audit (i.e., `SCHEMA.md`).
+- `0001_baseline.sql` = the accumulated throwaway schema through Tags,
+  verbatim from the schema-convergence audit (i.e., `SCHEMA.md`).
 - A database newer than the binary (`user_version` > known max, below
   the dev-only range) is a fail-loud error ("gsd is older than this
   database").
 - Pre-baseline throwaway dbs are refused by name: their `user_version`
-  sits in the dev-only range (`9000 + N`, Milestone 1), which can never
-  collide with migration numbers, and the runner answers it with the
+  sits in the dev-only range (`9000 + roadmap milestone number`), which can
+  never collide with migration numbers, and the runner answers it with the
   delete-your-dev-db message. They hold throwaway data by declaration.
 - From here, every schema change ships as a new migration file, and
   `SCHEMA.md`'s stability contract is in force: columns/tables are
@@ -102,10 +102,10 @@ $ gsd inbox                        # migrations applied silently; data intact
 
 ## Exit criteria
 
-Standard exit criteria (see `MILESTONES.md`), plus:
+Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
-- [ ] All open `DIVERGENCES.md` entries consolidated — at go-live the
-      spec docs describe the shipped system exactly.
+- [ ] The temporary `DIVERGENCES.md` intake is empty after a complete go-live
+      audit; canonical specs describe the shipped system exactly.
 - [ ] Old tool demoted: no longer the capture target (kept read-only or
       retired — Javier's call, recorded here when made).
 - [ ] One week of real use with no data-integrity incident before
