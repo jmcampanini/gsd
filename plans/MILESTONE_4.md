@@ -111,7 +111,7 @@ Fresh temp db, `--json`:
 
 ## Exit criteria
 
-Standard exit criteria (see `MILESTONES.md`), plus:
+Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
 - [ ] `available` view SQL diffed against `SCHEMA.md`'s definition —
       remaining delta must be exactly the `tags` column.

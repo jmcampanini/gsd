@@ -3,7 +3,8 @@
 The CLI is the canonical v1 surface; agents consume it directly (`--json`)
 plus raw SQL through `gsd query`. A post-v1 TUI is planned to embed the same
 grammar and call the same parser and core. The data contract behind `query`
-lives in `SCHEMA.md`.
+lives in `SCHEMA.md`. This document specifies the canonical v1 target; the
+roadmap in `MILESTONES.md` delivers it incrementally.
 
 ## Grammar
 
@@ -129,28 +130,75 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
   `tomorrow`, weekday names (`mon`..`sun` = next occurrence), `+Nd`,
   `+Nw`. Nothing else parses.
 - **Notes are markdown by convention** but never parsed or interpreted by
-  any tool. `--note -` reads stdin.
+  any tool. `--note ""` clears a note. `--note -` reads stdin through EOF
+  without stripping trailing newlines.
+- **Validation is semantic, not lossy.** IDs are positive decimals; titles are
+  valid UTF-8 and nonblank after surrounding-space inspection, but accepted
+  text is stored unchanged. Notes must be valid UTF-8. Semantic failures use
+  `invalid_argument`; command grammar and flag failures use `usage`.
 
 ## Output contract
 
-- `--json` (global flag) makes any command machine-readable. An entity in
-  JSON is its table row — same column names, same formats, including the
-  derived `status` — plus `tags` as an array of names.
-- **Mutations echo the affected entity**: `gsd add --json` returns the
-  created row (agents capture the new ID without a second call).
+- `--json` is a global complete-output-mode flag. Successful entity output is
+  its table row — the same column names and formats, including derived
+  `status`. Nullable timestamps are `null`; collections are arrays, including
+  `[]`. `tags` is absent until Milestone 5, when it becomes an additive array
+  field.
+- JSON output is exactly one compact value followed by a newline. Field names,
+  types, and error codes are stable; field order and message wording are not.
+- **Mutations echo the affected entity**: `gsd add --json` returns the created
+  row so agents can capture its ID without another call.
 - **Cascades report what they touched**:
-  `{"project": {...}, "cancelled_tasks": [{...}, ...]}`.
-- **Errors are structured, on stderr**:
-  `{"error": {"code": "not_found", "message": "no task 42"}}`. Codes are
-  stable API; messages are not.
-- **Exit codes stay coarse**: `0` success, `1` domain error, `2` usage
+  `{"project":{...},"cancelled_tasks":[{...},...]}`.
+- **Collections are position-ordered**: `inbox` and `list` return rows
+  ordered by `position`, then `id`, for every status filter, in both output
+  modes.
+- **Every JSON-mode application error is structured, on stderr**:
+  `{"error":{"code":"not_found","message":"no task 42"}}`. Initial stable
+  codes are `not_found`, `invalid_argument`, `conflict`, and `internal`;
+  `internal` messages carry the underlying diagnostic. Command grammar and
+  flag failures stay human-readable on stderr even under `--json` — exit
+  code `2` is their machine signal. Default mode keeps human-readable
+  stderr diagnostics for every error.
+- **Exit codes stay coarse**: `0` success, `1` application error, `2` usage
   error. Fine distinctions live in the JSON error code.
+- Human collections are headerless aligned tables, `show` is a field/value
+  table, mutations use concise action-prefixed payloads, and empty collections
+  print nothing. Human tables are unstyled until color support arrives in
+  Milestone 6.
+- Human output escapes ASCII control characters (`show` preserves note line
+  breaks) so stored text cannot inject terminal control sequences.
+
+## Configuration
+
+The Config milestone implements this canonical v1 contract; specifying it here
+before implementation keeps the v1 target authoritative while earlier
+milestones use the narrower baseline behavior.
+
+- The discovered config file is TOML at
+  `$XDG_CONFIG_HOME/gsd/config.toml`. It is optional. When `--config PATH` is
+  given, that exact file is required: a missing, unreadable, or invalid file
+  fails rather than falling back to discovery.
+- The only v1 keys are `db_path` and `color`. New keys are permanent API and
+  require a demonstrated need.
+- `gsd config` prints valid, redirectable TOML for the effective config.
+  `gsd config --provenance` also identifies each field's source: default,
+  file, environment, or flag.
+- Color accepts `--color=auto|always|never`, `GSD_COLOR` with the same values,
+  and the `color` TOML key. Resolution is explicit `--color` flag, then
+  nonempty `NO_COLOR`, then `GSD_COLOR`, then the file value, then
+  destination-aware `auto`. Auto-detection is evaluated per output stream and
+  disables color for non-terminals and `TERM=dumb`. JSON output never contains
+  ANSI sequences, including under `--color=always`.
 
 ## Database
 
-Default path `$XDG_DATA_HOME/gsd/gsd.db`
-(`~/.local/share/gsd/gsd.db`). Precedence: `--db PATH`, then `GSD_DB`,
-then the default. No config file in v1.
+The default path is `$XDG_DATA_HOME/gsd/gsd.db`, falling back to
+`~/.local/share/gsd/gsd.db`. Precedence is `--db PATH`, then nonempty `GSD_DB`,
+then config-file `db_path`, then the default. Parent directories are created
+when opening the database. During throwaway-data milestones, only a genuinely
+empty version-0 database is bootstrapped; a nonempty version-0 or differently
+versioned database fails with `conflict` and delete-your-dev-db guidance.
 
 ## TUI (post-v1)
 

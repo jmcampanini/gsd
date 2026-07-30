@@ -18,8 +18,8 @@ complete.
 - Views rebuilt with the `tags` JSON-array enrichment column. After this
   milestone the schema must be byte-comparable to `SCHEMA.md` (see exit
   criteria).
-- `user_version` bump — the last one; this becomes the Milestone 7
-  baseline.
+- `user_version` bump — the last one; this becomes the schema baseline used
+  at Go live.
 
 ## Commands
 
@@ -105,13 +105,13 @@ Fresh temp db, `--json`:
 
 ## Exit criteria
 
-Standard exit criteria (see `MILESTONES.md`), plus:
+Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
 - [ ] **Schema convergence audit**: dump the dev database schema and diff
       against `SCHEMA.md`'s DDL (tables, checks, indexes, views). Any
-      difference is either fixed or logged in `DIVERGENCES.md` and
-      consolidated before Milestone 6. This diff is the proof the staged
-      construction arrived at the spec.
+      difference is either fixed or recorded temporarily in `DIVERGENCES.md`,
+      then reconciled and removed before Config begins. This diff proves that
+      the staged construction arrived at the spec.
 
 ## Standards
 

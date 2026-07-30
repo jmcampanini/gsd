@@ -4,16 +4,16 @@ Data mode: throwaway (last one). Depends on: Milestone 5.
 
 ## Capability
 
-gsd becomes a configured CLI (the v1 divergence, D-001): a TOML config
-file loaded through go-config-loader with full precedence and provenance,
-a `gsd config` report command, and proper color modes. This lands *before*
+gsd implements the canonical v1 config contract from `COMMANDS.md`: a TOML
+config file loaded through go-config-loader with full precedence and
+provenance, a `gsd config` report command, and proper color modes. This lands *before*
 go-live so the question "where does my real data live" is answered by
 config, permanently, before real data exists.
 
 ## Schema delta
 
-None — `user_version` unchanged. Milestone 5's converged schema is
-exactly what Milestone 7 baselines.
+None — `user_version` unchanged. The Tags milestone's converged schema is
+exactly what Go live baselines.
 
 ## Config surface (deliberately minimal)
 
@@ -103,16 +103,15 @@ $ gsd inbox --color=always | less -R   # styled on purpose
    file is silently fine.
 4. Color: `--json` output has no ANSI under `--color=always`; `NO_COLOR`
    beats file/env `color=always`; `--color=always` beats `NO_COLOR`.
-5. `make check` proves prior milestones' e2e still pass with config in
+5. `make check` proves existing e2e workflows still pass with config in
    the loading path (no behavior regressions).
 
 ## Exit criteria
 
-Standard exit criteria (see `MILESTONES.md`), plus:
+Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
-- [ ] D-001 consolidated: `COMMANDS.md` § Database rewritten (precedence
-      including config file, config section added) — due before
-      Milestone 7 starts.
+- [ ] `COMMANDS.md` § Configuration and § Database rechecked against the
+      shipped precedence, report, and color behavior before Go live starts.
 
 ## Standards
 
