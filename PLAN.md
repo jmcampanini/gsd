@@ -17,7 +17,7 @@ Milestone 2 is two sequential vertical slices. This is the chunk progress
 checklist; check a chunk only after its implementation and verification items
 below are complete:
 
-- [ ] **Chunk 1 — Deadlines** — a human can set, inspect, filter, change, and
+- [x] **Chunk 1 — Deadlines** — a human can set, inspect, filter, change, and
       clear real due dates, including finding overdue open tasks.
 - [ ] **Chunk 2 — Deferral and availability** — a human can hide work until its
       local calendar day arrives and ask what is actionable now.
@@ -203,42 +203,42 @@ it.
 
 ### Implementation
 
-- [ ] Add the pure date parser and its controlled-clock grammar tests.
-- [ ] Install the complete revision-`9002` schema foundation: both date
+- [x] Add the pure date parser and its controlled-clock grammar tests.
+- [x] Install the complete revision-`9002` schema foundation: both date
       columns, checks, reduced available view, projections, and scanners. With
       a real temporary SQLite database, prove bootstrap plus the final view
       predicate for null, past, today, and future defer dates and for non-open
       tasks. Derive the equality fixture from SQLite's captured local date,
       recheck that date after the assertion, and rebuild the case if midnight
       rolled over.
-- [ ] Carry nullable date values through task JSON and store round trips.
-- [ ] Add due-date intent to add/edit, parse it in the service, and persist set
+- [x] Carry nullable date values through task JSON and store round trips.
+- [x] Add due-date intent to add/edit, parse it in the service, and persist set
       and clear operations atomically.
-- [ ] Add `--due` to add; add mutually exclusive `--due`/`--no-due` to edit.
-- [ ] Add mutually exclusive `list --due` and `list --overdue`, including
+- [x] Add `--due` to add; add mutually exclusive `--due`/`--no-due` to edit.
+- [x] Add mutually exclusive `list --due` and `list --overdue`, including
       service options and allowlisted store predicates.
-- [ ] Add labeled/compact human date rendering without styling.
-- [ ] Introduce the dedicated subprocess workflow for canonical deadline
+- [x] Add labeled/compact human date rendering without styling.
+- [x] Introduce the dedicated subprocess workflow for canonical deadline
       persistence, filtering, clearing, and rejection behavior.
-- [ ] Run `make check` and build the real binary before opening the chunk pull
+- [x] Run `make check` and build the real binary before opening the chunk pull
       request.
 
 ### Human proof
 
 Against a fresh database with the real built binary:
 
-- [ ] Add a task with `--due tomorrow`; verify JSON and `show` contain the same
+- [x] Add a task with `--due tomorrow`; verify JSON and `show` contain the same
       canonical local date.
-- [ ] Verify `list --due` contains it and `list --overdue` does not.
-- [ ] Independently compute a canonical local yesterday, edit the task to that
+- [x] Verify `list --due` contains it and `list --overdue` does not.
+- [x] Independently compute a canonical local yesterday, edit the task to that
       date, and verify `list --overdue` contains it.
-- [ ] Complete the task; verify the default open overdue list excludes it and
+- [x] Complete the task; verify the default open overdue list excludes it and
       `list --status done --overdue` succeeds empty.
-- [ ] Reopen it, clear the deadline with `--no-due`, and verify due filtering no
+- [x] Reopen it, clear the deadline with `--no-due`, and verify due filtering no
       longer returns it.
-- [ ] Reject `2026-02-30`, `2026-8-3`, `next tuesday`, and `+3x` as structured
+- [x] Reject `2026-02-30`, `2026-8-3`, `next tuesday`, and `+3x` as structured
       `invalid_argument` errors with exit code 1.
-- [ ] Supply conflicting list date selectors; verify a usage error with exit
+- [x] Supply conflicting list date selectors; verify a usage error with exit
       code 2 and no database side effect.
 
 ## Chunk 2 — Deferral and availability

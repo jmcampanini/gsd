@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/jmcampanini/gsd/internal/dates"
 )
 
 type Service struct {
@@ -26,7 +28,16 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Task, error) {
 		return Task{}, NewError(ErrorInvalidArgument, "note must be valid UTF-8", nil)
 	}
 
-	return s.repository.Add(ctx, fields, formatTimestamp(s.now()))
+	reference := s.now()
+	if fields.DueOn != nil {
+		canonical, err := parseDate(*fields.DueOn, reference)
+		if err != nil {
+			return Task{}, err
+		}
+		fields.DueOn = &canonical
+	}
+
+	return s.repository.Add(ctx, fields, formatTimestamp(reference))
 }
 
 func (s *Service) Inbox(ctx context.Context) ([]Task, error) {
@@ -49,12 +60,15 @@ func (s *Service) Show(ctx context.Context, id int64) (Task, error) {
 	return s.repository.Find(ctx, id)
 }
 
-func (s *Service) List(ctx context.Context, status ListStatus) ([]Task, error) {
-	if !validListStatus(status) {
-		return nil, NewError(ErrorInvalidArgument, fmt.Sprintf("invalid list status %q", status), nil)
+func (s *Service) List(ctx context.Context, options ListOptions) ([]Task, error) {
+	if !validListStatus(options.Status) {
+		return nil, NewError(ErrorInvalidArgument, fmt.Sprintf("invalid list status %q", options.Status), nil)
+	}
+	if !validDateSelector(options.Date) {
+		return nil, NewError(ErrorInvalidArgument, fmt.Sprintf("invalid date selector %q", options.Date), nil)
 	}
 
-	tasks, err := s.repository.List(ctx, status)
+	tasks, err := s.repository.List(ctx, options)
 	if err != nil {
 		return nil, err
 	}
@@ -69,8 +83,15 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, 
 	if err := validateID(id); err != nil {
 		return Task{}, err
 	}
-	if fields.Title == nil && fields.Note == nil {
-		return Task{}, NewError(ErrorInvalidArgument, "edit requires --title or --note", nil)
+	if fields.DueOn.Set != nil && fields.DueOn.Clear {
+		return Task{}, NewError(ErrorInvalidArgument, "due date cannot be set and cleared", nil)
+	}
+	if fields.Title == nil && fields.Note == nil && fields.DueOn.Set == nil && !fields.DueOn.Clear {
+		return Task{}, NewError(
+			ErrorInvalidArgument,
+			"edit requires --title, --note, --due, or --no-due",
+			nil,
+		)
 	}
 	if fields.Title != nil {
 		if err := validateTitle(*fields.Title); err != nil {
@@ -81,7 +102,16 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, 
 		return Task{}, NewError(ErrorInvalidArgument, "note must be valid UTF-8", nil)
 	}
 
-	return s.repository.Edit(ctx, id, fields, formatTimestamp(s.now()))
+	reference := s.now()
+	if fields.DueOn.Set != nil {
+		canonical, err := parseDate(*fields.DueOn.Set, reference)
+		if err != nil {
+			return Task{}, err
+		}
+		fields.DueOn.Set = &canonical
+	}
+
+	return s.repository.Edit(ctx, id, fields, formatTimestamp(reference))
 }
 
 func (s *Service) Done(ctx context.Context, id int64) (Task, error) {
@@ -150,6 +180,24 @@ func validListStatus(status ListStatus) bool {
 	default:
 		return false
 	}
+}
+
+func validDateSelector(selector DateSelector) bool {
+	switch selector {
+	case DateSelectorNone, DateSelectorDue, DateSelectorOverdue:
+		return true
+	default:
+		return false
+	}
+}
+
+func parseDate(value string, reference time.Time) (string, error) {
+	canonical, err := dates.Parse(value, reference)
+	if err != nil {
+		return "", NewError(ErrorInvalidArgument, fmt.Sprintf("invalid date %q", value), err)
+	}
+
+	return canonical, nil
 }
 
 func validateID(id int64) error {
