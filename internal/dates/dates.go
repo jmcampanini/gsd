@@ -57,27 +57,8 @@ func Parse(value string, reference time.Time) (string, error) {
 }
 
 func parseCanonical(value string) (time.Time, bool) {
-	if len(value) != len("2006-01-02") || value[4] != '-' || value[7] != '-' {
-		return time.Time{}, false
-	}
-	for index, character := range []byte(value) {
-		if index == 4 || index == 7 {
-			continue
-		}
-		if character < '0' || character > '9' {
-			return time.Time{}, false
-		}
-	}
-
-	year := decimal(value[0:4])
-	month := decimal(value[5:7])
-	day := decimal(value[8:10])
-	date := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
-	if date.Year() != year || int(date.Month()) != month || date.Day() != day {
-		return time.Time{}, false
-	}
-
-	return date, true
+	date, err := time.Parse(time.DateOnly, value)
+	return date, err == nil
 }
 
 func parseWeekday(value string) (time.Weekday, bool) {
@@ -135,21 +116,12 @@ func dayNumber(year int, month time.Month, day int) int {
 	return year*365 + leapYears + time.Date(year, month, day, 0, 0, 0, 0, time.UTC).YearDay() - 1
 }
 
-func decimal(value string) int {
-	result := 0
-	for _, digit := range []byte(value) {
-		result = result*10 + int(digit-'0')
-	}
-
-	return result
-}
-
 func canonicalYear(year int) bool {
 	return year >= 0 && year <= 9999
 }
 
 func format(date time.Time) string {
-	return date.Format("2006-01-02")
+	return date.Format(time.DateOnly)
 }
 
 func invalidDate() error {
