@@ -98,7 +98,7 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, 
 		fields.Project.Set == nil && !fields.Project.Clear {
 		return Task{}, apperr.New(
 			apperr.InvalidArgument,
-			"edit requires --title, --note, --due, --no-due, --defer, --no-defer, --project, or --no-project",
+			"task edit requires at least one field",
 			nil,
 		)
 	}

@@ -261,6 +261,14 @@ func newProjectEditCommand(options *rootOptions, factory applicationFactory) *co
 				return err
 			}
 
+			if !anyFlagChanged(command, "title", "note") {
+				return apperr.New(
+					apperr.InvalidArgument,
+					"project edit requires --title or --note",
+					nil,
+				)
+			}
+
 			fields := project.EditFields{}
 			if command.Flags().Changed("title") {
 				fields.Title = &title

@@ -514,27 +514,20 @@ func TestEditAdaptsDeferIntent(t *testing.T) {
 	}
 }
 
-func TestEditWithoutFieldsReturnsApplicationError(t *testing.T) {
+func TestEditWithoutFieldsFailsBeforeOpeningApplication(t *testing.T) {
 	t.Parallel()
 
-	application := &fakeApplication{editError: apperr.New(
-		apperr.InvalidArgument,
-		"edit requires at least one field",
-		nil,
-	)}
-	result := runCommand(t, application, "edit", "7", "--json")
-	if result.exitCode != 1 || result.stdout != "" || result.opens != 1 || result.closes != 1 {
-		t.Errorf("result = %#v, want stderr-only invalid_argument with one application lifecycle", result)
-	}
-	if application.editFields.Title != nil || application.editFields.Note != nil {
-		t.Errorf("Edit() fields = %#v, want both omitted", application.editFields)
+	result := runCommand(t, &fakeApplication{}, "edit", "7", "--json")
+	if result.exitCode != 1 || result.stdout != "" || result.opens != 0 {
+		t.Errorf("result = %#v, want stderr-only error before opening the application", result)
 	}
 	var envelope errorEnvelope
 	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if envelope.Error.Code != apperr.InvalidArgument {
-		t.Errorf("error code = %q, want invalid_argument", envelope.Error.Code)
+	if envelope.Error.Code != apperr.InvalidArgument ||
+		!strings.Contains(envelope.Error.Message, "--title") {
+		t.Errorf("error = %#v, want invalid_argument naming the edit flags", envelope.Error)
 	}
 }
 

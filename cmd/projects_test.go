@@ -611,6 +611,19 @@ func TestProjectRecursiveDeleteHumanNarration(t *testing.T) {
 	requireProjectCommandHumanOutput(t, emptyResult, "Deleted: project 10  Empty\n")
 }
 
+func TestProjectEditWithoutFieldsFailsBeforeOpeningApplication(t *testing.T) {
+	t.Parallel()
+
+	result := runProjectCommand(t, &fakeProjectApplication{}, "project", "edit", "7", "--json")
+	got := decodeProjectCommandError(t, result)
+	if result.opens != 0 {
+		t.Errorf("opens = %d, want flag validation before application open", result.opens)
+	}
+	if got.Code != apperr.InvalidArgument || !strings.Contains(got.Message, "--title") {
+		t.Errorf("error = %#v, want invalid_argument naming the edit flags", got)
+	}
+}
+
 func TestProjectDeleteConflictAddsRecursiveGuidance(t *testing.T) {
 	t.Parallel()
 

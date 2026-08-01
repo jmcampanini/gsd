@@ -67,7 +67,7 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Projec
 	if fields.Title == nil && fields.Note == nil {
 		return Project{}, apperr.New(
 			apperr.InvalidArgument,
-			"project edit requires --title or --note",
+			"project edit requires at least one field",
 			nil,
 		)
 	}

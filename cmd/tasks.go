@@ -134,6 +134,17 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 				return err
 			}
 
+			if !anyFlagChanged(
+				command,
+				"title", "note", "due", "no-due", "defer", "no-defer", "project", "no-project",
+			) {
+				return apperr.New(
+					apperr.InvalidArgument,
+					"edit requires --title, --note, --due, --no-due, --defer, --no-defer, --project, or --no-project",
+					nil,
+				)
+			}
+
 			fields := task.EditFields{}
 			fields.Project.Set = projectID
 			fields.Project.Clear = noProject
@@ -285,6 +296,16 @@ func newDeleteCommand(options *rootOptions, factory applicationFactory) *cobra.C
 			return application.Delete(ctx, id)
 		},
 	)
+}
+
+func anyFlagChanged(command *cobra.Command, names ...string) bool {
+	for _, name := range names {
+		if command.Flags().Changed(name) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func parseProjectIDFlag(command *cobra.Command, value string) (*int64, error) {
