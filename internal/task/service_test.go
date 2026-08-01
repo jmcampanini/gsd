@@ -5,9 +5,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jmcampanini/gsd/internal/apperr"
 )
 
-type recordingRepository struct {
+type recordingStore struct {
 	addCalls           int
 	title              string
 	note               string
@@ -32,7 +34,7 @@ type recordingRepository struct {
 	lifecycleTimestamp string
 }
 
-func (r *recordingRepository) Add(
+func (r *recordingStore) Add(
 	_ context.Context,
 	fields AddFields,
 	timestamp string,
@@ -55,27 +57,27 @@ func (r *recordingRepository) Add(
 	}, nil
 }
 
-func (*recordingRepository) Inbox(context.Context) ([]Task, error) {
+func (*recordingStore) Inbox(context.Context) ([]Task, error) {
 	return []Task{}, nil
 }
 
-func (r *recordingRepository) Available(context.Context) ([]Task, error) {
+func (r *recordingStore) Available(context.Context) ([]Task, error) {
 	r.availableCalls++
 	return r.availableResult, nil
 }
 
-func (r *recordingRepository) Find(_ context.Context, id int64) (Task, error) {
+func (r *recordingStore) Find(_ context.Context, id int64) (Task, error) {
 	r.findCalls++
 	return Task{ID: id}, nil
 }
 
-func (r *recordingRepository) List(_ context.Context, options ListOptions) ([]Task, error) {
+func (r *recordingStore) List(_ context.Context, options ListOptions) ([]Task, error) {
 	r.listCalls++
 	r.listedOptions = options
 	return r.listResult, nil
 }
 
-func (r *recordingRepository) Edit(
+func (r *recordingStore) Edit(
 	_ context.Context,
 	id int64,
 	fields EditFields,
@@ -89,31 +91,31 @@ func (r *recordingRepository) Edit(
 	return Task{ID: id, UpdatedAt: timestamp}, nil
 }
 
-func (r *recordingRepository) Done(_ context.Context, id int64, timestamp string) (Task, error) {
+func (r *recordingStore) Done(_ context.Context, id int64, timestamp string) (Task, error) {
 	r.doneCalls++
 	r.recordLifecycle(id, timestamp)
 	return Task{ID: id, DoneAt: &timestamp}, nil
 }
 
-func (r *recordingRepository) Cancel(_ context.Context, id int64, timestamp string) (Task, error) {
+func (r *recordingStore) Cancel(_ context.Context, id int64, timestamp string) (Task, error) {
 	r.cancelCalls++
 	r.recordLifecycle(id, timestamp)
 	return Task{ID: id, CancelledAt: &timestamp}, nil
 }
 
-func (r *recordingRepository) Reopen(_ context.Context, id int64, timestamp string) (Task, error) {
+func (r *recordingStore) Reopen(_ context.Context, id int64, timestamp string) (Task, error) {
 	r.reopenCalls++
 	r.recordLifecycle(id, timestamp)
 	return Task{ID: id}, nil
 }
 
-func (r *recordingRepository) Delete(_ context.Context, id int64) (Task, error) {
+func (r *recordingStore) Delete(_ context.Context, id int64) (Task, error) {
 	r.deleteCalls++
 	r.lifecycleID = id
 	return Task{ID: id}, nil
 }
 
-func (r *recordingRepository) recordLifecycle(id int64, timestamp string) {
+func (r *recordingStore) recordLifecycle(id int64, timestamp string) {
 	r.lifecycleID = id
 	r.lifecycleTimestamp = timestamp
 }
@@ -121,8 +123,8 @@ func (r *recordingRepository) recordLifecycle(id int64, timestamp string) {
 func TestAddPreservesAcceptedTextAndNormalizesTimestamp(t *testing.T) {
 	t.Parallel()
 
-	repository := &recordingRepository{}
-	service := NewService(repository)
+	store := &recordingStore{}
+	service := NewService(store)
 	nowCalls := 0
 	service.now = func() time.Time {
 		nowCalls++
@@ -142,22 +144,22 @@ func TestAddPreservesAcceptedTextAndNormalizesTimestamp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	if repository.title != title || created.Title != title {
+	if store.title != title || created.Title != title {
 		t.Errorf("title = %q, want exact %q", created.Title, title)
 	}
-	if repository.note != note || created.Note != note {
+	if store.note != note || created.Note != note {
 		t.Errorf("note = %q, want exact %q", created.Note, note)
 	}
-	if repository.addedDueOn == nil || *repository.addedDueOn != "2026-07-28" ||
+	if store.addedDueOn == nil || *store.addedDueOn != "2026-07-28" ||
 		created.DueOn == nil || *created.DueOn != "2026-07-28" {
-		t.Errorf("due date = %#v/%#v, want canonical 2026-07-28", repository.addedDueOn, created.DueOn)
+		t.Errorf("due date = %#v/%#v, want canonical 2026-07-28", store.addedDueOn, created.DueOn)
 	}
-	if repository.addedDeferUntil == nil || *repository.addedDeferUntil != "2026-07-27" ||
+	if store.addedDeferUntil == nil || *store.addedDeferUntil != "2026-07-27" ||
 		created.DeferUntil == nil || *created.DeferUntil != "2026-07-27" {
-		t.Errorf("defer date = %#v/%#v, want canonical 2026-07-27", repository.addedDeferUntil, created.DeferUntil)
+		t.Errorf("defer date = %#v/%#v, want canonical 2026-07-27", store.addedDeferUntil, created.DeferUntil)
 	}
-	if nowCalls != 1 || repository.timestamp != "2026-07-27T16:34:56.987Z" {
-		t.Errorf("clock calls/timestamp = %d/%q, want one call and UTC milliseconds", nowCalls, repository.timestamp)
+	if nowCalls != 1 || store.timestamp != "2026-07-27T16:34:56.987Z" {
+		t.Errorf("clock calls/timestamp = %d/%q, want one call and UTC milliseconds", nowCalls, store.timestamp)
 	}
 }
 
@@ -183,8 +185,8 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			repository := &recordingRepository{}
-			service := NewService(repository)
+			store := &recordingStore{}
+			service := NewService(store)
 			_, err := service.Add(context.Background(), AddFields{
 				Title:      test.title,
 				Note:       test.note,
@@ -194,12 +196,12 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 			if err == nil {
 				t.Fatal("Add() error = nil, want invalid_argument")
 			}
-			code, ok := ErrorCodeOf(err)
-			if !ok || code != ErrorInvalidArgument {
+			code, ok := apperr.CodeOf(err)
+			if !ok || code != apperr.InvalidArgument {
 				t.Errorf("Add() error = %v, want invalid_argument", err)
 			}
-			if repository.addCalls != 0 {
-				t.Errorf("repository Add() calls = %d, want 0", repository.addCalls)
+			if store.addCalls != 0 {
+				t.Errorf("store Add() calls = %d, want 0", store.addCalls)
 			}
 			rejected := test.dueOn
 			if rejected == nil {
@@ -247,8 +249,8 @@ func TestParseID(t *testing.T) {
 			if err == nil {
 				t.Fatalf("ParseID() = %d, want invalid_argument", got)
 			}
-			code, ok := ErrorCodeOf(err)
-			if !ok || code != ErrorInvalidArgument {
+			code, ok := apperr.CodeOf(err)
+			if !ok || code != apperr.InvalidArgument {
 				t.Errorf("ParseID() error = %v, want invalid_argument", err)
 			}
 		})
@@ -258,14 +260,14 @@ func TestParseID(t *testing.T) {
 func TestShowRejectsNonpositiveIDBeforePersistence(t *testing.T) {
 	t.Parallel()
 
-	repository := &recordingRepository{}
-	service := NewService(repository)
+	store := &recordingStore{}
+	service := NewService(store)
 	_, err := service.Show(context.Background(), 0)
 	if err == nil {
 		t.Fatal("Show() error = nil, want invalid_argument")
 	}
-	if repository.findCalls != 0 {
-		t.Errorf("repository Find() calls = %d, want 0", repository.findCalls)
+	if store.findCalls != 0 {
+		t.Errorf("store Find() calls = %d, want 0", store.findCalls)
 	}
 }
 
@@ -293,7 +295,7 @@ func TestParseListStatus(t *testing.T) {
 
 	if _, err := ParseListStatus("OPEN"); err == nil {
 		t.Fatal("ParseListStatus(OPEN) error = nil, want invalid_argument")
-	} else if code, ok := ErrorCodeOf(err); !ok || code != ErrorInvalidArgument {
+	} else if code, ok := apperr.CodeOf(err); !ok || code != apperr.InvalidArgument {
 		t.Errorf("ParseListStatus(OPEN) error = %v, want invalid_argument", err)
 	}
 }
@@ -301,24 +303,24 @@ func TestParseListStatus(t *testing.T) {
 func TestAvailableNormalizesNil(t *testing.T) {
 	t.Parallel()
 
-	repository := &recordingRepository{}
-	available, err := NewService(repository).Available(context.Background())
+	store := &recordingStore{}
+	available, err := NewService(store).Available(context.Background())
 	if err != nil {
 		t.Fatalf("Available() error = %v", err)
 	}
 	if available == nil || len(available) != 0 {
 		t.Errorf("Available() = %#v, want non-nil empty list", available)
 	}
-	if repository.availableCalls != 1 {
-		t.Errorf("repository Available() calls = %d, want 1", repository.availableCalls)
+	if store.availableCalls != 1 {
+		t.Errorf("store Available() calls = %d, want 1", store.availableCalls)
 	}
 }
 
 func TestListValidatesOptionsAndNormalizesNil(t *testing.T) {
 	t.Parallel()
 
-	repository := &recordingRepository{}
-	service := NewService(repository)
+	store := &recordingStore{}
+	service := NewService(store)
 	options := ListOptions{Status: ListStatusDone, Date: DateSelectorDeferred}
 
 	listed, err := service.List(context.Background(), options)
@@ -328,8 +330,8 @@ func TestListValidatesOptionsAndNormalizesNil(t *testing.T) {
 	if listed == nil || len(listed) != 0 {
 		t.Errorf("List() = %#v, want non-nil empty list", listed)
 	}
-	if repository.listCalls != 1 || repository.listedOptions != options {
-		t.Errorf("repository List() calls/options = %d/%#v, want 1/%#v", repository.listCalls, repository.listedOptions, options)
+	if store.listCalls != 1 || store.listedOptions != options {
+		t.Errorf("store List() calls/options = %d/%#v, want 1/%#v", store.listCalls, store.listedOptions, options)
 	}
 
 	invalid := []ListOptions{
@@ -341,20 +343,20 @@ func TestListValidatesOptionsAndNormalizesNil(t *testing.T) {
 		if err == nil {
 			t.Fatalf("List(%#v) error = nil, want invalid_argument", request)
 		}
-		if code, ok := ErrorCodeOf(err); !ok || code != ErrorInvalidArgument {
+		if code, ok := apperr.CodeOf(err); !ok || code != apperr.InvalidArgument {
 			t.Errorf("List(%#v) error = %v, want invalid_argument", request, err)
 		}
 	}
-	if repository.listCalls != 1 {
-		t.Errorf("repository List() calls = %d, want 1", repository.listCalls)
+	if store.listCalls != 1 {
+		t.Errorf("store List() calls = %d, want 1", store.listCalls)
 	}
 }
 
 func TestEditPreservesRequestedFieldsAndNormalizesTimestamp(t *testing.T) {
 	t.Parallel()
 
-	repository := &recordingRepository{}
-	service := NewService(repository)
+	store := &recordingStore{}
+	service := NewService(store)
 	nowCalls := 0
 	service.now = func() time.Time {
 		nowCalls++
@@ -374,32 +376,32 @@ func TestEditPreservesRequestedFieldsAndNormalizesTimestamp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Edit() error = %v", err)
 	}
-	if repository.editCalls != 1 || repository.editID != 7 {
-		t.Errorf("repository Edit() calls/ID = %d/%d, want 1/7", repository.editCalls, repository.editID)
+	if store.editCalls != 1 || store.editID != 7 {
+		t.Errorf("store Edit() calls/ID = %d/%d, want 1/7", store.editCalls, store.editID)
 	}
-	if repository.editFields.Title == nil || *repository.editFields.Title != title {
-		t.Errorf("edited title = %#v, want exact %q", repository.editFields.Title, title)
+	if store.editFields.Title == nil || *store.editFields.Title != title {
+		t.Errorf("edited title = %#v, want exact %q", store.editFields.Title, title)
 	}
-	if repository.editFields.Note == nil || *repository.editFields.Note != note {
-		t.Errorf("edited note = %#v, want exact %q", repository.editFields.Note, note)
+	if store.editFields.Note == nil || *store.editFields.Note != note {
+		t.Errorf("edited note = %#v, want exact %q", store.editFields.Note, note)
 	}
-	if repository.editFields.DueOn.Set == nil || *repository.editFields.DueOn.Set != "2026-07-27" {
-		t.Errorf("edited due date = %#v, want canonical 2026-07-27", repository.editFields.DueOn)
+	if store.editFields.DueOn.Set == nil || *store.editFields.DueOn.Set != "2026-07-27" {
+		t.Errorf("edited due date = %#v, want canonical 2026-07-27", store.editFields.DueOn)
 	}
-	if repository.editFields.DeferUntil.Set == nil || *repository.editFields.DeferUntil.Set != "2026-07-28" {
-		t.Errorf("edited defer date = %#v, want canonical 2026-07-28", repository.editFields.DeferUntil)
+	if store.editFields.DeferUntil.Set == nil || *store.editFields.DeferUntil.Set != "2026-07-28" {
+		t.Errorf("edited defer date = %#v, want canonical 2026-07-28", store.editFields.DeferUntil)
 	}
-	if nowCalls != 1 || repository.editTimestamp != "2026-07-27T16:34:56.987Z" || edited.UpdatedAt != repository.editTimestamp {
-		t.Errorf("clock calls/timestamp = %d/%q, want one call and UTC milliseconds", nowCalls, repository.editTimestamp)
+	if nowCalls != 1 || store.editTimestamp != "2026-07-27T16:34:56.987Z" || edited.UpdatedAt != store.editTimestamp {
+		t.Errorf("clock calls/timestamp = %d/%q, want one call and UTC milliseconds", nowCalls, store.editTimestamp)
 	}
 }
 
 func TestEditDistinguishesClearedFieldsFromOmittedFields(t *testing.T) {
 	t.Parallel()
 
-	repository := &recordingRepository{}
+	store := &recordingStore{}
 	note := ""
-	_, err := NewService(repository).Edit(context.Background(), 7, EditFields{
+	_, err := NewService(store).Edit(context.Background(), 7, EditFields{
 		Note:       &note,
 		DueOn:      DateChange{Clear: true},
 		DeferUntil: DateChange{Clear: true},
@@ -407,30 +409,30 @@ func TestEditDistinguishesClearedFieldsFromOmittedFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Edit() error = %v", err)
 	}
-	if repository.editFields.Title != nil {
-		t.Errorf("edited title = %#v, want omitted", repository.editFields.Title)
+	if store.editFields.Title != nil {
+		t.Errorf("edited title = %#v, want omitted", store.editFields.Title)
 	}
-	if repository.editFields.Note == nil || *repository.editFields.Note != "" {
-		t.Errorf("edited note = %#v, want explicit empty string", repository.editFields.Note)
+	if store.editFields.Note == nil || *store.editFields.Note != "" {
+		t.Errorf("edited note = %#v, want explicit empty string", store.editFields.Note)
 	}
-	if !repository.editFields.DueOn.Clear || repository.editFields.DueOn.Set != nil {
-		t.Errorf("edited due date = %#v, want explicit clear", repository.editFields.DueOn)
+	if !store.editFields.DueOn.Clear || store.editFields.DueOn.Set != nil {
+		t.Errorf("edited due date = %#v, want explicit clear", store.editFields.DueOn)
 	}
-	if !repository.editFields.DeferUntil.Clear || repository.editFields.DeferUntil.Set != nil {
-		t.Errorf("edited defer date = %#v, want explicit clear", repository.editFields.DeferUntil)
+	if !store.editFields.DeferUntil.Clear || store.editFields.DeferUntil.Set != nil {
+		t.Errorf("edited defer date = %#v, want explicit clear", store.editFields.DeferUntil)
 	}
 
-	omittedRepository := &recordingRepository{}
+	omittedStore := &recordingStore{}
 	title := "revised"
-	_, err = NewService(omittedRepository).Edit(context.Background(), 7, EditFields{Title: &title})
+	_, err = NewService(omittedStore).Edit(context.Background(), 7, EditFields{Title: &title})
 	if err != nil {
 		t.Fatalf("Edit(omitted due) error = %v", err)
 	}
-	if omittedRepository.editFields.DueOn != (DateChange{}) {
-		t.Errorf("edited due date = %#v, want omitted", omittedRepository.editFields.DueOn)
+	if omittedStore.editFields.DueOn != (DateChange{}) {
+		t.Errorf("edited due date = %#v, want omitted", omittedStore.editFields.DueOn)
 	}
-	if omittedRepository.editFields.DeferUntil != (DateChange{}) {
-		t.Errorf("edited defer date = %#v, want omitted", omittedRepository.editFields.DeferUntil)
+	if omittedStore.editFields.DeferUntil != (DateChange{}) {
+		t.Errorf("edited defer date = %#v, want omitted", omittedStore.editFields.DeferUntil)
 	}
 }
 
@@ -477,16 +479,16 @@ func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			repository := &recordingRepository{}
-			_, err := NewService(repository).Edit(context.Background(), test.id, test.fields)
+			store := &recordingStore{}
+			_, err := NewService(store).Edit(context.Background(), test.id, test.fields)
 			if err == nil {
 				t.Fatal("Edit() error = nil, want invalid_argument")
 			}
-			if code, ok := ErrorCodeOf(err); !ok || code != ErrorInvalidArgument {
+			if code, ok := apperr.CodeOf(err); !ok || code != apperr.InvalidArgument {
 				t.Errorf("Edit() error = %v, want invalid_argument", err)
 			}
-			if repository.editCalls != 0 {
-				t.Errorf("repository Edit() calls = %d, want 0", repository.editCalls)
+			if store.editCalls != 0 {
+				t.Errorf("store Edit() calls = %d, want 0", store.editCalls)
 			}
 		})
 	}
@@ -498,27 +500,27 @@ func TestLifecycleValidatesIDBeforePersistence(t *testing.T) {
 	tests := []struct {
 		name  string
 		apply func(*Service) error
-		calls func(*recordingRepository) int
+		calls func(*recordingStore) int
 	}{
-		{name: "done", apply: func(service *Service) error { _, err := service.Done(context.Background(), 0); return err }, calls: func(repository *recordingRepository) int { return repository.doneCalls }},
-		{name: "cancel", apply: func(service *Service) error { _, err := service.Cancel(context.Background(), 0); return err }, calls: func(repository *recordingRepository) int { return repository.cancelCalls }},
-		{name: "reopen", apply: func(service *Service) error { _, err := service.Reopen(context.Background(), 0); return err }, calls: func(repository *recordingRepository) int { return repository.reopenCalls }},
-		{name: "delete", apply: func(service *Service) error { _, err := service.Delete(context.Background(), 0); return err }, calls: func(repository *recordingRepository) int { return repository.deleteCalls }},
+		{name: "done", apply: func(service *Service) error { _, err := service.Done(context.Background(), 0); return err }, calls: func(store *recordingStore) int { return store.doneCalls }},
+		{name: "cancel", apply: func(service *Service) error { _, err := service.Cancel(context.Background(), 0); return err }, calls: func(store *recordingStore) int { return store.cancelCalls }},
+		{name: "reopen", apply: func(service *Service) error { _, err := service.Reopen(context.Background(), 0); return err }, calls: func(store *recordingStore) int { return store.reopenCalls }},
+		{name: "delete", apply: func(service *Service) error { _, err := service.Delete(context.Background(), 0); return err }, calls: func(store *recordingStore) int { return store.deleteCalls }},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			repository := &recordingRepository{}
-			err := test.apply(NewService(repository))
+			store := &recordingStore{}
+			err := test.apply(NewService(store))
 			if err == nil {
 				t.Fatal("lifecycle error = nil, want invalid_argument")
 			}
-			if code, ok := ErrorCodeOf(err); !ok || code != ErrorInvalidArgument {
+			if code, ok := apperr.CodeOf(err); !ok || code != apperr.InvalidArgument {
 				t.Errorf("lifecycle error = %v, want invalid_argument", err)
 			}
-			if calls := test.calls(repository); calls != 0 {
-				t.Errorf("repository calls = %d, want 0", calls)
+			if calls := test.calls(store); calls != 0 {
+				t.Errorf("store calls = %d, want 0", calls)
 			}
 		})
 	}
@@ -530,18 +532,18 @@ func TestLifecycleDelegatesOneNormalizedTimestampPerAttempt(t *testing.T) {
 	tests := []struct {
 		name  string
 		apply func(*Service) error
-		calls func(*recordingRepository) int
+		calls func(*recordingStore) int
 	}{
-		{name: "done", apply: func(service *Service) error { _, err := service.Done(context.Background(), 7); return err }, calls: func(repository *recordingRepository) int { return repository.doneCalls }},
-		{name: "cancel", apply: func(service *Service) error { _, err := service.Cancel(context.Background(), 7); return err }, calls: func(repository *recordingRepository) int { return repository.cancelCalls }},
-		{name: "reopen", apply: func(service *Service) error { _, err := service.Reopen(context.Background(), 7); return err }, calls: func(repository *recordingRepository) int { return repository.reopenCalls }},
+		{name: "done", apply: func(service *Service) error { _, err := service.Done(context.Background(), 7); return err }, calls: func(store *recordingStore) int { return store.doneCalls }},
+		{name: "cancel", apply: func(service *Service) error { _, err := service.Cancel(context.Background(), 7); return err }, calls: func(store *recordingStore) int { return store.cancelCalls }},
+		{name: "reopen", apply: func(service *Service) error { _, err := service.Reopen(context.Background(), 7); return err }, calls: func(store *recordingStore) int { return store.reopenCalls }},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			repository := &recordingRepository{}
-			service := NewService(repository)
+			store := &recordingStore{}
+			service := NewService(store)
 			nowCalls := 0
 			service.now = func() time.Time {
 				nowCalls++
@@ -551,11 +553,11 @@ func TestLifecycleDelegatesOneNormalizedTimestampPerAttempt(t *testing.T) {
 			if err := test.apply(service); err != nil {
 				t.Fatalf("lifecycle error = %v", err)
 			}
-			if test.calls(repository) != 1 || repository.lifecycleID != 7 {
-				t.Errorf("repository calls/ID = %d/%d, want 1/7", test.calls(repository), repository.lifecycleID)
+			if test.calls(store) != 1 || store.lifecycleID != 7 {
+				t.Errorf("store calls/ID = %d/%d, want 1/7", test.calls(store), store.lifecycleID)
 			}
-			if nowCalls != 1 || repository.lifecycleTimestamp != "2026-07-27T16:34:56.987Z" {
-				t.Errorf("now calls/timestamp = %d/%q, want 1/UTC milliseconds", nowCalls, repository.lifecycleTimestamp)
+			if nowCalls != 1 || store.lifecycleTimestamp != "2026-07-27T16:34:56.987Z" {
+				t.Errorf("now calls/timestamp = %d/%q, want 1/UTC milliseconds", nowCalls, store.lifecycleTimestamp)
 			}
 		})
 	}

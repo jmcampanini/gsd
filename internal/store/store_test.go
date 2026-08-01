@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -108,6 +109,7 @@ func TestDateColumnsEnforceCanonicalValuesAndRoundTripDates(t *testing.T) {
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -115,7 +117,7 @@ func TestDateColumnsEnforceCanonicalValuesAndRoundTripDates(t *testing.T) {
 
 	dueOn := "2026-08-03"
 	deferUntil := "2026-08-01"
-	created, err := storage.Add(ctx, task.AddFields{
+	created, err := tasks.Add(ctx, task.AddFields{
 		Title:      "dated",
 		DueOn:      &dueOn,
 		DeferUntil: &deferUntil,
@@ -160,6 +162,7 @@ func TestAvailableViewUsesLocalDeferBoundaryAndOpenStatus(t *testing.T) {
 	for attempt := range 3 {
 		path := filepath.Join(t.TempDir(), fmt.Sprintf("attempt-%d.db", attempt))
 		storage, err := Open(ctx, path)
+		tasks := NewTasks(storage)
 		if err != nil {
 			t.Fatalf("Open() error = %v", err)
 		}
@@ -172,7 +175,7 @@ func TestAvailableViewUsesLocalDeferBoundaryAndOpenStatus(t *testing.T) {
 
 		created := make([]task.Task, 5)
 		for index, title := range []string{"null", "past", "today", "future", "done"} {
-			created[index], err = storage.Add(ctx, task.AddFields{Title: title}, "2026-01-01T00:00:00.000Z")
+			created[index], err = tasks.Add(ctx, task.AddFields{Title: title}, "2026-01-01T00:00:00.000Z")
 			if err != nil {
 				_ = storage.Close()
 				t.Fatalf("Add(%s) error = %v", title, err)
@@ -195,12 +198,12 @@ func TestAvailableViewUsesLocalDeferBoundaryAndOpenStatus(t *testing.T) {
 				t.Fatalf("set defer date: %v", err)
 			}
 		}
-		if _, err := storage.Done(ctx, created[4].ID, "2026-01-02T00:00:00.000Z"); err != nil {
+		if _, err := tasks.Done(ctx, created[4].ID, "2026-01-02T00:00:00.000Z"); err != nil {
 			_ = storage.Close()
 			t.Fatalf("Done() error = %v", err)
 		}
 
-		available, err := storage.Available(ctx)
+		available, err := tasks.Available(ctx)
 		if err != nil {
 			_ = storage.Close()
 			t.Fatalf("Available() error = %v", err)
@@ -237,6 +240,7 @@ func TestAddAppendsPositionsAcrossResolvedTasksAndGeneratesStatus(t *testing.T) 
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -245,7 +249,7 @@ func TestAddAppendsPositionsAcrossResolvedTasksAndGeneratesStatus(t *testing.T) 
 	})
 
 	createdAt := "2026-01-01T00:00:00.000Z"
-	first, err := storage.Add(ctx, task.AddFields{Title: "first", Note: "first note"}, createdAt)
+	first, err := tasks.Add(ctx, task.AddFields{Title: "first", Note: "first note"}, createdAt)
 	if err != nil {
 		t.Fatalf("Add(first) error = %v", err)
 	}
@@ -262,11 +266,11 @@ func TestAddAppendsPositionsAcrossResolvedTasksAndGeneratesStatus(t *testing.T) 
 	}
 
 	resolvedAt := "2026-01-02T00:00:00.000Z"
-	if _, err := storage.Done(ctx, first.ID, resolvedAt); err != nil {
+	if _, err := tasks.Done(ctx, first.ID, resolvedAt); err != nil {
 		t.Fatalf("Done(first) error = %v", err)
 	}
 
-	second, err := storage.Add(ctx, task.AddFields{Title: "second"}, "2026-01-03T00:00:00.000Z")
+	second, err := tasks.Add(ctx, task.AddFields{Title: "second"}, "2026-01-03T00:00:00.000Z")
 	if err != nil {
 		t.Fatalf("Add(second) error = %v", err)
 	}
@@ -274,7 +278,7 @@ func TestAddAppendsPositionsAcrossResolvedTasksAndGeneratesStatus(t *testing.T) 
 		t.Errorf("second position = %d, want appended past resolved first", second.Position)
 	}
 
-	inbox, err := storage.Inbox(ctx)
+	inbox, err := tasks.Inbox(ctx)
 	if err != nil {
 		t.Fatalf("Inbox() error = %v", err)
 	}
@@ -282,7 +286,7 @@ func TestAddAppendsPositionsAcrossResolvedTasksAndGeneratesStatus(t *testing.T) 
 		t.Errorf("Inbox() = %#v, want only second task", inbox)
 	}
 
-	found, err := storage.Find(ctx, first.ID)
+	found, err := tasks.Find(ctx, first.ID)
 	if err != nil {
 		t.Fatalf("Find(first) error = %v", err)
 	}
@@ -324,8 +328,8 @@ func TestOpenRejectsUnsafeBootstrapStates(t *testing.T) {
 			if err == nil {
 				t.Fatal("Open() error = nil, want conflict")
 			}
-			code, ok := task.ErrorCodeOf(err)
-			if !ok || code != task.ErrorConflict {
+			code, ok := apperr.CodeOf(err)
+			if !ok || code != apperr.Conflict {
 				t.Errorf("Open() error = %v, want conflict", err)
 			}
 			if !strings.Contains(err.Error(), "delete your development database") {
@@ -387,6 +391,7 @@ func TestFindReturnsNotFoundCode(t *testing.T) {
 	t.Parallel()
 
 	storage, err := Open(context.Background(), filepath.Join(t.TempDir(), "gsd.db"))
+	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -394,12 +399,12 @@ func TestFindReturnsNotFoundCode(t *testing.T) {
 		_ = storage.Close()
 	})
 
-	_, err = storage.Find(context.Background(), 99)
+	_, err = tasks.Find(context.Background(), 99)
 	if err == nil {
 		t.Fatal("Find() error = nil, want not_found")
 	}
-	code, ok := task.ErrorCodeOf(err)
-	if !ok || code != task.ErrorNotFound {
+	code, ok := apperr.CodeOf(err)
+	if !ok || code != apperr.NotFound {
 		t.Errorf("Find() error = %v, want not_found", err)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -412,6 +417,7 @@ func TestListFiltersGeneratedStatusesAndOrdersByPositionThenID(t *testing.T) {
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -419,15 +425,15 @@ func TestListFiltersGeneratedStatusesAndOrdersByPositionThenID(t *testing.T) {
 
 	created := make([]task.Task, 4)
 	for index, title := range []string{"first", "second", "third", "fourth"} {
-		created[index], err = storage.Add(ctx, task.AddFields{Title: title}, "2026-01-01T00:00:00.000Z")
+		created[index], err = tasks.Add(ctx, task.AddFields{Title: title}, "2026-01-01T00:00:00.000Z")
 		if err != nil {
 			t.Fatalf("Add(%s) error = %v", title, err)
 		}
 	}
-	if _, err := storage.Done(ctx, created[1].ID, "2026-01-02T00:00:00.000Z"); err != nil {
+	if _, err := tasks.Done(ctx, created[1].ID, "2026-01-02T00:00:00.000Z"); err != nil {
 		t.Fatalf("Done(second) error = %v", err)
 	}
-	if _, err := storage.Cancel(ctx, created[2].ID, "2026-01-03T00:00:00.000Z"); err != nil {
+	if _, err := tasks.Cancel(ctx, created[2].ID, "2026-01-03T00:00:00.000Z"); err != nil {
 		t.Fatalf("Cancel(third) error = %v", err)
 	}
 	if _, err := storage.database.ExecContext(ctx, `
@@ -452,7 +458,7 @@ END
 		{status: task.ListStatusAll, want: []int64{created[3].ID, created[1].ID, created[2].ID, created[0].ID}},
 	}
 	for _, test := range tests {
-		listed, listErr := storage.List(ctx, task.ListOptions{Status: test.status})
+		listed, listErr := tasks.List(ctx, task.ListOptions{Status: test.status})
 		if listErr != nil {
 			t.Fatalf("List(%s) error = %v", test.status, listErr)
 		}
@@ -472,6 +478,7 @@ func TestListDatePredicatesComposeWithStatusAndPreserveOrdering(t *testing.T) {
 	ctx := context.Background()
 	for attempt := range 3 {
 		storage, err := Open(ctx, filepath.Join(t.TempDir(), fmt.Sprintf("attempt-%d.db", attempt)))
+		tasks := NewTasks(storage)
 		if err != nil {
 			t.Fatalf("Open() error = %v", err)
 		}
@@ -492,13 +499,13 @@ func TestListDatePredicatesComposeWithStatusAndPreserveOrdering(t *testing.T) {
 		}
 		created := make([]task.Task, len(fields))
 		for index := range fields {
-			created[index], err = storage.Add(ctx, fields[index], "2026-01-01T00:00:00.000Z")
+			created[index], err = tasks.Add(ctx, fields[index], "2026-01-01T00:00:00.000Z")
 			if err != nil {
 				_ = storage.Close()
 				t.Fatalf("Add(%s) error = %v", fields[index].Title, err)
 			}
 		}
-		if _, err := storage.Done(ctx, created[4].ID, "2026-01-02T00:00:00.000Z"); err != nil {
+		if _, err := tasks.Done(ctx, created[4].ID, "2026-01-02T00:00:00.000Z"); err != nil {
 			_ = storage.Close()
 			t.Fatalf("Done() error = %v", err)
 		}
@@ -556,7 +563,7 @@ func TestListDatePredicatesComposeWithStatusAndPreserveOrdering(t *testing.T) {
 			},
 		}
 		for _, test := range tests {
-			listed, listErr := storage.List(ctx, test.options)
+			listed, listErr := tasks.List(ctx, test.options)
 			if listErr != nil {
 				_ = storage.Close()
 				t.Fatalf("List(%s) error = %v", test.name, listErr)
@@ -598,6 +605,7 @@ func TestEditAtomicallyUpdatesRequestedFieldsAndReturnsTask(t *testing.T) {
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -605,7 +613,7 @@ func TestEditAtomicallyUpdatesRequestedFieldsAndReturnsTask(t *testing.T) {
 
 	initialDueOn := "2026-08-02"
 	initialDeferUntil := "2026-08-01"
-	created, err := storage.Add(
+	created, err := tasks.Add(
 		ctx,
 		task.AddFields{
 			Title:      "original",
@@ -618,13 +626,13 @@ func TestEditAtomicallyUpdatesRequestedFieldsAndReturnsTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	done, err := storage.Done(ctx, created.ID, "2026-01-02T00:00:00.000Z")
+	done, err := tasks.Done(ctx, created.ID, "2026-01-02T00:00:00.000Z")
 	if err != nil {
 		t.Fatalf("Done() error = %v", err)
 	}
 
 	title := "  revised  "
-	titleEdited, err := storage.Edit(
+	titleEdited, err := tasks.Edit(
 		ctx,
 		created.ID,
 		task.EditFields{Title: &title},
@@ -650,7 +658,7 @@ func TestEditAtomicallyUpdatesRequestedFieldsAndReturnsTask(t *testing.T) {
 
 	dueOn := "2026-08-03"
 	deferUntil := "2026-08-02"
-	dueEdited, err := storage.Edit(
+	dueEdited, err := tasks.Edit(
 		ctx,
 		created.ID,
 		task.EditFields{
@@ -670,7 +678,7 @@ func TestEditAtomicallyUpdatesRequestedFieldsAndReturnsTask(t *testing.T) {
 
 	invalidTitle := "must not persist"
 	invalidDueOn := "2026-02-30"
-	if _, err := storage.Edit(
+	if _, err := tasks.Edit(
 		ctx,
 		created.ID,
 		task.EditFields{Title: &invalidTitle, DueOn: task.DateChange{Set: &invalidDueOn}},
@@ -678,7 +686,7 @@ func TestEditAtomicallyUpdatesRequestedFieldsAndReturnsTask(t *testing.T) {
 	); err == nil {
 		t.Fatal("Edit(invalid due) error = nil, want CHECK failure")
 	}
-	unchanged, err := storage.Find(ctx, created.ID)
+	unchanged, err := tasks.Find(ctx, created.ID)
 	if err != nil {
 		t.Fatalf("Find(after invalid edit) error = %v", err)
 	}
@@ -687,7 +695,7 @@ func TestEditAtomicallyUpdatesRequestedFieldsAndReturnsTask(t *testing.T) {
 	}
 
 	note := ""
-	noteEdited, err := storage.Edit(
+	noteEdited, err := tasks.Edit(
 		ctx,
 		created.ID,
 		task.EditFields{
@@ -704,7 +712,7 @@ func TestEditAtomicallyUpdatesRequestedFieldsAndReturnsTask(t *testing.T) {
 		noteEdited.DueOn != nil || noteEdited.DeferUntil != nil {
 		t.Errorf("Edit(note and dates) = %#v, want preserved title and cleared note and dates", noteEdited)
 	}
-	persisted, err := storage.Find(ctx, created.ID)
+	persisted, err := tasks.Find(ctx, created.ID)
 	if err != nil {
 		t.Fatalf("Find() error = %v", err)
 	}
@@ -718,18 +726,19 @@ func TestEditRejectsNoFieldsAndReportsMissingTask(t *testing.T) {
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
 	t.Cleanup(func() { _ = storage.Close() })
 
-	if _, err := storage.Edit(ctx, 1, task.EditFields{}, "2026-01-01T00:00:00.000Z"); err == nil {
+	if _, err := tasks.Edit(ctx, 1, task.EditFields{}, "2026-01-01T00:00:00.000Z"); err == nil {
 		t.Error("Edit(no fields) error = nil, want caller-contract error")
-	} else if code, coded := task.ErrorCodeOf(err); coded {
+	} else if code, coded := apperr.CodeOf(err); coded {
 		t.Errorf("Edit(no fields) error code = %q, want uncoded caller-contract error", code)
 	}
 	title := "missing"
-	if _, err := storage.Edit(ctx, 99, task.EditFields{Title: &title}, "2026-01-01T00:00:00.000Z"); errorCode(err) != task.ErrorNotFound {
+	if _, err := tasks.Edit(ctx, 99, task.EditFields{Title: &title}, "2026-01-01T00:00:00.000Z"); errorCode(err) != apperr.NotFound {
 		t.Errorf("Edit(missing) error = %v, want not_found", err)
 	}
 }
@@ -739,6 +748,7 @@ func TestLifecycleTransitionsPreserveTaskAndEnforceState(t *testing.T) {
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -746,7 +756,7 @@ func TestLifecycleTransitionsPreserveTaskAndEnforceState(t *testing.T) {
 
 	dueOn := "2026-08-03"
 	deferUntil := "2026-08-01"
-	created, err := storage.Add(
+	created, err := tasks.Add(
 		ctx,
 		task.AddFields{Title: "task", Note: "note", DueOn: &dueOn, DeferUntil: &deferUntil},
 		"2026-01-01T00:00:00.000Z",
@@ -754,12 +764,12 @@ func TestLifecycleTransitionsPreserveTaskAndEnforceState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	created, err = storage.Find(ctx, created.ID)
+	created, err = tasks.Find(ctx, created.ID)
 	if err != nil {
 		t.Fatalf("Find(dated task) error = %v", err)
 	}
 	doneAt := "2026-01-02T03:04:05.678Z"
-	done, err := storage.Done(ctx, created.ID, doneAt)
+	done, err := tasks.Done(ctx, created.ID, doneAt)
 	if err != nil {
 		t.Fatalf("Done() error = %v", err)
 	}
@@ -771,10 +781,10 @@ func TestLifecycleTransitionsPreserveTaskAndEnforceState(t *testing.T) {
 		t.Errorf("Done() updated_at = %q, want %q", done.UpdatedAt, doneAt)
 	}
 
-	if _, err := storage.Cancel(ctx, created.ID, "2026-01-03T00:00:00.000Z"); errorCode(err) != task.ErrorConflict {
+	if _, err := tasks.Cancel(ctx, created.ID, "2026-01-03T00:00:00.000Z"); errorCode(err) != apperr.Conflict {
 		t.Errorf("Cancel(done) error = %v, want conflict", err)
 	}
-	unchanged, err := storage.Find(ctx, created.ID)
+	unchanged, err := tasks.Find(ctx, created.ID)
 	if err != nil {
 		t.Fatalf("Find(done) error = %v", err)
 	}
@@ -783,7 +793,7 @@ func TestLifecycleTransitionsPreserveTaskAndEnforceState(t *testing.T) {
 	}
 
 	reopenedAt := "2026-01-04T03:04:05.678Z"
-	reopened, err := storage.Reopen(ctx, created.ID, reopenedAt)
+	reopened, err := tasks.Reopen(ctx, created.ID, reopenedAt)
 	if err != nil {
 		t.Fatalf("Reopen() error = %v", err)
 	}
@@ -791,12 +801,12 @@ func TestLifecycleTransitionsPreserveTaskAndEnforceState(t *testing.T) {
 		t.Errorf("Reopen() = %#v, want cleared lifecycle timestamps", reopened)
 	}
 	assertPreservedTaskFields(t, reopened, created)
-	if _, err := storage.Reopen(ctx, created.ID, "2026-01-05T00:00:00.000Z"); errorCode(err) != task.ErrorConflict {
+	if _, err := tasks.Reopen(ctx, created.ID, "2026-01-05T00:00:00.000Z"); errorCode(err) != apperr.Conflict {
 		t.Errorf("Reopen(open) error = %v, want conflict", err)
 	}
 
 	cancelledAt := "2026-01-06T03:04:05.678Z"
-	cancelled, err := storage.Cancel(ctx, created.ID, cancelledAt)
+	cancelled, err := tasks.Cancel(ctx, created.ID, cancelledAt)
 	if err != nil {
 		t.Fatalf("Cancel() error = %v", err)
 	}
@@ -804,7 +814,7 @@ func TestLifecycleTransitionsPreserveTaskAndEnforceState(t *testing.T) {
 		t.Errorf("Cancel() = %#v, want generated cancelled state at supplied timestamp", cancelled)
 	}
 	assertPreservedTaskFields(t, cancelled, created)
-	if _, err := storage.Done(ctx, created.ID, "2026-01-07T00:00:00.000Z"); errorCode(err) != task.ErrorConflict {
+	if _, err := tasks.Done(ctx, created.ID, "2026-01-07T00:00:00.000Z"); errorCode(err) != apperr.Conflict {
 		t.Errorf("Done(cancelled) error = %v, want conflict", err)
 	}
 }
@@ -814,6 +824,7 @@ func TestLifecycleMissingTaskReturnsNotFound(t *testing.T) {
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -823,14 +834,14 @@ func TestLifecycleMissingTaskReturnsNotFound(t *testing.T) {
 		name  string
 		apply func() error
 	}{
-		{name: "done", apply: func() error { _, err := storage.Done(ctx, 99, "2026-01-01T00:00:00.000Z"); return err }},
-		{name: "cancel", apply: func() error { _, err := storage.Cancel(ctx, 99, "2026-01-01T00:00:00.000Z"); return err }},
-		{name: "reopen", apply: func() error { _, err := storage.Reopen(ctx, 99, "2026-01-01T00:00:00.000Z"); return err }},
-		{name: "delete", apply: func() error { _, err := storage.Delete(ctx, 99); return err }},
+		{name: "done", apply: func() error { _, err := tasks.Done(ctx, 99, "2026-01-01T00:00:00.000Z"); return err }},
+		{name: "cancel", apply: func() error { _, err := tasks.Cancel(ctx, 99, "2026-01-01T00:00:00.000Z"); return err }},
+		{name: "reopen", apply: func() error { _, err := tasks.Reopen(ctx, 99, "2026-01-01T00:00:00.000Z"); return err }},
+		{name: "delete", apply: func() error { _, err := tasks.Delete(ctx, 99); return err }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if err := test.apply(); errorCode(err) != task.ErrorNotFound {
+			if err := test.apply(); errorCode(err) != apperr.NotFound {
 				t.Errorf("operation error = %v, want not_found", err)
 			}
 		})
@@ -842,13 +853,14 @@ func TestDeleteReturnsSnapshotWithoutCompactingPositions(t *testing.T) {
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
 	t.Cleanup(func() { _ = storage.Close() })
 
 	dueOn := "2026-08-03"
-	first, err := storage.Add(
+	first, err := tasks.Add(
 		ctx,
 		task.AddFields{Title: "first", Note: "first note", DueOn: &dueOn},
 		"2026-01-01T00:00:00.000Z",
@@ -856,21 +868,21 @@ func TestDeleteReturnsSnapshotWithoutCompactingPositions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Add(first) error = %v", err)
 	}
-	second, err := storage.Add(ctx, task.AddFields{Title: "second", Note: "second note"}, "2026-01-02T00:00:00.000Z")
+	second, err := tasks.Add(ctx, task.AddFields{Title: "second", Note: "second note"}, "2026-01-02T00:00:00.000Z")
 	if err != nil {
 		t.Fatalf("Add(second) error = %v", err)
 	}
-	deleted, err := storage.Delete(ctx, first.ID)
+	deleted, err := tasks.Delete(ctx, first.ID)
 	if err != nil {
 		t.Fatalf("Delete(first) error = %v", err)
 	}
 	if !reflect.DeepEqual(deleted, first) {
 		t.Errorf("Delete(first) = %#v, want snapshot %#v", deleted, first)
 	}
-	if _, err := storage.Find(ctx, first.ID); errorCode(err) != task.ErrorNotFound {
+	if _, err := tasks.Find(ctx, first.ID); errorCode(err) != apperr.NotFound {
 		t.Errorf("Find(deleted) error = %v, want not_found", err)
 	}
-	remaining, err := storage.Find(ctx, second.ID)
+	remaining, err := tasks.Find(ctx, second.ID)
 	if err != nil {
 		t.Fatalf("Find(second) error = %v", err)
 	}
@@ -884,11 +896,12 @@ func TestConcurrentDoneAndCancelExactlyOneSucceeds(t *testing.T) {
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
 	t.Cleanup(func() { _ = storage.Close() })
-	created, err := storage.Add(ctx, task.AddFields{Title: "race"}, "2026-01-01T00:00:00.000Z")
+	created, err := tasks.Add(ctx, task.AddFields{Title: "race"}, "2026-01-01T00:00:00.000Z")
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -897,12 +910,12 @@ func TestConcurrentDoneAndCancelExactlyOneSucceeds(t *testing.T) {
 	results := make(chan error, 2)
 	go func() {
 		<-start
-		_, doneErr := storage.Done(ctx, created.ID, "2026-01-02T00:00:00.000Z")
+		_, doneErr := tasks.Done(ctx, created.ID, "2026-01-02T00:00:00.000Z")
 		results <- doneErr
 	}()
 	go func() {
 		<-start
-		_, cancelErr := storage.Cancel(ctx, created.ID, "2026-01-03T00:00:00.000Z")
+		_, cancelErr := tasks.Cancel(ctx, created.ID, "2026-01-03T00:00:00.000Z")
 		results <- cancelErr
 	}()
 	close(start)
@@ -914,7 +927,7 @@ func TestConcurrentDoneAndCancelExactlyOneSucceeds(t *testing.T) {
 		switch errorCode(result) {
 		case "":
 			successes++
-		case task.ErrorConflict:
+		case apperr.Conflict:
 			conflicts++
 		default:
 			t.Errorf("race error = %v, want nil or conflict", result)
@@ -923,7 +936,7 @@ func TestConcurrentDoneAndCancelExactlyOneSucceeds(t *testing.T) {
 	if successes != 1 || conflicts != 1 {
 		t.Errorf("race successes/conflicts = %d/%d, want 1/1", successes, conflicts)
 	}
-	resolved, err := storage.Find(ctx, created.ID)
+	resolved, err := tasks.Find(ctx, created.ID)
 	if err != nil {
 		t.Fatalf("Find() error = %v", err)
 	}
@@ -942,8 +955,8 @@ func assertPreservedTaskFields(t *testing.T, got, original task.Task) {
 	}
 }
 
-func errorCode(err error) task.ErrorCode {
-	code, _ := task.ErrorCodeOf(err)
+func errorCode(err error) apperr.Code {
+	code, _ := apperr.CodeOf(err)
 	return code
 }
 

@@ -17,7 +17,7 @@ Milestone 3 is one review-only structural chunk followed by three sequential
 vertical slices. This is the chunk progress checklist; check a chunk only
 after its implementation and verification items below are complete:
 
-- [ ] **Chunk 0 — Structural refactor** — review-only: shared error package,
+- [x] **Chunk 0 — Structural refactor** — review-only: shared error package,
       the `Store` interface vocabulary, and per-entity store types, with no
       behavior change.
 - [ ] **Chunk 1 — Projects exist** — a human can create and inspect projects,
@@ -130,13 +130,17 @@ and must not open the database.
 ### Structural refactor (Chunk 0)
 
 Extract the stable error codes and constructors from `internal/task` into a
-new `internal/apperr` package used by the task, store, and command layers.
-Rename the persistence interface vocabulary from `Repository` to `Store`:
-services depend on consumer-defined `Store` interfaces declared in their
-entity packages. Split the concrete store into a `store.DB` type owning path
+new `internal/apperr` package used by the task, store, and command layers. Use
+the idiomatic package-qualified vocabulary `Code`, `NotFound`,
+`InvalidArgument`, `Conflict`, `Internal`, `New`, and `CodeOf`. Rename the
+persistence interface vocabulary from `Repository` to `Store`: services
+depend on consumer-defined `Store` interfaces declared in their entity
+packages. Split the concrete store into a `store.DB` type owning path
 resolution, open, pragmas, bootstrap, and close, plus a per-entity
-`store.Tasks` type holding only task SQL. Update `AGENTS.md` to the
-services/stores vocabulary. No exported behavior, SQL, or output changes.
+`store.Tasks` type holding only task SQL. Construct it explicitly with
+`store.NewTasks(*store.DB)` so `store.DB` does not become an entity-store
+factory. Update `AGENTS.md` to the services/stores vocabulary. No exported
+behavior, SQL, or output changes.
 
 ### Project application
 
@@ -241,16 +245,16 @@ is human-facing. No demo is produced.
 
 ### Implementation
 
-- [ ] Extract `internal/apperr` (codes, constructor, code extraction) and
-      migrate the task, store, and command layers to it.
-- [ ] Rename `task.Repository` to `task.Store` and update fakes and wiring.
-- [ ] Split `internal/store` into `store.DB` (open, pragmas, bootstrap,
-      close, path resolution) and `store.Tasks` (task SQL only), updating
-      the command factory.
-- [ ] Update `AGENTS.md` to the services/stores vocabulary.
-- [ ] Verify zero behavior change: no schema, SQL semantics, output, or exit
+- [x] Extract `internal/apperr` (`Code`, code constants, `New`, and `CodeOf`)
+      and migrate the task, store, and command layers to it.
+- [x] Rename `task.Repository` to `task.Store` and update fakes and wiring.
+- [x] Split `internal/store` into `store.DB` (open, pragmas, bootstrap,
+      close, path resolution) and `store.Tasks` (task SQL only), construct
+      task stores with `store.NewTasks`, and update the command factory.
+- [x] Update `AGENTS.md` to the services/stores vocabulary.
+- [x] Verify zero behavior change: no schema, SQL semantics, output, or exit
       differences; existing tests pass with only mechanical updates.
-- [ ] Run `make check` before opening the chunk pull request.
+- [x] Run `make check` before opening the chunk pull request.
 
 ## Chunk 1 — Projects exist
 

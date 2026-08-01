@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/spf13/cobra"
 )
@@ -289,8 +290,8 @@ func resolveNote(command *cobra.Command, value string) (string, error) {
 
 	contents, err := io.ReadAll(command.InOrStdin())
 	if err != nil {
-		return "", task.NewError(
-			task.ErrorInternal,
+		return "", apperr.New(
+			apperr.Internal,
 			fmt.Sprintf("read task note: %v", err),
 			err,
 		)

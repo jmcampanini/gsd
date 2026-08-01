@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -173,12 +174,12 @@ func TestExitCodeForError(t *testing.T) {
 		{name: "success", want: 0},
 		{
 			name: "application",
-			err:  task.NewError(task.ErrorConflict, "conflict", nil),
+			err:  apperr.New(apperr.Conflict, "conflict", nil),
 			want: 1,
 		},
 		{
 			name: "wrapped application",
-			err:  errors.Join(errors.New("context"), task.NewError(task.ErrorNotFound, "missing", nil)),
+			err:  errors.Join(errors.New("context"), apperr.New(apperr.NotFound, "missing", nil)),
 			want: 1,
 		},
 		{name: "usage", err: errors.New("usage error"), want: 2},
@@ -351,7 +352,7 @@ func TestNoteStdinReadFailureIsInternalWithoutOpeningApplication(t *testing.T) {
 	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if envelope.Error.Code != task.ErrorInternal {
+	if envelope.Error.Code != apperr.Internal {
 		t.Errorf("error code = %q, want internal", envelope.Error.Code)
 	}
 }
@@ -481,8 +482,8 @@ func TestEditAdaptsDeferIntent(t *testing.T) {
 func TestEditWithoutFieldsReturnsApplicationError(t *testing.T) {
 	t.Parallel()
 
-	application := &fakeApplication{editError: task.NewError(
-		task.ErrorInvalidArgument,
+	application := &fakeApplication{editError: apperr.New(
+		apperr.InvalidArgument,
 		"edit requires at least one field",
 		nil,
 	)}
@@ -497,7 +498,7 @@ func TestEditWithoutFieldsReturnsApplicationError(t *testing.T) {
 	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if envelope.Error.Code != task.ErrorInvalidArgument {
+	if envelope.Error.Code != apperr.InvalidArgument {
 		t.Errorf("error code = %q, want invalid_argument", envelope.Error.Code)
 	}
 }
@@ -727,7 +728,7 @@ func TestLifecycleValidationDoesNotOpenDatabase(t *testing.T) {
 			if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
 				t.Fatalf("decode error: %v", err)
 			}
-			if envelope.Error.Code != task.ErrorInvalidArgument {
+			if envelope.Error.Code != apperr.InvalidArgument {
 				t.Errorf("error code = %q, want invalid_argument", envelope.Error.Code)
 			}
 		})
@@ -874,31 +875,31 @@ func TestJSONErrorsUseStableCodesAndStreams(t *testing.T) {
 		name        string
 		application *fakeApplication
 		args        []string
-		wantCode    task.ErrorCode
+		wantCode    apperr.Code
 		wantMessage string
 		wantExit    int
 	}{
 		{
 			name: "not found",
-			application: &fakeApplication{showError: task.NewError(
-				task.ErrorNotFound,
+			application: &fakeApplication{showError: apperr.New(
+				apperr.NotFound,
 				"no task 99",
 				nil,
 			)},
 			args:        []string{"show", "99", "--json"},
-			wantCode:    task.ErrorNotFound,
+			wantCode:    apperr.NotFound,
 			wantMessage: "no task 99",
 			wantExit:    1,
 		},
 		{
 			name: "conflict",
-			application: &fakeApplication{doneError: task.NewError(
-				task.ErrorConflict,
+			application: &fakeApplication{doneError: apperr.New(
+				apperr.Conflict,
 				"task 1 is not open",
 				nil,
 			)},
 			args:        []string{"done", "1", "--json"},
-			wantCode:    task.ErrorConflict,
+			wantCode:    apperr.Conflict,
 			wantMessage: "task 1 is not open",
 			wantExit:    1,
 		},
@@ -906,7 +907,7 @@ func TestJSONErrorsUseStableCodesAndStreams(t *testing.T) {
 			name:        "internal",
 			application: &fakeApplication{inboxError: errors.New("open database: permission denied")},
 			args:        []string{"inbox", "--json"},
-			wantCode:    task.ErrorInternal,
+			wantCode:    apperr.Internal,
 			wantMessage: "open database: permission denied",
 			wantExit:    1,
 		},
@@ -966,7 +967,7 @@ func TestInvalidIDIsApplicationErrorWithoutOpeningDatabase(t *testing.T) {
 	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
 		t.Fatalf("decode stderr: %v", err)
 	}
-	if envelope.Error.Code != task.ErrorInvalidArgument {
+	if envelope.Error.Code != apperr.InvalidArgument {
 		t.Errorf("error code = %q, want invalid_argument", envelope.Error.Code)
 	}
 }
