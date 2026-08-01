@@ -58,7 +58,7 @@ type EditFields struct {
 	DueOn      DateChange
 }
 
-type Repository interface {
+type Store interface {
 	Add(ctx context.Context, fields AddFields, timestamp string) (Task, error)
 	Inbox(ctx context.Context) ([]Task, error)
 	Available(ctx context.Context) ([]Task, error)

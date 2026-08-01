@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/task"
 	_ "modernc.org/sqlite"
 )
@@ -308,7 +309,7 @@ func TestTaskWorkflow(t *testing.T) {
 		t.Errorf("completed reopened task = %#v, want done task", redone)
 	}
 	repeatedDone := runGSD(t, "done", "1", "--db", databasePath, "--json")
-	assertJSONError(t, repeatedDone, task.ErrorConflict)
+	assertJSONError(t, repeatedDone, apperr.Conflict)
 
 	editedNote := "line one\nline two\n"
 	edited := decodeTask(t, runGSDWithInput(
@@ -334,7 +335,7 @@ func TestTaskWorkflow(t *testing.T) {
 	assertJSONError(
 		t,
 		runGSD(t, "edit", "3", "--db", databasePath, "--json"),
-		task.ErrorInvalidArgument,
+		apperr.InvalidArgument,
 	)
 
 	deleted := decodeTask(t, runGSD(t, "delete", "2", "--db", databasePath, "--json"))
@@ -344,13 +345,13 @@ func TestTaskWorkflow(t *testing.T) {
 	assertJSONError(
 		t,
 		runGSD(t, "show", "2", "--db", databasePath, "--json"),
-		task.ErrorNotFound,
+		apperr.NotFound,
 	)
 
 	assertJSONError(
 		t,
 		runGSD(t, "show", "99", "--db", databasePath, "--json"),
-		task.ErrorNotFound,
+		apperr.NotFound,
 	)
 
 	emptyResult := runGSD(t, "inbox", "--db", filepath.Join(workflowDir, "empty.db"))
@@ -387,7 +388,7 @@ func TestTaskWorkflow(t *testing.T) {
 	assertJSONError(
 		t,
 		runGSD(t, "inbox", "--db", wrongRevisionPath, "--json"),
-		task.ErrorConflict,
+		apperr.Conflict,
 	)
 }
 
@@ -584,7 +585,7 @@ func TestTaskTimeWorkflow(t *testing.T) {
 				assertJSONError(
 					t,
 					runGSD(t, "add", "invalid", flag, value, "--db", databasePath, "--json"),
-					task.ErrorInvalidArgument,
+					apperr.InvalidArgument,
 				)
 			}
 		}
@@ -735,7 +736,7 @@ func decodeTasks(t *testing.T, result processResult) []task.Task {
 	return decoded
 }
 
-func assertJSONError(t *testing.T, result processResult, wantCode task.ErrorCode) {
+func assertJSONError(t *testing.T, result processResult, wantCode apperr.Code) {
 	t.Helper()
 	if result.exitCode != 1 || result.stdout != "" {
 		t.Fatalf("command result = %#v, want stderr-only exit 1", result)
@@ -746,7 +747,7 @@ func assertJSONError(t *testing.T, result processResult, wantCode task.ErrorCode
 
 	var envelope struct {
 		Error struct {
-			Code task.ErrorCode `json:"code"`
+			Code apperr.Code `json:"code"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {

@@ -10,6 +10,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
+	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -18,8 +19,8 @@ type errorEnvelope struct {
 }
 
 type errorPayload struct {
-	Code    task.ErrorCode `json:"code"`
-	Message string         `json:"message"`
+	Code    apperr.Code `json:"code"`
+	Message string      `json:"message"`
 }
 
 func writeJSON(writer io.Writer, value any) error {
@@ -33,7 +34,7 @@ func writeJSON(writer io.Writer, value any) error {
 }
 
 func writeCommandError(writer io.Writer, jsonMode bool, err error) error {
-	if code, ok := task.ErrorCodeOf(err); ok && jsonMode {
+	if code, ok := apperr.CodeOf(err); ok && jsonMode {
 		return writeJSON(writer, errorEnvelope{Error: errorPayload{Code: code, Message: err.Error()}})
 	}
 

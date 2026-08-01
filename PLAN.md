@@ -17,7 +17,7 @@ Milestone 3 is one review-only structural chunk followed by three sequential
 vertical slices. This is the chunk progress checklist; check a chunk only
 after its implementation and verification items below are complete:
 
-- [ ] **Chunk 0 — Structural refactor** — review-only: shared error package,
+- [x] **Chunk 0 — Structural refactor** — review-only: shared error package,
       the `Store` interface vocabulary, and per-entity store types, with no
       behavior change.
 - [ ] **Chunk 1 — Projects exist** — a human can create and inspect projects,
@@ -130,13 +130,17 @@ and must not open the database.
 ### Structural refactor (Chunk 0)
 
 Extract the stable error codes and constructors from `internal/task` into a
-new `internal/apperr` package used by the task, store, and command layers.
-Rename the persistence interface vocabulary from `Repository` to `Store`:
-services depend on consumer-defined `Store` interfaces declared in their
-entity packages. Split the concrete store into a `store.DB` type owning path
+new `internal/apperr` package used by the task, store, and command layers. Use
+the idiomatic package-qualified vocabulary `Code`, `NotFound`,
+`InvalidArgument`, `Conflict`, `Internal`, `New`, and `CodeOf`. Rename the
+persistence interface vocabulary from `Repository` to `Store`: services
+depend on consumer-defined `Store` interfaces declared in their entity
+packages. Split the concrete store into a `store.DB` type owning path
 resolution, open, pragmas, bootstrap, and close, plus a per-entity
-`store.Tasks` type holding only task SQL. Update `AGENTS.md` to the
-services/stores vocabulary. No exported behavior, SQL, or output changes.
+`store.Tasks` type holding only task SQL. Construct it explicitly with
+`store.NewTasks(*store.DB)` so `store.DB` does not become an entity-store
+factory. Update `AGENTS.md` to the services/stores vocabulary. No exported
+behavior, SQL, or output changes.
 
 ### Project application
 
@@ -145,11 +149,14 @@ New `internal/project` package following the task package's shape: a
 with the standard status filter defaulting to open, an `Exit` enum, and the
 narration envelopes `Resolution` (`project` + `cancelled_tasks`) and
 `Deletion` (`project` + `deleted_tasks`), which reference `task.Task`. The
-consumer-defined `project.Store` interface carries use-case methods:
-`Add`, `Find`, `List`, `Edit`, `Resolve`, `Reopen`, `Delete`, and
-`DeleteRecursive`. The service owns ID/title/note validation, status
-parsing, exit selection, and timestamping, and calls exactly one store
-method per use case.
+consumer-defined `project.Store` interface carries persistence primitives:
+`Add`, `Find`, `List`, `Edit`, `Resolve`, `CancelOpenTasks`, `Reopen`,
+`Delete`, and `DeleteTasks`, plus
+`WithinTransaction(context.Context, func(Store) error) error`. The service
+owns ID/title/note validation, status parsing, exit selection, timestamping,
+and multi-statement orchestration. Single-statement use cases call one store
+method; resolve and recursive delete enter `WithinTransaction` and compose
+their project and task mutations through the transaction-bound `Store`.
 
 ### Task application
 
@@ -181,13 +188,18 @@ and the package scan helpers. Single-entity mutations remain single atomic
 statements whose predicates enforce the guards (project existence and
 openness for containment; project openness for task transitions), with
 classification queries producing `not_found` or `conflict` after a miss —
-the established guard-and-classify pattern. `Resolve` and `DeleteRecursive`
-are the first multi-statement transactions: `BEGIN IMMEDIATE`, the project
-mutation with its guard, the task mutation returning affected rows ordered
-`position, id`, `COMMIT`, rolling back on any failure. The per-entity split
-is code organization, not access control: `store.Projects` writes the
-`tasks` table inside its transactions. List SQL is assembled only from
-validated enums and IDs; raw flag values never become SQL.
+the established guard-and-classify pattern. Project resolution and recursive
+deletion are the first multi-statement transactions. The project service
+owns their scope and mutation sequence through `project.Store`'s
+`WithinTransaction` callback; `store.Projects` implements that boundary with
+`BEGIN IMMEDIATE`, a transaction-bound `store.Projects`, `COMMIT`, and
+rollback on any failure. Resolution mutates the guarded project and then
+cancels its open tasks; recursive deletion deletes the tasks and then the
+project. Task mutations return affected rows ordered by `position, id`. The
+per-entity split is code organization, not access control: `store.Projects`
+writes the `tasks` table through its transaction-bound persistence methods.
+List SQL is assembled only from validated enums and IDs; raw flag values
+never become SQL.
 
 ### Command and output adapters
 
@@ -241,16 +253,16 @@ is human-facing. No demo is produced.
 
 ### Implementation
 
-- [ ] Extract `internal/apperr` (codes, constructor, code extraction) and
-      migrate the task, store, and command layers to it.
-- [ ] Rename `task.Repository` to `task.Store` and update fakes and wiring.
-- [ ] Split `internal/store` into `store.DB` (open, pragmas, bootstrap,
-      close, path resolution) and `store.Tasks` (task SQL only), updating
-      the command factory.
-- [ ] Update `AGENTS.md` to the services/stores vocabulary.
-- [ ] Verify zero behavior change: no schema, SQL semantics, output, or exit
+- [x] Extract `internal/apperr` (`Code`, code constants, `New`, and `CodeOf`)
+      and migrate the task, store, and command layers to it.
+- [x] Rename `task.Repository` to `task.Store` and update fakes and wiring.
+- [x] Split `internal/store` into `store.DB` (open, pragmas, bootstrap,
+      close, path resolution) and `store.Tasks` (task SQL only), construct
+      task stores with `store.NewTasks`, and update the command factory.
+- [x] Update `AGENTS.md` to the services/stores vocabulary.
+- [x] Verify zero behavior change: no schema, SQL semantics, output, or exit
       differences; existing tests pass with only mechanical updates.
-- [ ] Run `make check` before opening the chunk pull request.
+- [x] Run `make check` before opening the chunk pull request.
 
 ## Chunk 1 — Projects exist
 
@@ -320,10 +332,12 @@ delete projects with RESTRICT protection and an explicit recursive opt-in.
 
 ### Implementation
 
-- [ ] Add `Resolve`, `Reopen`, `Delete`, and `DeleteRecursive` to
-      `project.Store` with the `Resolution` and `Deletion` envelopes;
-      implement the transactional cascade and recursive delete in
-      `store.Projects` with guard-and-classify conflicts, one shared
+- [ ] Extend `project.Store` with `Resolve`, `CancelOpenTasks`, `Reopen`,
+      `Delete`, `DeleteTasks`, and `WithinTransaction`; have the project
+      service build the `Resolution` and `Deletion` envelopes while owning
+      the cascade and recursive-delete transaction scope and mutation
+      sequence. Implement the transaction boundary and persistence primitives
+      in `store.Projects` with guard-and-classify conflicts, one shared
       timestamp, `position, id` ordering, and rollback proof.
 - [ ] Add the resolved-project guard to task `done`, `cancel`, and `reopen`
       store predicates with `conflict` classification.

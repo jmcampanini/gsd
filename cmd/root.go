@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/store"
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/spf13/cobra"
@@ -84,7 +85,7 @@ func defaultApplicationFactory(
 		return nil, nil, err
 	}
 
-	return task.NewService(database), database, nil
+	return task.NewService(store.NewTasks(database)), database, nil
 }
 
 func withApplication(
@@ -108,18 +109,18 @@ func normalizeApplicationError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if _, ok := task.ErrorCodeOf(err); ok {
+	if _, ok := apperr.CodeOf(err); ok {
 		return err
 	}
 
-	return task.NewError(task.ErrorInternal, err.Error(), err)
+	return apperr.New(apperr.Internal, err.Error(), err)
 }
 
 func exitCodeForError(err error) int {
 	if err == nil {
 		return 0
 	}
-	if _, ok := task.ErrorCodeOf(err); ok {
+	if _, ok := apperr.CodeOf(err); ok {
 		return 1
 	}
 
