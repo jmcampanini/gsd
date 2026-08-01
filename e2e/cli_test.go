@@ -706,21 +706,15 @@ func calendarDate(reference time.Time, days int) string {
 
 func decodeTask(t *testing.T, result processResult) task.Task {
 	t.Helper()
-	if result.exitCode != 0 || result.stderr != "" {
-		t.Fatalf("command result = %#v, want JSON success", result)
-	}
-	if !strings.HasSuffix(result.stdout, "\n") || strings.Count(result.stdout, "\n") != 1 {
-		t.Fatalf("stdout = %q, want one newline-terminated JSON value", result.stdout)
-	}
-
-	var decoded task.Task
-	if err := json.Unmarshal([]byte(result.stdout), &decoded); err != nil {
-		t.Fatalf("decode task: %v", err)
-	}
-	return decoded
+	return decodeJSON[task.Task](t, result, "task")
 }
 
 func decodeTasks(t *testing.T, result processResult) []task.Task {
+	t.Helper()
+	return decodeJSON[[]task.Task](t, result, "tasks")
+}
+
+func decodeJSON[T any](t *testing.T, result processResult, description string) T {
 	t.Helper()
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("command result = %#v, want JSON success", result)
@@ -729,9 +723,9 @@ func decodeTasks(t *testing.T, result processResult) []task.Task {
 		t.Fatalf("stdout = %q, want one newline-terminated JSON value", result.stdout)
 	}
 
-	var decoded []task.Task
+	var decoded T
 	if err := json.Unmarshal([]byte(result.stdout), &decoded); err != nil {
-		t.Fatalf("decode tasks: %v", err)
+		t.Fatalf("decode %s: %v", description, err)
 	}
 	return decoded
 }

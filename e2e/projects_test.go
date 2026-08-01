@@ -1,13 +1,11 @@
 package e2e
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
@@ -205,34 +203,12 @@ func TestProjectContainmentWorkflow(t *testing.T) {
 
 func decodeProject(t *testing.T, result processResult) project.Project {
 	t.Helper()
-	if result.exitCode != 0 || result.stderr != "" {
-		t.Fatalf("command result = %#v, want JSON success", result)
-	}
-	if !strings.HasSuffix(result.stdout, "\n") || strings.Count(result.stdout, "\n") != 1 {
-		t.Fatalf("stdout = %q, want one newline-terminated JSON value", result.stdout)
-	}
-
-	var decoded project.Project
-	if err := json.Unmarshal([]byte(result.stdout), &decoded); err != nil {
-		t.Fatalf("decode project: %v", err)
-	}
-	return decoded
+	return decodeJSON[project.Project](t, result, "project")
 }
 
 func decodeProjects(t *testing.T, result processResult) []project.Project {
 	t.Helper()
-	if result.exitCode != 0 || result.stderr != "" {
-		t.Fatalf("command result = %#v, want JSON success", result)
-	}
-	if !strings.HasSuffix(result.stdout, "\n") || strings.Count(result.stdout, "\n") != 1 {
-		t.Fatalf("stdout = %q, want one newline-terminated JSON value", result.stdout)
-	}
-
-	var decoded []project.Project
-	if err := json.Unmarshal([]byte(result.stdout), &decoded); err != nil {
-		t.Fatalf("decode projects: %v", err)
-	}
-	return decoded
+	return decodeJSON[[]project.Project](t, result, "projects")
 }
 
 func hasProject(current task.Task, id int64) bool {
