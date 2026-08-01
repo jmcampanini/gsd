@@ -66,7 +66,7 @@ func newInboxCommand(options *rootOptions, factory applicationFactory) *cobra.Co
 					return writeJSON(command.OutOrStdout(), tasks)
 				}
 
-				return writeInbox(command.OutOrStdout(), tasks)
+				return writeOpenTaskList(command.OutOrStdout(), tasks)
 			})
 		},
 	}
@@ -87,7 +87,7 @@ func newAvailableCommand(options *rootOptions, factory applicationFactory) *cobr
 					return writeJSON(command.OutOrStdout(), tasks)
 				}
 
-				return writeInbox(command.OutOrStdout(), tasks)
+				return writeOpenTaskList(command.OutOrStdout(), tasks)
 			})
 		},
 	}

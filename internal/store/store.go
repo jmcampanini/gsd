@@ -218,18 +218,12 @@ func (s *Store) Edit(
 		assignments = append(assignments, "note = ?")
 		arguments = append(arguments, *fields.Note)
 	}
-	if fields.DueOn.Set != nil && fields.DueOn.Clear {
-		return task.Task{}, errors.New("due date cannot be set and cleared")
-	}
 	if fields.DueOn.Set != nil {
 		assignments = append(assignments, "due_on = ?")
 		arguments = append(arguments, *fields.DueOn.Set)
 	}
 	if fields.DueOn.Clear {
 		assignments = append(assignments, "due_on = NULL")
-	}
-	if fields.DeferUntil.Set != nil && fields.DeferUntil.Clear {
-		return task.Task{}, errors.New("defer date cannot be set and cleared")
 	}
 	if fields.DeferUntil.Set != nil {
 		assignments = append(assignments, "defer_until = ?")
