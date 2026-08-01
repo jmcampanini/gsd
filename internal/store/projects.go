@@ -16,26 +16,17 @@ import (
 const projectColumns = `id, title, note, done_at, cancelled_at, status, position, created_at, updated_at`
 
 type Projects struct {
-	db         *DB
-	connection *sql.Conn
+	database *DB
+	executor projectExecutor
 }
 
 type projectExecutor interface {
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
 func NewProjects(database *DB) *Projects {
-	return &Projects{db: database}
-}
-
-func (s *Projects) executor() projectExecutor {
-	if s.connection != nil {
-		return s.connection
-	}
-
-	return s.db.database
+	return &Projects{database: database, executor: database.database}
 }
 
 func (s *Projects) Add(
@@ -43,7 +34,7 @@ func (s *Projects) Add(
 	fields project.AddFields,
 	timestamp string,
 ) (project.Project, error) {
-	row := s.executor().QueryRowContext(ctx, `
+	row := s.executor.QueryRowContext(ctx, `
 INSERT INTO projects (title, note, position, created_at, updated_at)
 SELECT ?, ?, COALESCE(MAX(position), -1) + 1, ?, ?
 FROM projects
@@ -57,7 +48,7 @@ RETURNING `+projectColumns, fields.Title, fields.Note, timestamp, timestamp)
 }
 
 func (s *Projects) Find(ctx context.Context, id int64) (project.Project, error) {
-	row := s.executor().QueryRowContext(ctx, "SELECT "+projectColumns+" FROM projects WHERE id = ?", id)
+	row := s.executor.QueryRowContext(ctx, "SELECT "+projectColumns+" FROM projects WHERE id = ?", id)
 	found, err := scanProject(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return project.Project{}, apperr.New(apperr.NotFound, fmt.Sprintf("no project %d", id), err)
@@ -82,7 +73,7 @@ func (s *Projects) List(ctx context.Context, options project.ListOptions) ([]pro
 	}
 	query += " ORDER BY position, id"
 
-	rows, err := s.executor().QueryContext(ctx, query, arguments...)
+	rows, err := s.executor.QueryContext(ctx, query, arguments...)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -114,7 +105,7 @@ func (s *Projects) Edit(
 	arguments = append(arguments, timestamp, id)
 	query := "UPDATE projects SET " + strings.Join(assignments, ", ") +
 		" WHERE id = ? RETURNING " + projectColumns
-	edited, err := scanProject(s.executor().QueryRowContext(ctx, query, arguments...))
+	edited, err := scanProject(s.executor.QueryRowContext(ctx, query, arguments...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return project.Project{}, apperr.New(apperr.NotFound, fmt.Sprintf("no project %d", id), err)
 	}
@@ -146,7 +137,7 @@ func (s *Projects) Resolve(
 
 	query := "UPDATE projects SET " + column + " = ?, updated_at = ? " +
 		"WHERE id = ? AND done_at IS NULL AND cancelled_at IS NULL RETURNING " + projectColumns
-	resolved, err := scanProject(s.executor().QueryRowContext(ctx, query, timestamp, timestamp, id))
+	resolved, err := scanProject(s.executor.QueryRowContext(ctx, query, timestamp, timestamp, id))
 	if err == nil {
 		return resolved, nil
 	}
@@ -169,7 +160,7 @@ func (s *Projects) CancelOpenTasks(
 	projectID int64,
 	timestamp string,
 ) ([]task.Task, error) {
-	rows, err := s.executor().QueryContext(ctx, `
+	rows, err := s.executor.QueryContext(ctx, `
 UPDATE tasks
 SET cancelled_at = ?, updated_at = ?
 WHERE project_id = ? AND done_at IS NULL AND cancelled_at IS NULL
@@ -192,7 +183,7 @@ func (s *Projects) Reopen(
 	id int64,
 	timestamp string,
 ) (project.Project, error) {
-	reopened, err := scanProject(s.executor().QueryRowContext(ctx, `
+	reopened, err := scanProject(s.executor.QueryRowContext(ctx, `
 UPDATE projects
 SET done_at = NULL, cancelled_at = NULL, updated_at = ?
 WHERE id = ? AND (done_at IS NOT NULL OR cancelled_at IS NOT NULL)
@@ -215,7 +206,7 @@ RETURNING `+projectColumns, timestamp, id))
 }
 
 func (s *Projects) Delete(ctx context.Context, id int64) (project.Project, error) {
-	deleted, err := scanProject(s.executor().QueryRowContext(ctx, `
+	deleted, err := scanProject(s.executor.QueryRowContext(ctx, `
 DELETE FROM projects
 WHERE id = ?
   AND NOT EXISTS (SELECT 1 FROM tasks WHERE project_id = projects.id)
@@ -241,7 +232,7 @@ RETURNING `+projectColumns, id))
 }
 
 func (s *Projects) DeleteTasks(ctx context.Context, projectID int64) ([]task.Task, error) {
-	rows, err := s.executor().QueryContext(
+	rows, err := s.executor.QueryContext(
 		ctx,
 		"DELETE FROM tasks WHERE project_id = ? RETURNING "+taskColumns,
 		projectID,
@@ -263,11 +254,11 @@ func (s *Projects) WithinTransaction(
 	ctx context.Context,
 	apply func(project.Store) error,
 ) error {
-	if s.connection != nil {
+	if s.database == nil {
 		return errors.New("nested project transactions are not supported")
 	}
 
-	connection, err := s.db.database.Conn(ctx)
+	connection, err := s.database.database.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("reserve project transaction connection: %w", err)
 	}
@@ -285,7 +276,7 @@ func (s *Projects) WithinTransaction(
 		}
 	}()
 
-	transaction := &Projects{db: s.db, connection: connection}
+	transaction := &Projects{executor: connection}
 	if err := apply(transaction); err != nil {
 		if _, rollbackErr := connection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK"); rollbackErr != nil {
 			return errors.Join(err, fmt.Errorf("rollback project transaction: %w", rollbackErr))
