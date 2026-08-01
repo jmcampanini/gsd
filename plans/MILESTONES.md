@@ -2,13 +2,15 @@
 
 gsd is built as vertical slices. Every active milestone ends with working,
 demonstrable capability, never a horizontal layer. The canonical product
-specification lives in `OVERVIEW.md`, `COMMANDS.md`, and `SCHEMA.md`; active
-milestone files define scope, chunks, user stories, and an agent-verified
-end-to-end workflow.
+specification lives in `OVERVIEW.md`, `COMMANDS.md`, and `SCHEMA.md`. An active
+milestone file defines the authoritative outcomes and acceptance boundary; any
+implementation details or chunks it contains are suggestive. Root `PLAN.md` is
+the authoritative implementation and verification plan for the active
+milestone.
 
 [`PROCESS.md`](PROCESS.md) is the canonical contract for planning, branch
-ancestry, chunk pull requests, review and verification gates, consolidation,
-plan retirement, and landing a milestone in `main`.
+ancestry, chunk design, pull requests, review and verification gates,
+consolidation, plan retirement, and landing a milestone in `main`.
 
 ## Completed
 
@@ -29,13 +31,18 @@ Delivered the complete bare-inbox task lifecycle: add, list, show, edit,
 complete, cancel, reopen, and delete, with persistent SQLite state, human and
 JSON output, stable application errors, and end-to-end coverage.
 
+### Milestone 2 — Time
+
+Delivered strict local-calendar due and defer dates, date-aware list filters,
+and the actionable `available` view with human and JSON output and end-to-end
+coverage.
+
 ## Active roadmap
 
-Active planning begins with the Time milestone:
+Active planning begins with the Projects milestone:
 
 | # | Milestone | Capability delivered | Data mode |
 |---|-----------|----------------------|-----------|
-| 2 | [Time](MILESTONE_2.md) | Defer/due dates; `available` | throwaway |
 | 3 | [Projects](MILESTONE_3.md) | Projects, cascade, `logbook` | throwaway |
 | 4 | [Areas](MILESTONE_4.md) | Areas, archive, governing-area inheritance | throwaway |
 | 5 | [Tags](MILESTONE_5.md) | Tags across all entities | throwaway |

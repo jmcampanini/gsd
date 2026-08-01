@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	schemaRevision = 9001
+	schemaRevision = 9002
 	busyTimeoutMS  = 5000
-	taskColumns    = `id, title, note, done_at, cancelled_at, status, position, created_at, updated_at`
+	taskColumns    = `id, title, note, defer_until, due_on, done_at, cancelled_at, status, position, created_at, updated_at`
 )
 
 //go:embed schema.sql
@@ -62,12 +62,21 @@ func (s *Store) Close() error {
 
 func (s *Store) Add(ctx context.Context, fields task.AddFields, timestamp string) (task.Task, error) {
 	query := `
-INSERT INTO tasks (title, note, position, created_at, updated_at)
-SELECT ?, ?, COALESCE(MAX(position), -1) + 1, ?, ?
+INSERT INTO tasks (title, note, defer_until, due_on, position, created_at, updated_at)
+SELECT ?, ?, ?, ?, COALESCE(MAX(position), -1) + 1, ?, ?
 FROM tasks
 RETURNING ` + taskColumns
 
-	row := s.database.QueryRowContext(ctx, query, fields.Title, fields.Note, timestamp, timestamp)
+	row := s.database.QueryRowContext(
+		ctx,
+		query,
+		fields.Title,
+		fields.Note,
+		fields.DeferUntil,
+		fields.DueOn,
+		timestamp,
+		timestamp,
+	)
 	created, err := scanTask(row)
 	if err != nil {
 		return task.Task{}, fmt.Errorf("insert task: %w", err)
@@ -81,23 +90,17 @@ func (s *Store) Inbox(ctx context.Context) ([]task.Task, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query inbox: %w", err)
 	}
-	defer func() {
-		_ = rows.Close()
-	}()
 
-	tasks := make([]task.Task, 0)
-	for rows.Next() {
-		current, scanErr := scanTask(rows)
-		if scanErr != nil {
-			return nil, fmt.Errorf("scan inbox task: %w", scanErr)
-		}
-		tasks = append(tasks, current)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate inbox: %w", err)
+	return collectTasks(rows, "scan inbox task", "iterate inbox")
+}
+
+func (s *Store) Available(ctx context.Context) ([]task.Task, error) {
+	rows, err := s.database.QueryContext(ctx, "SELECT "+taskColumns+" FROM available ORDER BY position, id")
+	if err != nil {
+		return nil, fmt.Errorf("query available tasks: %w", err)
 	}
 
-	return tasks, nil
+	return collectTasks(rows, "scan available task", "iterate available tasks")
 }
 
 func (s *Store) Find(ctx context.Context, id int64) (task.Task, error) {
@@ -113,46 +116,45 @@ func (s *Store) Find(ctx context.Context, id int64) (task.Task, error) {
 	return found, nil
 }
 
-func (s *Store) List(ctx context.Context, status task.ListStatus) ([]task.Task, error) {
-	query := "SELECT " + taskColumns + " FROM tasks"
-	switch status {
+func (s *Store) List(ctx context.Context, options task.ListOptions) ([]task.Task, error) {
+	conditions := make([]string, 0, 2)
+	arguments := make([]any, 0, 1)
+	switch options.Status {
 	case task.ListStatusOpen, task.ListStatusDone, task.ListStatusCancelled:
-		query += " WHERE status = ? ORDER BY position, id"
+		conditions = append(conditions, "status = ?")
+		arguments = append(arguments, options.Status)
 	case task.ListStatusAll:
-		query += " ORDER BY position, id"
 	default:
-		return nil, fmt.Errorf("invalid list status %q", status)
+		return nil, fmt.Errorf("invalid list status %q", options.Status)
 	}
 
-	var (
-		rows *sql.Rows
-		err  error
-	)
-	if status == task.ListStatusAll {
-		rows, err = s.database.QueryContext(ctx, query)
-	} else {
-		rows, err = s.database.QueryContext(ctx, query, status)
+	switch options.Date {
+	case task.DateSelectorNone:
+	case task.DateSelectorDue:
+		conditions = append(conditions, "due_on IS NOT NULL")
+	case task.DateSelectorOverdue:
+		conditions = append(
+			conditions,
+			"status = 'open' AND due_on < date('now', 'localtime')",
+		)
+	case task.DateSelectorDeferred:
+		conditions = append(conditions, "defer_until > date('now', 'localtime')")
+	default:
+		return nil, fmt.Errorf("invalid date selector %q", options.Date)
 	}
+
+	query := "SELECT " + taskColumns + " FROM tasks"
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += " ORDER BY position, id"
+
+	rows, err := s.database.QueryContext(ctx, query, arguments...)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
-	defer func() {
-		_ = rows.Close()
-	}()
 
-	tasks := make([]task.Task, 0)
-	for rows.Next() {
-		current, scanErr := scanTask(rows)
-		if scanErr != nil {
-			return nil, fmt.Errorf("scan listed task: %w", scanErr)
-		}
-		tasks = append(tasks, current)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate listed tasks: %w", err)
-	}
-
-	return tasks, nil
+	return collectTasks(rows, "scan listed task", "iterate listed tasks")
 }
 
 func (s *Store) Edit(
@@ -161,8 +163,8 @@ func (s *Store) Edit(
 	fields task.EditFields,
 	timestamp string,
 ) (task.Task, error) {
-	assignments := make([]string, 0, 3)
-	arguments := make([]any, 0, 4)
+	assignments := make([]string, 0, 6)
+	arguments := make([]any, 0, 7)
 	if fields.Title != nil {
 		assignments = append(assignments, "title = ?")
 		arguments = append(arguments, *fields.Title)
@@ -170,6 +172,20 @@ func (s *Store) Edit(
 	if fields.Note != nil {
 		assignments = append(assignments, "note = ?")
 		arguments = append(arguments, *fields.Note)
+	}
+	if fields.DueOn.Set != nil {
+		assignments = append(assignments, "due_on = ?")
+		arguments = append(arguments, *fields.DueOn.Set)
+	}
+	if fields.DueOn.Clear {
+		assignments = append(assignments, "due_on = NULL")
+	}
+	if fields.DeferUntil.Set != nil {
+		assignments = append(assignments, "defer_until = ?")
+		arguments = append(arguments, *fields.DeferUntil.Set)
+	}
+	if fields.DeferUntil.Clear {
+		assignments = append(assignments, "defer_until = NULL")
 	}
 	if len(assignments) == 0 {
 		return task.Task{}, errors.New("edit requires at least one field")
@@ -377,12 +393,34 @@ type rowScanner interface {
 	Scan(...any) error
 }
 
+func collectTasks(rows *sql.Rows, scanAction, iterateAction string) ([]task.Task, error) {
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	tasks := make([]task.Task, 0)
+	for rows.Next() {
+		current, err := scanTask(rows)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", scanAction, err)
+		}
+		tasks = append(tasks, current)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s: %w", iterateAction, err)
+	}
+
+	return tasks, nil
+}
+
 func scanTask(scanner rowScanner) (task.Task, error) {
 	var value task.Task
 	err := scanner.Scan(
 		&value.ID,
 		&value.Title,
 		&value.Note,
+		&value.DeferUntil,
+		&value.DueOn,
 		&value.DoneAt,
 		&value.CancelledAt,
 		&value.Status,

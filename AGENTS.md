@@ -7,7 +7,7 @@
 ## Command architecture
 
 - Cobra commands only adapt arguments, flags, streams, and presentation. Put use-case validation and orchestration in the relevant `internal` service.
-- Services depend on narrow repository interfaces and own use cases and multi-statement transaction boundaries. Use one atomic SQL statement instead of a transaction when it proves the complete operation.
+- Services depend on narrow repository interfaces and are the sole owners of semantic validation for use-case inputs. Repositories assume those inputs were validated; store checks are limited to caller-contract failures needed to construct a valid operation and are not a second user-facing validation layer. Services also own multi-statement transaction boundaries. Use one atomic SQL statement instead of a transaction when it proves the complete operation.
 - Concrete SQLite code, schema bootstrap, and row scanning belong in `internal/store`; do not expose `database/sql` types across the repository boundary.
 - Open runtime dependencies inside behavioral command execution through an injected factory. Help, version, and argument parsing must not open the database.
 - Return stable coded application errors from service/store boundaries. Convert unexpected errors to `internal` and Cobra syntax failures to `usage` at the root adapter.

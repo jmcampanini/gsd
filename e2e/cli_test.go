@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmcampanini/gsd/internal/task"
 	_ "modernc.org/sqlite"
@@ -388,6 +389,318 @@ func TestTaskWorkflow(t *testing.T) {
 		runGSD(t, "inbox", "--db", wrongRevisionPath, "--json"),
 		task.ErrorConflict,
 	)
+}
+
+func TestTaskTimeWorkflow(t *testing.T) {
+	for attempt := range 3 {
+		reference := time.Now()
+		capturedDate := calendarDate(reference, 0)
+		tomorrow := calendarDate(reference, 1)
+		yesterday := calendarDate(reference, -1)
+		weekLater := calendarDate(reference, 7)
+		databasePath := filepath.Join(workDir, fmt.Sprintf("time-%d.db", attempt))
+
+		created := decodeTask(t, runGSD(
+			t,
+			"add",
+			"deadline",
+			"--due",
+			"tomorrow",
+			"--db",
+			databasePath,
+			"--json",
+		))
+		shown := decodeTask(t, runGSD(t, "show", fmt.Sprint(created.ID), "--db", databasePath, "--json"))
+		due := decodeTasks(t, runGSD(t, "list", "--due", "--db", databasePath, "--json"))
+		initialOverdue := decodeTasks(t, runGSD(t, "list", "--overdue", "--db", databasePath, "--json"))
+		humanShow := runGSD(t, "show", fmt.Sprint(created.ID), "--db", databasePath)
+		humanList := runGSD(t, "list", "--due", "--db", databasePath)
+
+		edited := decodeTask(t, runGSD(
+			t,
+			"edit",
+			fmt.Sprint(created.ID),
+			"--due",
+			yesterday,
+			"--db",
+			databasePath,
+			"--json",
+		))
+		overdue := decodeTasks(t, runGSD(t, "list", "--overdue", "--db", databasePath, "--json"))
+		decodeTask(t, runGSD(t, "done", fmt.Sprint(created.ID), "--db", databasePath, "--json"))
+		openOverdue := decodeTasks(t, runGSD(t, "list", "--overdue", "--db", databasePath, "--json"))
+		doneOverdue := decodeTasks(t, runGSD(
+			t,
+			"list",
+			"--status",
+			"done",
+			"--overdue",
+			"--db",
+			databasePath,
+			"--json",
+		))
+		decodeTask(t, runGSD(t, "reopen", fmt.Sprint(created.ID), "--db", databasePath, "--json"))
+		cleared := decodeTask(t, runGSD(
+			t,
+			"edit",
+			fmt.Sprint(created.ID),
+			"--no-due",
+			"--db",
+			databasePath,
+			"--json",
+		))
+		dueAfterClear := decodeTasks(t, runGSD(t, "list", "--due", "--db", databasePath, "--json"))
+
+		undated := decodeTask(t, runGSD(t, "add", "undated", "--db", databasePath, "--json"))
+		todayDeferred := decodeTask(t, runGSD(
+			t,
+			"add",
+			"today deferred",
+			"--defer",
+			"today",
+			"--db",
+			databasePath,
+			"--json",
+		))
+		tomorrowDeferred := decodeTask(t, runGSD(
+			t,
+			"add",
+			"tomorrow deferred",
+			"--defer",
+			"tomorrow",
+			"--due",
+			"today",
+			"--db",
+			databasePath,
+			"--json",
+		))
+		weekDeferred := decodeTask(t, runGSD(
+			t,
+			"add",
+			"week deferred",
+			"--defer",
+			"+1w",
+			"--db",
+			databasePath,
+			"--json",
+		))
+		dueToday := decodeTask(t, runGSD(
+			t,
+			"add",
+			"due today",
+			"--due",
+			"today",
+			"--db",
+			databasePath,
+			"--json",
+		))
+
+		available := decodeTasks(t, runGSD(t, "available", "--db", databasePath, "--json"))
+		deferred := decodeTasks(t, runGSD(t, "list", "--deferred", "--db", databasePath, "--json"))
+		humanDeferred := runGSD(t, "show", fmt.Sprint(tomorrowDeferred.ID), "--db", databasePath)
+		humanAvailable := runGSD(t, "available", "--db", databasePath)
+		clearedDefer := decodeTask(t, runGSD(
+			t,
+			"edit",
+			fmt.Sprint(tomorrowDeferred.ID),
+			"--no-defer",
+			"--db",
+			databasePath,
+			"--json",
+		))
+		availableAfterClear := decodeTasks(t, runGSD(t, "available", "--db", databasePath, "--json"))
+		deferredAfterClear := decodeTasks(t, runGSD(t, "list", "--deferred", "--db", databasePath, "--json"))
+		decodeTask(t, runGSD(t, "done", fmt.Sprint(weekDeferred.ID), "--db", databasePath, "--json"))
+		openDeferred := decodeTasks(t, runGSD(t, "list", "--deferred", "--db", databasePath, "--json"))
+		doneDeferred := decodeTasks(t, runGSD(
+			t,
+			"list",
+			"--status",
+			"done",
+			"--deferred",
+			"--db",
+			databasePath,
+			"--json",
+		))
+		overdueBeforeAdd := decodeTasks(t, runGSD(t, "list", "--overdue", "--db", databasePath, "--json"))
+		addedOverdue := decodeTask(t, runGSD(
+			t,
+			"add",
+			"added overdue",
+			"--due",
+			yesterday,
+			"--db",
+			databasePath,
+			"--json",
+		))
+		addedOverdueList := decodeTasks(t, runGSD(t, "list", "--overdue", "--db", databasePath, "--json"))
+		decodeTask(t, runGSD(t, "done", fmt.Sprint(addedOverdue.ID), "--db", databasePath, "--json"))
+		addedOpenOverdue := decodeTasks(t, runGSD(t, "list", "--overdue", "--db", databasePath, "--json"))
+		addedDoneOverdue := decodeTasks(t, runGSD(
+			t,
+			"list",
+			"--status",
+			"done",
+			"--overdue",
+			"--db",
+			databasePath,
+			"--json",
+		))
+
+		weekdayCases := []struct {
+			token   string
+			weekday time.Weekday
+		}{
+			{token: "mon", weekday: time.Monday},
+			{token: "tue", weekday: time.Tuesday},
+			{token: "wed", weekday: time.Wednesday},
+			{token: "thu", weekday: time.Thursday},
+			{token: "fri", weekday: time.Friday},
+			{token: "sat", weekday: time.Saturday},
+			{token: "sun", weekday: time.Sunday},
+		}
+		weekdayDeferred := make([]task.Task, len(weekdayCases))
+		weekdayDates := make([]string, len(weekdayCases))
+		for index, test := range weekdayCases {
+			days := (int(test.weekday) - int(reference.Weekday()) + 7) % 7
+			if days == 0 {
+				days = 7
+			}
+			weekdayDates[index] = calendarDate(reference, days)
+			weekdayDeferred[index] = decodeTask(t, runGSD(
+				t,
+				"add",
+				"weekday "+test.token,
+				"--defer",
+				test.token,
+				"--db",
+				databasePath,
+				"--json",
+			))
+		}
+
+		for _, value := range []string{"2026-02-30", "2026-8-3", "next tuesday", "+3x"} {
+			for _, flag := range []string{"--due", "--defer"} {
+				assertJSONError(
+					t,
+					runGSD(t, "add", "invalid", flag, value, "--db", databasePath, "--json"),
+					task.ErrorInvalidArgument,
+				)
+			}
+		}
+
+		selectorPairs := [][]string{
+			{"--due", "--overdue"},
+			{"--due", "--deferred"},
+			{"--overdue", "--deferred"},
+		}
+		for index, selectors := range selectorPairs {
+			conflictPath := filepath.Join(workDir, fmt.Sprintf("time-conflict-%d-%d.db", attempt, index))
+			args := append([]string{"list"}, selectors...)
+			args = append(args, "--db", conflictPath, "--json")
+			conflict := runGSD(t, args...)
+			if conflict.exitCode != 2 || conflict.stdout != "" || conflict.stderr == "" {
+				t.Errorf("conflicting selectors %v = %#v, want stderr-only usage error", selectors, conflict)
+			}
+			if _, err := os.Stat(conflictPath); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("conflicting selectors %v database stat error = %v, want not exist", selectors, err)
+			}
+		}
+
+		if calendarDate(time.Now(), 0) != capturedDate {
+			continue
+		}
+
+		if created.DueOn == nil || *created.DueOn != tomorrow ||
+			shown.DueOn == nil || *shown.DueOn != tomorrow {
+			t.Errorf("created/shown due dates = %#v/%#v, want %s", created.DueOn, shown.DueOn, tomorrow)
+		}
+		if len(due) != 1 || due[0].ID != created.ID || len(initialOverdue) != 0 {
+			t.Errorf("initial due/overdue = %#v/%#v, want created task and empty overdue", due, initialOverdue)
+		}
+		if humanShow.exitCode != 0 || humanShow.stderr != "" ||
+			!strings.Contains(humanShow.stdout, "Due on") ||
+			!strings.Contains(humanShow.stdout, tomorrow) ||
+			strings.Contains(humanShow.stdout, "\x1b[") {
+			t.Errorf("human show = %#v, want plain labeled due date", humanShow)
+		}
+		if humanList.exitCode != 0 || humanList.stderr != "" ||
+			!strings.Contains(humanList.stdout, "due "+tomorrow) ||
+			strings.Contains(humanList.stdout, "\x1b[") {
+			t.Errorf("human list = %#v, want plain compact due date", humanList)
+		}
+		if edited.DueOn == nil || *edited.DueOn != yesterday ||
+			len(overdue) != 1 || overdue[0].ID != created.ID {
+			t.Errorf("edited/overdue = %#v/%#v, want yesterday and created task", edited, overdue)
+		}
+		if len(openOverdue) != 0 || len(doneOverdue) != 0 {
+			t.Errorf("resolved overdue lists = %#v/%#v, want empty", openOverdue, doneOverdue)
+		}
+		if cleared.DueOn != nil || len(dueAfterClear) != 0 {
+			t.Errorf("cleared/due list = %#v/%#v, want null due and empty list", cleared, dueAfterClear)
+		}
+
+		if todayDeferred.DeferUntil == nil || *todayDeferred.DeferUntil != capturedDate ||
+			tomorrowDeferred.DeferUntil == nil || *tomorrowDeferred.DeferUntil != tomorrow ||
+			tomorrowDeferred.DueOn == nil || *tomorrowDeferred.DueOn != capturedDate ||
+			weekDeferred.DeferUntil == nil || *weekDeferred.DeferUntil != weekLater ||
+			dueToday.DueOn == nil || *dueToday.DueOn != capturedDate {
+			t.Errorf("canonical deferrals = %#v/%#v/%#v/%#v, want today, tomorrow with due today, +1w, and due today", todayDeferred, tomorrowDeferred, weekDeferred, dueToday)
+		}
+		if len(available) != 4 || available[0].ID != created.ID ||
+			available[1].ID != undated.ID || available[2].ID != todayDeferred.ID ||
+			available[3].ID != dueToday.ID {
+			t.Errorf("available = %#v, want deadline, undated, today-deferred, and due-today tasks", available)
+		}
+		if len(deferred) != 2 || deferred[0].ID != tomorrowDeferred.ID || deferred[1].ID != weekDeferred.ID {
+			t.Errorf("deferred = %#v, want tomorrow and week-deferred tasks", deferred)
+		}
+		normalizedHumanDeferred := strings.Join(strings.Fields(humanDeferred.stdout), " ")
+		if humanDeferred.exitCode != 0 || humanDeferred.stderr != "" ||
+			!strings.Contains(normalizedHumanDeferred, "Due on "+capturedDate) ||
+			!strings.Contains(normalizedHumanDeferred, "Defer until "+tomorrow) ||
+			strings.Contains(humanDeferred.stdout, "\x1b[") {
+			t.Errorf("human deferred show = %#v, want plain labeled due and defer dates with values", humanDeferred)
+		}
+		if humanAvailable.exitCode != 0 || humanAvailable.stderr != "" ||
+			!strings.Contains(humanAvailable.stdout, "defer "+capturedDate) ||
+			strings.Contains(humanAvailable.stdout, "\x1b[") {
+			t.Errorf("human available = %#v, want plain compact defer date", humanAvailable)
+		}
+		if clearedDefer.DeferUntil != nil || clearedDefer.DueOn == nil || *clearedDefer.DueOn != capturedDate ||
+			len(availableAfterClear) != 5 || availableAfterClear[3].ID != tomorrowDeferred.ID ||
+			availableAfterClear[4].ID != dueToday.ID ||
+			len(deferredAfterClear) != 1 || deferredAfterClear[0].ID != weekDeferred.ID {
+			t.Errorf("cleared defer results = %#v/%#v/%#v, want immediate availability and preserved due date", clearedDefer, availableAfterClear, deferredAfterClear)
+		}
+		if len(openDeferred) != 0 || len(doneDeferred) != 1 || doneDeferred[0].ID != weekDeferred.ID {
+			t.Errorf("resolved deferred lists = %#v/%#v, want default exclusion and done inclusion", openDeferred, doneDeferred)
+		}
+		if len(overdueBeforeAdd) != 0 || len(addedOverdueList) != 1 || addedOverdueList[0].ID != addedOverdue.ID ||
+			len(addedOpenOverdue) != 0 || len(addedDoneOverdue) != 0 {
+			t.Errorf("added overdue workflow = %#v/%#v/%#v/%#v, want one new overdue task then empty resolved lists", overdueBeforeAdd, addedOverdueList, addedOpenOverdue, addedDoneOverdue)
+		}
+		for index, current := range weekdayDeferred {
+			if current.DeferUntil == nil || *current.DeferUntil != weekdayDates[index] {
+				t.Errorf("weekday %s defer = %#v, want %s", weekdayCases[index].token, current.DeferUntil, weekdayDates[index])
+			}
+		}
+
+		all := decodeTasks(t, runGSD(t, "list", "--status", "all", "--db", databasePath, "--json"))
+		if len(all) != 14 {
+			t.Errorf("all tasks after rejected adds = %#v, want fourteen accepted tasks", all)
+		}
+		return
+	}
+
+	t.Fatal("local date rolled over during every time workflow attempt")
+}
+
+func calendarDate(reference time.Time, days int) string {
+	year, month, day := reference.Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, reference.Location()).
+		AddDate(0, 0, days).
+		Format("2006-01-02")
 }
 
 func decodeTask(t *testing.T, result processResult) task.Task {

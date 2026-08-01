@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -42,6 +43,22 @@ func TestOpenBootstrapsReducedSchemaAndConfiguresConnections(t *testing.T) {
 	}
 	if strict != 1 {
 		t.Errorf("tasks strict = %d, want 1", strict)
+	}
+
+	var availableSQL string
+	if err := storage.database.QueryRowContext(
+		ctx,
+		"SELECT sql FROM sqlite_schema WHERE type = 'view' AND name = 'available'",
+	).Scan(&availableSQL); err != nil {
+		t.Fatalf("read available view: %v", err)
+	}
+	wantAvailableSQL := `CREATE VIEW available AS
+SELECT *
+FROM tasks
+WHERE status = 'open'
+  AND (defer_until IS NULL OR defer_until <= date('now', 'localtime'))`
+	if strings.Join(strings.Fields(availableSQL), " ") != strings.Join(strings.Fields(wantAvailableSQL), " ") {
+		t.Errorf("available view = %q, want reduced task-only definition", availableSQL)
 	}
 
 	storage.database.SetMaxOpenConns(2)
@@ -84,6 +101,135 @@ func TestOpenBootstrapsReducedSchemaAndConfiguresConnections(t *testing.T) {
 	if strings.EqualFold(journalMode, "wal") {
 		t.Errorf("journal_mode = %q, want non-WAL mode", journalMode)
 	}
+}
+
+func TestDateColumnsEnforceCanonicalValuesAndRoundTripDates(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	dueOn := "2026-08-03"
+	deferUntil := "2026-08-01"
+	created, err := storage.Add(ctx, task.AddFields{
+		Title:      "dated",
+		DueOn:      &dueOn,
+		DeferUntil: &deferUntil,
+	}, "2026-01-01T00:00:00.000Z")
+	if err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if created.DueOn == nil || *created.DueOn != dueOn ||
+		created.DeferUntil == nil || *created.DeferUntil != deferUntil {
+		t.Errorf("Add() dates = %#v/%#v, want canonical due and defer", created.DueOn, created.DeferUntil)
+	}
+
+	for _, test := range []struct {
+		name   string
+		column string
+		value  string
+	}{
+		{name: "invalid defer", column: "defer_until", value: "2026-02-30"},
+		{name: "noncanonical defer", column: "defer_until", value: "2026-8-3"},
+		{name: "invalid due", column: "due_on", value: "2026-02-30"},
+		{name: "noncanonical due", column: "due_on", value: "2026-8-3"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, insertErr := storage.database.ExecContext(
+				ctx,
+				"INSERT INTO tasks (title, "+test.column+", position) VALUES (?, ?, ?)",
+				test.name,
+				test.value,
+				created.Position+1,
+			)
+			if insertErr == nil {
+				t.Fatalf("insert %s = nil, want CHECK failure", test.value)
+			}
+		})
+	}
+}
+
+func TestAvailableViewUsesLocalDeferBoundaryAndOpenStatus(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	for attempt := range 3 {
+		path := filepath.Join(t.TempDir(), fmt.Sprintf("attempt-%d.db", attempt))
+		storage, err := Open(ctx, path)
+		if err != nil {
+			t.Fatalf("Open() error = %v", err)
+		}
+
+		var localDate string
+		if err := storage.database.QueryRowContext(ctx, "SELECT date('now', 'localtime')").Scan(&localDate); err != nil {
+			_ = storage.Close()
+			t.Fatalf("capture SQLite local date: %v", err)
+		}
+
+		created := make([]task.Task, 5)
+		for index, title := range []string{"null", "past", "today", "future", "done"} {
+			created[index], err = storage.Add(ctx, task.AddFields{Title: title}, "2026-01-01T00:00:00.000Z")
+			if err != nil {
+				_ = storage.Close()
+				t.Fatalf("Add(%s) error = %v", title, err)
+			}
+		}
+		deferDates := map[int]string{
+			1: "0000-01-01",
+			2: localDate,
+			3: "9999-12-31",
+			4: localDate,
+		}
+		for index, value := range deferDates {
+			if _, err := storage.database.ExecContext(
+				ctx,
+				"UPDATE tasks SET defer_until = ? WHERE id = ?",
+				value,
+				created[index].ID,
+			); err != nil {
+				_ = storage.Close()
+				t.Fatalf("set defer date: %v", err)
+			}
+		}
+		if _, err := storage.Done(ctx, created[4].ID, "2026-01-02T00:00:00.000Z"); err != nil {
+			_ = storage.Close()
+			t.Fatalf("Done() error = %v", err)
+		}
+
+		available, err := storage.Available(ctx)
+		if err != nil {
+			_ = storage.Close()
+			t.Fatalf("Available() error = %v", err)
+		}
+		got := make([]int64, len(available))
+		for index := range available {
+			got[index] = available[index].ID
+		}
+
+		var recheckedDate string
+		if err := storage.database.QueryRowContext(ctx, "SELECT date('now', 'localtime')").Scan(&recheckedDate); err != nil {
+			_ = storage.Close()
+			t.Fatalf("recheck SQLite local date: %v", err)
+		}
+		if err := storage.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+		if localDate != recheckedDate {
+			continue
+		}
+
+		want := []int64{created[0].ID, created[1].ID, created[2].ID}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("available IDs = %v, want null, past, and today IDs %v", got, want)
+		}
+		return
+	}
+
+	t.Fatal("SQLite local date rolled over during every available-view attempt")
 }
 
 func TestAddAppendsPositionsAcrossResolvedTasksAndGeneratesStatus(t *testing.T) {
@@ -152,6 +298,7 @@ func TestOpenRejectsUnsafeBootstrapStates(t *testing.T) {
 		name  string
 		setup string
 	}{
+		{name: "old development revision", setup: "PRAGMA user_version = 9001"},
 		{name: "wrong revision", setup: "PRAGMA user_version = 42"},
 		{name: "nonempty version zero", setup: "CREATE TABLE existing (id INTEGER)"},
 	}
@@ -305,7 +452,7 @@ END
 		{status: task.ListStatusAll, want: []int64{created[3].ID, created[1].ID, created[2].ID, created[0].ID}},
 	}
 	for _, test := range tests {
-		listed, listErr := storage.List(ctx, test.status)
+		listed, listErr := storage.List(ctx, task.ListOptions{Status: test.status})
 		if listErr != nil {
 			t.Fatalf("List(%s) error = %v", test.status, listErr)
 		}
@@ -319,6 +466,133 @@ END
 	}
 }
 
+func TestListDatePredicatesComposeWithStatusAndPreserveOrdering(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	for attempt := range 3 {
+		storage, err := Open(ctx, filepath.Join(t.TempDir(), fmt.Sprintf("attempt-%d.db", attempt)))
+		if err != nil {
+			t.Fatalf("Open() error = %v", err)
+		}
+
+		var localDate string
+		if err := storage.database.QueryRowContext(ctx, "SELECT date('now', 'localtime')").Scan(&localDate); err != nil {
+			_ = storage.Close()
+			t.Fatalf("capture SQLite local date: %v", err)
+		}
+		past := "0000-01-01"
+		future := "9999-12-31"
+		fields := []task.AddFields{
+			{Title: "undated"},
+			{Title: "past", DueOn: &past, DeferUntil: &future},
+			{Title: "today", DueOn: &localDate, DeferUntil: &localDate},
+			{Title: "future", DueOn: &future, DeferUntil: &past},
+			{Title: "done past", DueOn: &past, DeferUntil: &future},
+		}
+		created := make([]task.Task, len(fields))
+		for index := range fields {
+			created[index], err = storage.Add(ctx, fields[index], "2026-01-01T00:00:00.000Z")
+			if err != nil {
+				_ = storage.Close()
+				t.Fatalf("Add(%s) error = %v", fields[index].Title, err)
+			}
+		}
+		if _, err := storage.Done(ctx, created[4].ID, "2026-01-02T00:00:00.000Z"); err != nil {
+			_ = storage.Close()
+			t.Fatalf("Done() error = %v", err)
+		}
+
+		mismatches := make([]string, 0)
+		tests := []struct {
+			name    string
+			options task.ListOptions
+			want    []int64
+		}{
+			{
+				name:    "open due",
+				options: task.ListOptions{Status: task.ListStatusOpen, Date: task.DateSelectorDue},
+				want:    []int64{created[1].ID, created[2].ID, created[3].ID},
+			},
+			{
+				name:    "all due",
+				options: task.ListOptions{Status: task.ListStatusAll, Date: task.DateSelectorDue},
+				want:    []int64{created[1].ID, created[2].ID, created[3].ID, created[4].ID},
+			},
+			{
+				name:    "done due",
+				options: task.ListOptions{Status: task.ListStatusDone, Date: task.DateSelectorDue},
+				want:    []int64{created[4].ID},
+			},
+			{
+				name:    "open overdue",
+				options: task.ListOptions{Status: task.ListStatusOpen, Date: task.DateSelectorOverdue},
+				want:    []int64{created[1].ID},
+			},
+			{
+				name:    "done overdue",
+				options: task.ListOptions{Status: task.ListStatusDone, Date: task.DateSelectorOverdue},
+				want:    []int64{},
+			},
+			{
+				name:    "all overdue",
+				options: task.ListOptions{Status: task.ListStatusAll, Date: task.DateSelectorOverdue},
+				want:    []int64{created[1].ID},
+			},
+			{
+				name:    "open deferred",
+				options: task.ListOptions{Status: task.ListStatusOpen, Date: task.DateSelectorDeferred},
+				want:    []int64{created[1].ID},
+			},
+			{
+				name:    "done deferred",
+				options: task.ListOptions{Status: task.ListStatusDone, Date: task.DateSelectorDeferred},
+				want:    []int64{created[4].ID},
+			},
+			{
+				name:    "all deferred",
+				options: task.ListOptions{Status: task.ListStatusAll, Date: task.DateSelectorDeferred},
+				want:    []int64{created[1].ID, created[4].ID},
+			},
+		}
+		for _, test := range tests {
+			listed, listErr := storage.List(ctx, test.options)
+			if listErr != nil {
+				_ = storage.Close()
+				t.Fatalf("List(%s) error = %v", test.name, listErr)
+			}
+			got := make([]int64, len(listed))
+			for index := range listed {
+				got[index] = listed[index].ID
+			}
+			if !reflect.DeepEqual(got, test.want) {
+				mismatches = append(
+					mismatches,
+					fmt.Sprintf("List(%s) IDs = %v, want %v", test.name, got, test.want),
+				)
+			}
+		}
+
+		var recheckedDate string
+		if err := storage.database.QueryRowContext(ctx, "SELECT date('now', 'localtime')").Scan(&recheckedDate); err != nil {
+			_ = storage.Close()
+			t.Fatalf("recheck SQLite local date: %v", err)
+		}
+		if err := storage.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+		if localDate != recheckedDate {
+			continue
+		}
+		for _, mismatch := range mismatches {
+			t.Error(mismatch)
+		}
+		return
+	}
+
+	t.Fatal("SQLite local date rolled over during every deadline-filter attempt")
+}
+
 func TestEditAtomicallyUpdatesRequestedFieldsAndReturnsTask(t *testing.T) {
 	t.Parallel()
 
@@ -329,7 +603,18 @@ func TestEditAtomicallyUpdatesRequestedFieldsAndReturnsTask(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = storage.Close() })
 
-	created, err := storage.Add(ctx, task.AddFields{Title: "original", Note: "original note"}, "2026-01-01T00:00:00.000Z")
+	initialDueOn := "2026-08-02"
+	initialDeferUntil := "2026-08-01"
+	created, err := storage.Add(
+		ctx,
+		task.AddFields{
+			Title:      "original",
+			Note:       "original note",
+			DueOn:      &initialDueOn,
+			DeferUntil: &initialDeferUntil,
+		},
+		"2026-01-01T00:00:00.000Z",
+	)
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -348,8 +633,10 @@ func TestEditAtomicallyUpdatesRequestedFieldsAndReturnsTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Edit(title) error = %v", err)
 	}
-	if titleEdited.Title != title || titleEdited.Note != done.Note {
-		t.Errorf("Edit(title) = %#v, want exact title and preserved note", titleEdited)
+	if titleEdited.Title != title || titleEdited.Note != done.Note ||
+		titleEdited.DueOn == nil || *titleEdited.DueOn != initialDueOn ||
+		titleEdited.DeferUntil == nil || *titleEdited.DeferUntil != initialDeferUntil {
+		t.Errorf("Edit(title) = %#v, want exact title and preserved note and dates", titleEdited)
 	}
 	if titleEdited.Status != done.Status || !reflect.DeepEqual(titleEdited.DoneAt, done.DoneAt) {
 		t.Errorf("Edit(title) lifecycle = %#v, want preserved done state", titleEdited)
@@ -361,18 +648,61 @@ func TestEditAtomicallyUpdatesRequestedFieldsAndReturnsTask(t *testing.T) {
 		t.Errorf("Edit(title) updated_at = %q, want edit timestamp", titleEdited.UpdatedAt)
 	}
 
+	dueOn := "2026-08-03"
+	deferUntil := "2026-08-02"
+	dueEdited, err := storage.Edit(
+		ctx,
+		created.ID,
+		task.EditFields{
+			DueOn:      task.DateChange{Set: &dueOn},
+			DeferUntil: task.DateChange{Set: &deferUntil},
+		},
+		"2026-01-04T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Edit(due) error = %v", err)
+	}
+	if dueEdited.DueOn == nil || *dueEdited.DueOn != dueOn ||
+		dueEdited.DeferUntil == nil || *dueEdited.DeferUntil != deferUntil ||
+		dueEdited.Title != title {
+		t.Errorf("Edit(dates) = %#v, want updated dates and preserved title", dueEdited)
+	}
+
+	invalidTitle := "must not persist"
+	invalidDueOn := "2026-02-30"
+	if _, err := storage.Edit(
+		ctx,
+		created.ID,
+		task.EditFields{Title: &invalidTitle, DueOn: task.DateChange{Set: &invalidDueOn}},
+		"2026-01-05T00:00:00.000Z",
+	); err == nil {
+		t.Fatal("Edit(invalid due) error = nil, want CHECK failure")
+	}
+	unchanged, err := storage.Find(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Find(after invalid edit) error = %v", err)
+	}
+	if !reflect.DeepEqual(unchanged, dueEdited) {
+		t.Errorf("task after invalid edit = %#v, want unchanged %#v", unchanged, dueEdited)
+	}
+
 	note := ""
 	noteEdited, err := storage.Edit(
 		ctx,
 		created.ID,
-		task.EditFields{Note: &note},
-		"2026-01-04T00:00:00.000Z",
+		task.EditFields{
+			Note:       &note,
+			DueOn:      task.DateChange{Clear: true},
+			DeferUntil: task.DateChange{Clear: true},
+		},
+		"2026-01-06T00:00:00.000Z",
 	)
 	if err != nil {
 		t.Fatalf("Edit(note) error = %v", err)
 	}
-	if noteEdited.Title != title || noteEdited.Note != "" {
-		t.Errorf("Edit(note) = %#v, want preserved title and cleared note", noteEdited)
+	if noteEdited.Title != title || noteEdited.Note != "" ||
+		noteEdited.DueOn != nil || noteEdited.DeferUntil != nil {
+		t.Errorf("Edit(note and dates) = %#v, want preserved title and cleared note and dates", noteEdited)
 	}
 	persisted, err := storage.Find(ctx, created.ID)
 	if err != nil {
@@ -414,9 +744,19 @@ func TestLifecycleTransitionsPreserveTaskAndEnforceState(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = storage.Close() })
 
-	created, err := storage.Add(ctx, task.AddFields{Title: "task", Note: "note"}, "2026-01-01T00:00:00.000Z")
+	dueOn := "2026-08-03"
+	deferUntil := "2026-08-01"
+	created, err := storage.Add(
+		ctx,
+		task.AddFields{Title: "task", Note: "note", DueOn: &dueOn, DeferUntil: &deferUntil},
+		"2026-01-01T00:00:00.000Z",
+	)
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
+	}
+	created, err = storage.Find(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Find(dated task) error = %v", err)
 	}
 	doneAt := "2026-01-02T03:04:05.678Z"
 	done, err := storage.Done(ctx, created.ID, doneAt)
@@ -507,7 +847,12 @@ func TestDeleteReturnsSnapshotWithoutCompactingPositions(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = storage.Close() })
 
-	first, err := storage.Add(ctx, task.AddFields{Title: "first", Note: "first note"}, "2026-01-01T00:00:00.000Z")
+	dueOn := "2026-08-03"
+	first, err := storage.Add(
+		ctx,
+		task.AddFields{Title: "first", Note: "first note", DueOn: &dueOn},
+		"2026-01-01T00:00:00.000Z",
+	)
 	if err != nil {
 		t.Fatalf("Add(first) error = %v", err)
 	}
@@ -589,7 +934,10 @@ func TestConcurrentDoneAndCancelExactlyOneSucceeds(t *testing.T) {
 
 func assertPreservedTaskFields(t *testing.T, got, original task.Task) {
 	t.Helper()
-	if got.ID != original.ID || got.Title != original.Title || got.Note != original.Note || got.Position != original.Position || got.CreatedAt != original.CreatedAt {
+	if got.ID != original.ID || got.Title != original.Title || got.Note != original.Note ||
+		!reflect.DeepEqual(got.DeferUntil, original.DeferUntil) ||
+		!reflect.DeepEqual(got.DueOn, original.DueOn) ||
+		got.Position != original.Position || got.CreatedAt != original.CreatedAt {
 		t.Errorf("task fields changed: got %#v, original %#v", got, original)
 	}
 }
