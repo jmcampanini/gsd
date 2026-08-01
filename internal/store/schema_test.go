@@ -81,6 +81,65 @@ INSERT INTO tasks (project_id, title, position) VALUES (?, 'child', 0)
 	}
 }
 
+func TestAutomaticallyAllocatedEntityIDsAreNotReusedAfterDeletion(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	projects := NewProjects(storage)
+	tasks := NewTasks(storage)
+	t.Cleanup(func() { _ = storage.Close() })
+
+	firstProject, err := projects.Add(
+		ctx,
+		project.AddFields{Title: "first"},
+		"2026-01-01T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Add(first project) error = %v", err)
+	}
+	firstTask, err := tasks.Add(
+		ctx,
+		task.AddFields{Title: "first"},
+		"2026-01-01T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Add(first task) error = %v", err)
+	}
+	if _, err := tasks.Delete(ctx, firstTask.ID); err != nil {
+		t.Fatalf("Delete(first task) error = %v", err)
+	}
+	if _, err := projects.Delete(ctx, firstProject.ID); err != nil {
+		t.Fatalf("Delete(first project) error = %v", err)
+	}
+
+	secondProject, err := projects.Add(
+		ctx,
+		project.AddFields{Title: "second"},
+		"2026-01-02T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Add(second project) error = %v", err)
+	}
+	secondTask, err := tasks.Add(
+		ctx,
+		task.AddFields{Title: "second"},
+		"2026-01-02T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Add(second task) error = %v", err)
+	}
+	if secondProject.ID <= firstProject.ID {
+		t.Errorf("project ID after deletion = %d, want greater than %d", secondProject.ID, firstProject.ID)
+	}
+	if secondTask.ID <= firstTask.ID {
+		t.Errorf("task ID after deletion = %d, want greater than %d", secondTask.ID, firstTask.ID)
+	}
+}
+
 func TestMilestoneThreeViewsApplyContainmentAndExposeLogbookContract(t *testing.T) {
 	t.Parallel()
 

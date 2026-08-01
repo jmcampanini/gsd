@@ -12,11 +12,16 @@ PRAGMA foreign_keys = ON;
 
 ## Conventions
 
-**IDs.** `INTEGER PRIMARY KEY` everywhere. Users type IDs at the CLI
-(`gsd done 42`), so short integers are a feature. String/UUID IDs only earn
-their cost in sync systems (Things, OmniFocus, Todoist all pay it for sync);
-if sync ever arrives, the move is Apple Reminders' pattern — keep integer PKs,
-add a `uuid` column alongside.
+**IDs.** User-addressable entity tables use
+`INTEGER PRIMARY KEY AUTOINCREMENT`. IDs are separate namespaces by entity
+type and remain short for CLI use (`gsd done 42`). Within each table,
+SQLite does not automatically reuse an ID from a committed row after deletion;
+gsd does not accept caller-supplied IDs when creating entities. This keeps
+stale commands and external notes from targeting a replacement row created by
+gsd. Relationship tables use composite primary keys instead. String/UUID IDs
+only earn their cost in sync systems (Things, OmniFocus, Todoist all pay it
+for sync); if sync ever arrives, the move is Apple Reminders' pattern — keep
+integer PKs, add a `uuid` column alongside.
 
 **Time comes in exactly two types, readable from the column name.**
 
@@ -77,7 +82,7 @@ keeps its position and returns to it on unarchive.
 
 ```sql
 CREATE TABLE areas (
-    id          INTEGER PRIMARY KEY,
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
     title       TEXT    NOT NULL,
     note        TEXT    NOT NULL DEFAULT '',
     archived_at TEXT,
@@ -99,7 +104,7 @@ standalone group.
 
 ```sql
 CREATE TABLE projects (
-    id           INTEGER PRIMARY KEY,
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
     area_id      INTEGER REFERENCES areas(id) ON DELETE RESTRICT,
     title        TEXT    NOT NULL,
     note         TEXT    NOT NULL DEFAULT '',
@@ -139,7 +144,7 @@ inbox.
 
 ```sql
 CREATE TABLE tasks (
-    id           INTEGER PRIMARY KEY,
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id   INTEGER REFERENCES projects(id) ON DELETE RESTRICT,
     area_id      INTEGER REFERENCES areas(id)    ON DELETE RESTRICT,
     title        TEXT    NOT NULL,
@@ -184,7 +189,7 @@ reverse lookup ("everything tagged errands"); the PK serves the forward one.
 
 ```sql
 CREATE TABLE tags (
-    id         INTEGER PRIMARY KEY,
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
     title      TEXT    NOT NULL UNIQUE COLLATE NOCASE,
     created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))

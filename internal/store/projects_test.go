@@ -132,6 +132,20 @@ WHERE project_id = ?
 `, first.ID, done.ID, last.ID, created.ID); err != nil {
 		t.Fatalf("arrange task positions: %v", err)
 	}
+	untouchedProject, err := projects.Add(
+		ctx,
+		project.AddFields{Title: "untouched"},
+		"2026-01-02T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Add(untouched project) error = %v", err)
+	}
+	untouchedProjectTask := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{ProjectID: &untouchedProject.ID, Title: "other project"},
+	)
+	untouchedInboxTask := addStoredTask(t, tasks, task.AddFields{Title: "inbox"})
 
 	resolvedAt := "2026-01-03T04:05:06.789Z"
 	var resolved project.Project
@@ -166,6 +180,15 @@ WHERE project_id = ?
 	}
 	if !reflect.DeepEqual(persistedDone, done) {
 		t.Errorf("existing done task after cascade = %#v, want untouched %#v", persistedDone, done)
+	}
+	for _, untouched := range []task.Task{untouchedProjectTask, untouchedInboxTask} {
+		persisted, err := tasks.Find(ctx, untouched.ID)
+		if err != nil {
+			t.Fatalf("Find(untouched task %d) error = %v", untouched.ID, err)
+		}
+		if !reflect.DeepEqual(persisted, untouched) {
+			t.Errorf("untouched task after cascade = %#v, want %#v", persisted, untouched)
+		}
 	}
 
 	reopenedAt := "2026-01-04T00:00:00.000Z"
@@ -265,6 +288,65 @@ END
 	}
 }
 
+func TestProjectTransactionRollsBackAfterPanic(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	projects := NewProjects(storage)
+	t.Cleanup(func() { _ = storage.Close() })
+
+	created, err := projects.Add(
+		ctx,
+		project.AddFields{Title: "panic rollback"},
+		"2026-01-01T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Add(project) error = %v", err)
+	}
+
+	const panicValue = "forced transaction panic"
+	var recovered any
+	func() {
+		defer func() {
+			recovered = recover()
+		}()
+		_ = projects.WithinTransaction(ctx, func(transaction project.Store) error {
+			if _, err := transaction.Resolve(
+				ctx,
+				created.ID,
+				project.ExitDone,
+				"2026-01-02T00:00:00.000Z",
+			); err != nil {
+				return err
+			}
+			panic(panicValue)
+		})
+		t.Error("WithinTransaction(panic) returned, want panic")
+	}()
+	if recovered != panicValue {
+		t.Fatalf("WithinTransaction(panic) recovered = %#v, want %q", recovered, panicValue)
+	}
+
+	persisted, err := projects.Find(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Find(project after panic) error = %v", err)
+	}
+	if !reflect.DeepEqual(persisted, created) {
+		t.Errorf("project after panic = %#v, want rolled-back %#v", persisted, created)
+	}
+	if _, err := projects.Add(
+		ctx,
+		project.AddFields{Title: "connection remains usable"},
+		"2026-01-03T00:00:00.000Z",
+	); err != nil {
+		t.Errorf("Add(after transaction panic) error = %v", err)
+	}
+}
+
 func TestProjectDeleteHonorsRestrictAndRecursiveTransaction(t *testing.T) {
 	t.Parallel()
 
@@ -299,6 +381,20 @@ func TestProjectDeleteHonorsRestrictAndRecursiveTransaction(t *testing.T) {
 	); err != nil {
 		t.Fatalf("arrange positions: %v", err)
 	}
+	untouchedProject, err := projects.Add(
+		ctx,
+		project.AddFields{Title: "untouched"},
+		"2026-01-03T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Add(untouched project) error = %v", err)
+	}
+	untouchedProjectTask := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{ProjectID: &untouchedProject.ID, Title: "other project"},
+	)
+	untouchedInboxTask := addStoredTask(t, tasks, task.AddFields{Title: "inbox"})
 
 	if _, err := projects.Delete(ctx, created.ID); errorCode(err) != apperr.Conflict ||
 		!strings.Contains(err.Error(), "--recursive") {
@@ -364,6 +460,15 @@ END
 	for _, deletedTask := range deletedTasks {
 		if _, err := tasks.Find(ctx, deletedTask.ID); errorCode(err) != apperr.NotFound {
 			t.Errorf("Find(deleted task %d) error = %v, want not_found", deletedTask.ID, err)
+		}
+	}
+	for _, untouched := range []task.Task{untouchedProjectTask, untouchedInboxTask} {
+		persisted, err := tasks.Find(ctx, untouched.ID)
+		if err != nil {
+			t.Fatalf("Find(untouched task %d) error = %v", untouched.ID, err)
+		}
+		if !reflect.DeepEqual(persisted, untouched) {
+			t.Errorf("untouched task after recursive deletion = %#v, want %#v", persisted, untouched)
 		}
 	}
 

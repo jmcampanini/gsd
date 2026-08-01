@@ -9,7 +9,9 @@ how the work will be delivered.
 Data remains throwaway. Milestone 3 starts from the consolidated Milestone 2
 time baseline and changes the development schema revision from `9002` to
 `9003`. An older or nonempty development database must fail with the existing
-conflict and deletion guidance; there is no migration.
+conflict and deletion guidance; there is no migration. The automatic ID
+non-reuse change is also a clean break for development databases created by
+an earlier revision-`9003` build: delete and recreate them after updating.
 
 ## Delivery shape
 
@@ -50,6 +52,13 @@ These are review-size guides, not targets. If a chunk grows enough to obscure
 its outcome, revise this plan before splitting it.
 
 ## Settled behavior
+
+### IDs
+
+Projects and tasks use separate integer ID namespaces with
+`AUTOINCREMENT`, so SQLite does not automatically reuse an ID from a committed
+row after deleting it from the same entity table. Areas and tags inherit this
+rule when they land; relationship tables retain composite keys.
 
 ### Containment and re-parenting
 
@@ -175,6 +184,8 @@ the mutation is atomic. `ListOptions` gains an optional project filter.
 Chunk 1 establishes the complete Milestone 3 schema in one revision:
 
 - `projects` table per `SCHEMA.md` minus `area_id`;
+- user-addressable project and task IDs use `AUTOINCREMENT`, preventing
+  automatic reuse after committed deletion within their entity namespace;
 - `tasks.project_id REFERENCES projects(id) ON DELETE RESTRICT` and
   `idx_tasks_project` (the containment CHECK waits for `area_id`);
 - `inbox` view gains `project_id IS NULL`; `available` gains the
@@ -221,7 +232,8 @@ likely regression. Every added test must state the regression or explicit
 requirement it protects and why its layer is the cheapest faithful proof.
 
 - **Store tests with real temporary SQLite databases** own revision-`9003`
-  bootstrap, `projects` constraints, container-scoped append positions
+  bootstrap, automatic ID non-reuse after deletion, `projects` constraints,
+  container-scoped append positions
   (proven with interleaved inbox and project inserts asserting in-container
   position values, since whole-table MAX still looks ordered), view
   predicates (inbox containment exclusion, available project-open clause,
@@ -362,6 +374,8 @@ delete projects with RESTRICT protection and an explicit recursive opt-in.
       deletion coverage.
 - [x] Run `make check` and build the real binary before opening the chunk
       pull request.
+- [x] Codify review findings with cross-container cascade/delete controls,
+      panic-safe transaction cleanup, and automatic project/task ID non-reuse.
 
 ### Human proof
 
@@ -442,6 +456,9 @@ After every chunk is reviewed and squash-merged into the milestone branch:
 - [ ] Reconcile tests around stable observable contracts and codify lasting
       review findings in `AGENTS.md`, lint/build configuration, or the
       owning tests.
+- [ ] Revisit recursive-deletion conflict presentation: keep semantic
+      containment guidance below the command boundary while preserving exact
+      `--recursive` recovery guidance for CLI users.
 - [ ] Run the automated Milestone 3 subprocess workflow through
       `make check`.
 - [ ] Build the real binary and retain a clean transcript of the workflow

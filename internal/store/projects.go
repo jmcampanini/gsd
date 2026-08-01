@@ -278,11 +278,19 @@ func (s *Projects) WithinTransaction(
 	if _, err := connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return fmt.Errorf("begin project transaction: %w", err)
 	}
+	transactionOpen := true
+	defer func() {
+		if transactionOpen {
+			_, _ = connection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+		}
+	}()
+
 	transaction := &Projects{db: s.db, connection: connection}
 	if err := apply(transaction); err != nil {
 		if _, rollbackErr := connection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK"); rollbackErr != nil {
 			return errors.Join(err, fmt.Errorf("rollback project transaction: %w", rollbackErr))
 		}
+		transactionOpen = false
 		return err
 	}
 	if _, err := connection.ExecContext(ctx, "COMMIT"); err != nil {
@@ -292,8 +300,10 @@ func (s *Projects) WithinTransaction(
 				fmt.Errorf("rollback project transaction: %w", rollbackErr),
 			)
 		}
+		transactionOpen = false
 		return fmt.Errorf("commit project transaction: %w", err)
 	}
+	transactionOpen = false
 
 	return nil
 }

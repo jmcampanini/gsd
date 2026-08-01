@@ -12,6 +12,8 @@ semantics: containment, re-parenting, RESTRICT deletes.
 ## Schema delta
 
 - `projects` table per `SCHEMA.md`, minus `area_id` (arrives Milestone 4).
+- Project and task IDs use `AUTOINCREMENT`, preventing SQLite from
+  automatically reusing an ID after committed deletion within the same table.
 - `tasks` gains `project_id REFERENCES projects(id) ON DELETE RESTRICT`.
   (The containment CHECK needs both container columns, so it arrives with
   `area_id` in Milestone 4.)
