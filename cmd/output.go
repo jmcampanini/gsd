@@ -10,6 +10,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
+	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -18,8 +20,8 @@ type errorEnvelope struct {
 }
 
 type errorPayload struct {
-	Code    task.ErrorCode `json:"code"`
-	Message string         `json:"message"`
+	Code    apperr.Code `json:"code"`
+	Message string      `json:"message"`
 }
 
 func writeJSON(writer io.Writer, value any) error {
@@ -32,8 +34,21 @@ func writeJSON(writer io.Writer, value any) error {
 	return nil
 }
 
+func writeCommandOutput[T any](
+	writer io.Writer,
+	jsonMode bool,
+	value T,
+	writeHuman func(io.Writer, T) error,
+) error {
+	if jsonMode {
+		return writeJSON(writer, value)
+	}
+
+	return writeHuman(writer, value)
+}
+
 func writeCommandError(writer io.Writer, jsonMode bool, err error) error {
-	if code, ok := task.ErrorCodeOf(err); ok && jsonMode {
+	if code, ok := apperr.CodeOf(err); ok && jsonMode {
 		return writeJSON(writer, errorEnvelope{Error: errorPayload{Code: code, Message: err.Error()}})
 	}
 
@@ -43,6 +58,11 @@ func writeCommandError(writer io.Writer, jsonMode bool, err error) error {
 
 func writeAddedTask(writer io.Writer, created task.Task) error {
 	_, err := fmt.Fprintf(writer, "Added task %d: %s\n", created.ID, humanText(created.Title, false))
+	return err
+}
+
+func writeAddedProject(writer io.Writer, created project.Project) error {
+	_, err := fmt.Fprintf(writer, "Added project %d: %s\n", created.ID, humanText(created.Title, false))
 	return err
 }
 
@@ -92,13 +112,98 @@ func writeTaskMutation(writer io.Writer, action string, current task.Task) error
 	return err
 }
 
+func writeProjectMutation(writer io.Writer, action string, current project.Project) error {
+	_, err := fmt.Fprintf(
+		writer,
+		"%s: project %d  %s\n",
+		action,
+		current.ID,
+		humanText(current.Title, false),
+	)
+	return err
+}
+
+func writeProjectResolution(writer io.Writer, action string, resolution project.Resolution) error {
+	if err := writeProjectMutation(writer, action, resolution.Project); err != nil {
+		return err
+	}
+
+	return writeNarratedTasks(writer, "Cancelled", "open task", resolution.CancelledTasks)
+}
+
+func writeProjectDeletion(writer io.Writer, deletion project.Deletion) error {
+	if err := writeProjectMutation(writer, "Deleted", deletion.Project); err != nil {
+		return err
+	}
+
+	return writeNarratedTasks(writer, "Deleted", "task", deletion.DeletedTasks)
+}
+
+func writeNarratedTasks(writer io.Writer, action string, noun string, tasks []task.Task) error {
+	if len(tasks) == 0 {
+		return nil
+	}
+
+	plural := ""
+	if len(tasks) != 1 {
+		plural = "s"
+	}
+	if _, err := fmt.Fprintf(writer, "%s %d %s%s:\n", action, len(tasks), noun, plural); err != nil {
+		return err
+	}
+
+	rows := make([][]string, 0, len(tasks))
+	for _, current := range tasks {
+		rows = append(rows, []string{
+			strconv.FormatInt(current.ID, 10),
+			humanText(current.Title, false),
+		})
+	}
+
+	return writeTable(writer, rows)
+}
+
+func writeProjectList(writer io.Writer, projects []project.Project) error {
+	if len(projects) == 0 {
+		return nil
+	}
+
+	rows := make([][]string, 0, len(projects))
+	for _, current := range projects {
+		rows = append(rows, []string{
+			strconv.FormatInt(current.ID, 10),
+			humanText(current.Title, false),
+			humanText(current.Status, false),
+		})
+	}
+
+	return writeTable(writer, rows)
+}
+
 func writeTask(writer io.Writer, current task.Task) error {
 	rows := [][]string{
 		{"ID", strconv.FormatInt(current.ID, 10)},
+		{"Project", nullableInt64(current.ProjectID)},
 		{"Title", humanText(current.Title, false)},
 		{"Note", humanText(current.Note, true)},
 		{"Due on", humanText(nullableString(current.DueOn), false)},
 		{"Defer until", humanText(nullableString(current.DeferUntil), false)},
+		{"Done at", humanText(nullableString(current.DoneAt), false)},
+		{"Cancelled at", humanText(nullableString(current.CancelledAt), false)},
+		{"Status", humanText(current.Status, false)},
+		{"Position", strconv.FormatInt(current.Position, 10)},
+		{"Created at", humanText(current.CreatedAt, false)},
+		{"Updated at", humanText(current.UpdatedAt, false)},
+	}
+
+	return writeTable(writer, rows)
+}
+
+func writeProject(writer io.Writer, current project.Project) error {
+	rows := [][]string{
+		{"ID", strconv.FormatInt(current.ID, 10)},
+		{"Title", humanText(current.Title, false)},
+		{"Note", humanText(current.Note, true)},
 		{"Done at", humanText(nullableString(current.DoneAt), false)},
 		{"Cancelled at", humanText(nullableString(current.CancelledAt), false)},
 		{"Status", humanText(current.Status, false)},
@@ -160,6 +265,14 @@ func nullableString(value *string) string {
 	}
 
 	return *value
+}
+
+func nullableInt64(value *int64) string {
+	if value == nil {
+		return ""
+	}
+
+	return strconv.FormatInt(*value, 10)
 }
 
 func humanText(value string, preserveLineFeeds bool) string {

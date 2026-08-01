@@ -21,12 +21,14 @@ const (
 )
 
 type ListOptions struct {
-	Status ListStatus
-	Date   DateSelector
+	Status    ListStatus
+	Date      DateSelector
+	ProjectID *int64
 }
 
 type Task struct {
 	ID          int64   `json:"id"`
+	ProjectID   *int64  `json:"project_id"`
 	Title       string  `json:"title"`
 	Note        string  `json:"note"`
 	DeferUntil  *string `json:"defer_until"`
@@ -40,6 +42,7 @@ type Task struct {
 }
 
 type AddFields struct {
+	ProjectID  *int64
 	Title      string
 	Note       string
 	DeferUntil *string
@@ -51,14 +54,20 @@ type DateChange struct {
 	Clear bool
 }
 
+type ProjectChange struct {
+	Set   *int64
+	Clear bool
+}
+
 type EditFields struct {
+	Project    ProjectChange
 	Title      *string
 	Note       *string
 	DeferUntil DateChange
 	DueOn      DateChange
 }
 
-type Repository interface {
+type Store interface {
 	Add(ctx context.Context, fields AddFields, timestamp string) (Task, error)
 	Inbox(ctx context.Context) ([]Task, error)
 	Available(ctx context.Context) ([]Task, error)

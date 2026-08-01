@@ -7,14 +7,15 @@
 ## Command architecture
 
 - Cobra commands only adapt arguments, flags, streams, and presentation. Put use-case validation and orchestration in the relevant `internal` service.
-- Services depend on narrow repository interfaces and are the sole owners of semantic validation for use-case inputs. Repositories assume those inputs were validated; store checks are limited to caller-contract failures needed to construct a valid operation and are not a second user-facing validation layer. Services also own multi-statement transaction boundaries. Use one atomic SQL statement instead of a transaction when it proves the complete operation.
-- Concrete SQLite code, schema bootstrap, and row scanning belong in `internal/store`; do not expose `database/sql` types across the repository boundary.
+- Services depend on narrow store interfaces and are the sole owners of semantic validation for use-case inputs. Stores assume those inputs were validated; store checks are limited to caller-contract failures needed to construct a valid operation and are not a second user-facing validation layer. Services also own multi-statement transaction boundaries. Use one atomic SQL statement instead of a transaction when it proves the complete operation.
+- Concrete SQLite code, schema bootstrap, and row scanning belong in `internal/store`; do not expose `database/sql` types across the store boundary.
 - Open runtime dependencies inside behavioral command execution through an injected factory. Help, version, and argument parsing must not open the database.
 - Return stable coded application errors from service/store boundaries. Convert unexpected errors to `internal` and Cobra syntax failures to `usage` at the root adapter.
+- Service and store error messages state semantics only. Recovery guidance that names CLI flags or command spellings is presentation and is composed by the command adapter.
 - Route all success and error rendering through shared writers so JSON remains compact and newline-terminated, errors stay on stderr, and human output stays on stdout.
 
 ## Test ownership
 
 - Use real temporary SQLite databases for schema, bootstrap, pragma, transaction, and query semantics.
-- Test validation and orchestration at the service layer with repository-boundary fakes.
+- Test validation and orchestration at the service layer with store-boundary fakes.
 - Test streams, JSON envelopes, and exit mapping at the command layer. Reserve subprocess tests for persistence and complete binary wiring across invocations.

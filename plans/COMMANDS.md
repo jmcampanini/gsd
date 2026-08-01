@@ -116,13 +116,24 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
 
 - **Mutual exclusion**: `--project` and `--area` together is an error
   (matches the schema CHECK). Neither = inbox.
-- **Re-parenting appends** to the end of the destination container.
+- **Re-parenting appends** to the end of the destination container;
+  re-stating the current container is a no-op and does not move the entity.
 - **Reorder is sibling-relative**; referencing an entity in a different
   container is an error.
 - **Tags must pre-exist**: `tag`/`untag` with an unknown name is an error.
   `gsd tags add` is the only way tags come into existence.
 - **Cascades narrate**: completing/cancelling a project cancels its open
   tasks and reports each one.
+- **Reopening a project is not un-cascade**: it clears only the project's
+  exit; tasks the cascade cancelled stay cancelled until individually
+  reopened.
+- **A resolved project is closed history**: completing, cancelling, or
+  reopening its tasks, creating a task into it, and re-parenting a task into
+  or out of it are `conflict` errors with reopen-the-project-first guidance
+  (a move blocked by a resolved source and a resolved destination names
+  both). Content edits and deletion of contained tasks stay allowed.
+- **Referencing a nonexistent project is `not_found`** everywhere a project
+  ID can appear: `add --project`, `edit --project`, and `list --project`.
 - **Delete honors RESTRICT**: deleting a non-empty project/area is an
   error; `--recursive` is the explicit opt-in (children deleted in one
   transaction). Deleting a task never blocks.
@@ -153,10 +164,17 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
 - **Mutations echo the affected entity**: `gsd add --json` returns the created
   row so agents can capture its ID without another call.
 - **Cascades report what they touched**:
-  `{"project":{...},"cancelled_tasks":[{...},...]}`.
+  `{"project":{...},"cancelled_tasks":[{...},...]}`; recursive deletion
+  mirrors it as `{"project":{...},"deleted_tasks":[...]}`. Both arrays may
+  be `[]`.
 - **Collections are position-ordered**: `inbox` and `list` return rows
   ordered by `position`, then `id`, for every status filter, in both output
   modes.
+- **The logbook is resolution-ordered**: `resolved_at` descending, project
+  entries above task entries resolved at the same instant, then `id`
+  descending, so a cascade lists the project above the tasks it cancelled.
+  Human rows print kind, ID, title, status, and the local calendar day of
+  resolution.
 - **Every JSON-mode application error is structured, on stderr**:
   `{"error":{"code":"not_found","message":"no task 42"}}`. Initial stable
   codes are `not_found`, `invalid_argument`, `conflict`, and `internal`;

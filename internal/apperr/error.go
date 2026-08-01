@@ -1,18 +1,18 @@
-package task
+package apperr
 
 import "errors"
 
-type ErrorCode string
+type Code string
 
 const (
-	ErrorNotFound        ErrorCode = "not_found"
-	ErrorInvalidArgument ErrorCode = "invalid_argument"
-	ErrorConflict        ErrorCode = "conflict"
-	ErrorInternal        ErrorCode = "internal"
+	NotFound        Code = "not_found"
+	InvalidArgument Code = "invalid_argument"
+	Conflict        Code = "conflict"
+	Internal        Code = "internal"
 )
 
 type Error struct {
-	Code    ErrorCode
+	Code    Code
 	Message string
 	cause   error
 }
@@ -25,11 +25,11 @@ func (e *Error) Unwrap() error {
 	return e.cause
 }
 
-func NewError(code ErrorCode, message string, cause error) error {
+func New(code Code, message string, cause error) error {
 	return &Error{Code: code, Message: message, cause: cause}
 }
 
-func ErrorCodeOf(err error) (ErrorCode, bool) {
+func CodeOf(err error) (Code, bool) {
 	var applicationError *Error
 	if !errors.As(err, &applicationError) {
 		return "", false

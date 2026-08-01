@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -36,6 +38,7 @@ type fakeApplication struct {
 	deleteError     error
 	addTitle        string
 	addNote         string
+	addProjectID    *int64
 	addDueOn        *string
 	addDeferUntil   *string
 	listOptions     task.ListOptions
@@ -49,6 +52,7 @@ type fakeApplication struct {
 func (f *fakeApplication) Add(_ context.Context, fields task.AddFields) (task.Task, error) {
 	f.addTitle = fields.Title
 	f.addNote = fields.Note
+	f.addProjectID = fields.ProjectID
 	f.addDueOn = fields.DueOn
 	f.addDeferUntil = fields.DeferUntil
 	return f.addResult, f.addError
@@ -120,9 +124,34 @@ func runCommand(t *testing.T, application task.Application, args ...string) comm
 	return runCommandWithInput(t, application, strings.NewReader(""), args...)
 }
 
+func runProjectCommand(t *testing.T, application project.Application, args ...string) commandResult {
+	t.Helper()
+	return runCommandWithApplications(t, applications{projects: application}, strings.NewReader(""), args...)
+}
+
+func runProjectCommandWithInput(
+	t *testing.T,
+	application project.Application,
+	input io.Reader,
+	args ...string,
+) commandResult {
+	t.Helper()
+	return runCommandWithApplications(t, applications{projects: application}, input, args...)
+}
+
 func runCommandWithInput(
 	t *testing.T,
 	application task.Application,
+	input io.Reader,
+	args ...string,
+) commandResult {
+	t.Helper()
+	return runCommandWithApplications(t, applications{tasks: application}, input, args...)
+}
+
+func runCommandWithApplications(
+	t *testing.T,
+	available applications,
 	input io.Reader,
 	args ...string,
 ) commandResult {
@@ -131,10 +160,10 @@ func runCommandWithInput(
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	result := commandResult{}
-	factory := func(_ context.Context, path string) (task.Application, io.Closer, error) {
+	factory := func(_ context.Context, path string) (applications, io.Closer, error) {
 		result.opens++
 		result.openPath = path
-		return application, closeRecorder{close: func() { result.closes++ }}, nil
+		return available, closeRecorder{close: func() { result.closes++ }}, nil
 	}
 	root := newRootCommandWithFactory(factory)
 	root.SetIn(input)
@@ -173,12 +202,12 @@ func TestExitCodeForError(t *testing.T) {
 		{name: "success", want: 0},
 		{
 			name: "application",
-			err:  task.NewError(task.ErrorConflict, "conflict", nil),
+			err:  apperr.New(apperr.Conflict, "conflict", nil),
 			want: 1,
 		},
 		{
 			name: "wrapped application",
-			err:  errors.Join(errors.New("context"), task.NewError(task.ErrorNotFound, "missing", nil)),
+			err:  errors.Join(errors.New("context"), apperr.New(apperr.NotFound, "missing", nil)),
 			want: 1,
 		},
 		{name: "usage", err: errors.New("usage error"), want: 2},
@@ -250,6 +279,7 @@ func TestJSONCommandOutput(t *testing.T) {
 	}
 	for _, field := range []string{
 		"id",
+		"project_id",
 		"title",
 		"note",
 		"defer_until",
@@ -265,11 +295,17 @@ func TestJSONCommandOutput(t *testing.T) {
 			t.Errorf("JSON fields = %v, missing %q", fields, field)
 		}
 	}
-	if len(fields) != 11 {
-		t.Errorf("JSON field count = %d, want 11", len(fields))
+	if len(fields) != 12 {
+		t.Errorf("JSON field count = %d, want 12", len(fields))
 	}
-	if string(fields["done_at"]) != "null" || string(fields["cancelled_at"]) != "null" {
-		t.Errorf("nullable fields = (%s, %s), want null", fields["done_at"], fields["cancelled_at"])
+	if string(fields["project_id"]) != "null" || string(fields["done_at"]) != "null" ||
+		string(fields["cancelled_at"]) != "null" {
+		t.Errorf(
+			"nullable fields = (%s, %s, %s), want null",
+			fields["project_id"],
+			fields["done_at"],
+			fields["cancelled_at"],
+		)
 	}
 	if application.addTitle != "capture" || application.addNote != "details" ||
 		application.addDueOn == nil || *application.addDueOn != "tomorrow" ||
@@ -351,7 +387,7 @@ func TestNoteStdinReadFailureIsInternalWithoutOpeningApplication(t *testing.T) {
 	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if envelope.Error.Code != task.ErrorInternal {
+	if envelope.Error.Code != apperr.Internal {
 		t.Errorf("error code = %q, want internal", envelope.Error.Code)
 	}
 }
@@ -478,27 +514,20 @@ func TestEditAdaptsDeferIntent(t *testing.T) {
 	}
 }
 
-func TestEditWithoutFieldsReturnsApplicationError(t *testing.T) {
+func TestEditWithoutFieldsFailsBeforeOpeningApplication(t *testing.T) {
 	t.Parallel()
 
-	application := &fakeApplication{editError: task.NewError(
-		task.ErrorInvalidArgument,
-		"edit requires at least one field",
-		nil,
-	)}
-	result := runCommand(t, application, "edit", "7", "--json")
-	if result.exitCode != 1 || result.stdout != "" || result.opens != 1 || result.closes != 1 {
-		t.Errorf("result = %#v, want stderr-only invalid_argument with one application lifecycle", result)
-	}
-	if application.editFields.Title != nil || application.editFields.Note != nil {
-		t.Errorf("Edit() fields = %#v, want both omitted", application.editFields)
+	result := runCommand(t, &fakeApplication{}, "edit", "7", "--json")
+	if result.exitCode != 1 || result.stdout != "" || result.opens != 0 {
+		t.Errorf("result = %#v, want stderr-only error before opening the application", result)
 	}
 	var envelope errorEnvelope
 	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if envelope.Error.Code != task.ErrorInvalidArgument {
-		t.Errorf("error code = %q, want invalid_argument", envelope.Error.Code)
+	if envelope.Error.Code != apperr.InvalidArgument ||
+		!strings.Contains(envelope.Error.Message, "--title") {
+		t.Errorf("error = %#v, want invalid_argument naming the edit flags", envelope.Error)
 	}
 }
 
@@ -727,7 +756,7 @@ func TestLifecycleValidationDoesNotOpenDatabase(t *testing.T) {
 			if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
 				t.Fatalf("decode error: %v", err)
 			}
-			if envelope.Error.Code != task.ErrorInvalidArgument {
+			if envelope.Error.Code != apperr.InvalidArgument {
 				t.Errorf("error code = %q, want invalid_argument", envelope.Error.Code)
 			}
 		})
@@ -874,31 +903,31 @@ func TestJSONErrorsUseStableCodesAndStreams(t *testing.T) {
 		name        string
 		application *fakeApplication
 		args        []string
-		wantCode    task.ErrorCode
+		wantCode    apperr.Code
 		wantMessage string
 		wantExit    int
 	}{
 		{
 			name: "not found",
-			application: &fakeApplication{showError: task.NewError(
-				task.ErrorNotFound,
+			application: &fakeApplication{showError: apperr.New(
+				apperr.NotFound,
 				"no task 99",
 				nil,
 			)},
 			args:        []string{"show", "99", "--json"},
-			wantCode:    task.ErrorNotFound,
+			wantCode:    apperr.NotFound,
 			wantMessage: "no task 99",
 			wantExit:    1,
 		},
 		{
 			name: "conflict",
-			application: &fakeApplication{doneError: task.NewError(
-				task.ErrorConflict,
+			application: &fakeApplication{doneError: apperr.New(
+				apperr.Conflict,
 				"task 1 is not open",
 				nil,
 			)},
 			args:        []string{"done", "1", "--json"},
-			wantCode:    task.ErrorConflict,
+			wantCode:    apperr.Conflict,
 			wantMessage: "task 1 is not open",
 			wantExit:    1,
 		},
@@ -906,7 +935,7 @@ func TestJSONErrorsUseStableCodesAndStreams(t *testing.T) {
 			name:        "internal",
 			application: &fakeApplication{inboxError: errors.New("open database: permission denied")},
 			args:        []string{"inbox", "--json"},
-			wantCode:    task.ErrorInternal,
+			wantCode:    apperr.Internal,
 			wantMessage: "open database: permission denied",
 			wantExit:    1,
 		},
@@ -966,7 +995,7 @@ func TestInvalidIDIsApplicationErrorWithoutOpeningDatabase(t *testing.T) {
 	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
 		t.Fatalf("decode stderr: %v", err)
 	}
-	if envelope.Error.Code != task.ErrorInvalidArgument {
+	if envelope.Error.Code != apperr.InvalidArgument {
 		t.Errorf("error code = %q, want invalid_argument", envelope.Error.Code)
 	}
 }
