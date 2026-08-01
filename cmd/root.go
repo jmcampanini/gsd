@@ -4,8 +4,10 @@ import (
 	"context"
 	"io"
 	"os"
+	"time"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/store"
 	"github.com/jmcampanini/gsd/internal/task"
@@ -22,6 +24,7 @@ type rootOptions struct {
 type applications struct {
 	tasks    task.Application
 	projects project.Application
+	logbook  logbook.Application
 }
 
 type applicationFactory func(context.Context, string) (applications, io.Closer, error)
@@ -46,6 +49,13 @@ func newRootCommand() *cobra.Command {
 }
 
 func newRootCommandWithFactory(factory applicationFactory) *cobra.Command {
+	return newRootCommandWithFactoryAndLocation(factory, time.Local)
+}
+
+func newRootCommandWithFactoryAndLocation(
+	factory applicationFactory,
+	location *time.Location,
+) *cobra.Command {
 	options := &rootOptions{}
 	root := &cobra.Command{
 		Use:           "gsd",
@@ -70,6 +80,7 @@ func newRootCommandWithFactory(factory applicationFactory) *cobra.Command {
 		newEditCommand(options, factory),
 		newInboxCommand(options, factory),
 		newListCommand(options, factory),
+		newLogbookCommand(options, factory, location),
 		newProjectCommand(options, factory),
 		newProjectsCommand(options, factory),
 		newReopenCommand(options, factory),
@@ -96,6 +107,7 @@ func defaultApplicationFactory(
 	return applications{
 		tasks:    task.NewService(store.NewTasks(database)),
 		projects: project.NewService(store.NewProjects(database)),
+		logbook:  logbook.NewService(store.NewLogbook(database)),
 	}, database, nil
 }
 
@@ -135,6 +147,17 @@ func withProjectApplication(
 ) error {
 	return withApplications(command, options, factory, func(available applications) error {
 		return run(available.projects)
+	})
+}
+
+func withLogbookApplication(
+	command *cobra.Command,
+	options *rootOptions,
+	factory applicationFactory,
+	run func(logbook.Application) error,
+) error {
+	return withApplications(command, options, factory, func(available applications) error {
+		return run(available.logbook)
 	})
 }
 

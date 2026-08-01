@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -144,6 +145,9 @@ func TestProjectLifecycleWorkflow(t *testing.T) {
 		fmt.Sprint(launch.ID),
 	))
 	completed = decodeTask(t, runJSON("done", fmt.Sprint(completed.ID)))
+	if completed.Status != "done" || completed.DoneAt == nil {
+		t.Fatalf("completed task = %#v, want done task with resolution timestamp", completed)
+	}
 
 	resolved := decodeProjectResolution(t, runJSON(
 		"project",
@@ -175,6 +179,35 @@ func TestProjectLifecycleWorkflow(t *testing.T) {
 	persistedCompleted := decodeTask(t, runJSON("show", fmt.Sprint(completed.ID)))
 	if !reflect.DeepEqual(persistedCompleted, completed) {
 		t.Errorf("pre-completed task = %#v, want untouched %#v", persistedCompleted, completed)
+	}
+
+	entries := decodeLogbook(t, runJSON("logbook"))
+	if len(entries) != 4 {
+		t.Fatalf("logbook entries = %#v, want exactly four resolved entries", entries)
+	}
+	if entries[0].Kind != "project" || entries[0].ID != launch.ID ||
+		entries[0].Title != launch.Title || entries[0].Status != "done" ||
+		entries[0].ResolvedAt != *resolved.Project.DoneAt || entries[0].ProjectTitle != nil {
+		t.Errorf("logbook project entry = %#v, want resolved launch without project title", entries[0])
+	}
+	for index, want := range []task.Task{secondOpen, firstOpen} {
+		entry := entries[index+1]
+		if entry.Kind != "task" || entry.ID != want.ID || entry.Title != want.Title ||
+			entry.Status != "cancelled" || entry.ResolvedAt != *resolved.Project.DoneAt ||
+			entry.ProjectTitle == nil || *entry.ProjectTitle != launch.Title {
+			t.Errorf(
+				"logbook cascade entry %d = %#v, want cancelled task %#v at project resolution",
+				index,
+				entry,
+				want,
+			)
+		}
+	}
+	if entries[3].Kind != "task" || entries[3].ID != completed.ID ||
+		entries[3].Title != completed.Title || entries[3].Status != "done" ||
+		entries[3].ResolvedAt != *completed.DoneAt || entries[3].ProjectTitle == nil ||
+		*entries[3].ProjectTitle != launch.Title {
+		t.Errorf("logbook completed entry = %#v, want independently completed task", entries[3])
 	}
 
 	assertJSONError(
@@ -302,6 +335,11 @@ func TestProjectLifecycleWorkflow(t *testing.T) {
 		apperr.NotFound,
 	)
 	assertJSONError(t, runJSON("show", fmt.Sprint(abandonedTask.ID)), apperr.NotFound)
+}
+
+func decodeLogbook(t *testing.T, result processResult) []logbook.Entry {
+	t.Helper()
+	return decodeJSON[[]logbook.Entry](t, result, "logbook")
 }
 
 func decodeProject(t *testing.T, result processResult) project.Project {
