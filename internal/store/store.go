@@ -90,23 +90,8 @@ func (s *Store) Inbox(ctx context.Context) ([]task.Task, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query inbox: %w", err)
 	}
-	defer func() {
-		_ = rows.Close()
-	}()
 
-	tasks := make([]task.Task, 0)
-	for rows.Next() {
-		current, scanErr := scanTask(rows)
-		if scanErr != nil {
-			return nil, fmt.Errorf("scan inbox task: %w", scanErr)
-		}
-		tasks = append(tasks, current)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate inbox: %w", err)
-	}
-
-	return tasks, nil
+	return collectTasks(rows, "scan inbox task", "iterate inbox")
 }
 
 func (s *Store) Available(ctx context.Context) ([]task.Task, error) {
@@ -114,23 +99,8 @@ func (s *Store) Available(ctx context.Context) ([]task.Task, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query available tasks: %w", err)
 	}
-	defer func() {
-		_ = rows.Close()
-	}()
 
-	tasks := make([]task.Task, 0)
-	for rows.Next() {
-		current, scanErr := scanTask(rows)
-		if scanErr != nil {
-			return nil, fmt.Errorf("scan available task: %w", scanErr)
-		}
-		tasks = append(tasks, current)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate available tasks: %w", err)
-	}
-
-	return tasks, nil
+	return collectTasks(rows, "scan available task", "iterate available tasks")
 }
 
 func (s *Store) Find(ctx context.Context, id int64) (task.Task, error) {
@@ -183,23 +153,8 @@ func (s *Store) List(ctx context.Context, options task.ListOptions) ([]task.Task
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
-	defer func() {
-		_ = rows.Close()
-	}()
 
-	tasks := make([]task.Task, 0)
-	for rows.Next() {
-		current, scanErr := scanTask(rows)
-		if scanErr != nil {
-			return nil, fmt.Errorf("scan listed task: %w", scanErr)
-		}
-		tasks = append(tasks, current)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate listed tasks: %w", err)
-	}
-
-	return tasks, nil
+	return collectTasks(rows, "scan listed task", "iterate listed tasks")
 }
 
 func (s *Store) Edit(
@@ -436,6 +391,26 @@ WHERE name NOT LIKE 'sqlite\_%' ESCAPE '\'
 
 type rowScanner interface {
 	Scan(...any) error
+}
+
+func collectTasks(rows *sql.Rows, scanAction, iterateAction string) ([]task.Task, error) {
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	tasks := make([]task.Task, 0)
+	for rows.Next() {
+		current, err := scanTask(rows)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", scanAction, err)
+		}
+		tasks = append(tasks, current)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s: %w", iterateAction, err)
+	}
+
+	return tasks, nil
 }
 
 func scanTask(scanner rowScanner) (task.Task, error) {
