@@ -46,7 +46,7 @@ func writeAddedTask(writer io.Writer, created task.Task) error {
 	return err
 }
 
-func writeInbox(writer io.Writer, tasks []task.Task) error {
+func writeOpenTaskList(writer io.Writer, tasks []task.Task) error {
 	if len(tasks) == 0 {
 		return nil
 	}

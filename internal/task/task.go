@@ -14,9 +14,10 @@ const (
 type DateSelector string
 
 const (
-	DateSelectorNone    DateSelector = ""
-	DateSelectorDue     DateSelector = "due"
-	DateSelectorOverdue DateSelector = "overdue"
+	DateSelectorNone     DateSelector = ""
+	DateSelectorDue      DateSelector = "due"
+	DateSelectorOverdue  DateSelector = "overdue"
+	DateSelectorDeferred DateSelector = "deferred"
 )
 
 type ListOptions struct {
@@ -39,9 +40,10 @@ type Task struct {
 }
 
 type AddFields struct {
-	Title string
-	Note  string
-	DueOn *string
+	Title      string
+	Note       string
+	DeferUntil *string
+	DueOn      *string
 }
 
 type DateChange struct {
@@ -50,14 +52,16 @@ type DateChange struct {
 }
 
 type EditFields struct {
-	Title *string
-	Note  *string
-	DueOn DateChange
+	Title      *string
+	Note       *string
+	DeferUntil DateChange
+	DueOn      DateChange
 }
 
 type Repository interface {
 	Add(ctx context.Context, fields AddFields, timestamp string) (Task, error)
 	Inbox(ctx context.Context) ([]Task, error)
+	Available(ctx context.Context) ([]Task, error)
 	Find(ctx context.Context, id int64) (Task, error)
 	List(ctx context.Context, options ListOptions) ([]Task, error)
 	Edit(ctx context.Context, id int64, fields EditFields, timestamp string) (Task, error)
@@ -70,6 +74,7 @@ type Repository interface {
 type Application interface {
 	Add(ctx context.Context, fields AddFields) (Task, error)
 	Inbox(ctx context.Context) ([]Task, error)
+	Available(ctx context.Context) ([]Task, error)
 	Show(ctx context.Context, id int64) (Task, error)
 	List(ctx context.Context, options ListOptions) ([]Task, error)
 	Edit(ctx context.Context, id int64, fields EditFields) (Task, error)

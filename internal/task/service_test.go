@@ -12,7 +12,10 @@ type recordingRepository struct {
 	title              string
 	note               string
 	addedDueOn         *string
+	addedDeferUntil    *string
 	timestamp          string
+	availableCalls     int
+	availableResult    []Task
 	findCalls          int
 	listCalls          int
 	listedOptions      ListOptions
@@ -38,20 +41,27 @@ func (r *recordingRepository) Add(
 	r.title = fields.Title
 	r.note = fields.Note
 	r.addedDueOn = fields.DueOn
+	r.addedDeferUntil = fields.DeferUntil
 	r.timestamp = timestamp
 
 	return Task{
-		ID:        1,
-		Title:     fields.Title,
-		Note:      fields.Note,
-		DueOn:     fields.DueOn,
-		CreatedAt: timestamp,
-		UpdatedAt: timestamp,
+		ID:         1,
+		Title:      fields.Title,
+		Note:       fields.Note,
+		DueOn:      fields.DueOn,
+		DeferUntil: fields.DeferUntil,
+		CreatedAt:  timestamp,
+		UpdatedAt:  timestamp,
 	}, nil
 }
 
 func (*recordingRepository) Inbox(context.Context) ([]Task, error) {
 	return []Task{}, nil
+}
+
+func (r *recordingRepository) Available(context.Context) ([]Task, error) {
+	r.availableCalls++
+	return r.availableResult, nil
 }
 
 func (r *recordingRepository) Find(_ context.Context, id int64) (Task, error) {
@@ -122,7 +132,13 @@ func TestAddPreservesAcceptedTextAndNormalizesTimestamp(t *testing.T) {
 	title := "  Keep surrounding space  "
 	note := "line one\nline two\n"
 	dueOn := "tomorrow"
-	created, err := service.Add(context.Background(), AddFields{Title: title, Note: note, DueOn: &dueOn})
+	deferUntil := "today"
+	created, err := service.Add(context.Background(), AddFields{
+		Title:      title,
+		Note:       note,
+		DueOn:      &dueOn,
+		DeferUntil: &deferUntil,
+	})
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -136,6 +152,10 @@ func TestAddPreservesAcceptedTextAndNormalizesTimestamp(t *testing.T) {
 		created.DueOn == nil || *created.DueOn != "2026-07-28" {
 		t.Errorf("due date = %#v/%#v, want canonical 2026-07-28", repository.addedDueOn, created.DueOn)
 	}
+	if repository.addedDeferUntil == nil || *repository.addedDeferUntil != "2026-07-27" ||
+		created.DeferUntil == nil || *created.DeferUntil != "2026-07-27" {
+		t.Errorf("defer date = %#v/%#v, want canonical 2026-07-27", repository.addedDeferUntil, created.DeferUntil)
+	}
 	if nowCalls != 1 || repository.timestamp != "2026-07-27T16:34:56.987Z" {
 		t.Errorf("clock calls/timestamp = %d/%q, want one call and UTC milliseconds", nowCalls, repository.timestamp)
 	}
@@ -146,15 +166,17 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 
 	invalidDate := "2026-02-30"
 	tests := []struct {
-		name  string
-		title string
-		note  string
-		dueOn *string
+		name       string
+		title      string
+		note       string
+		dueOn      *string
+		deferUntil *string
 	}{
 		{name: "blank title", title: " \t\n"},
 		{name: "invalid title UTF-8", title: string([]byte{0xff})},
 		{name: "invalid note UTF-8", title: "valid", note: string([]byte{0xff})},
 		{name: "invalid due date", title: "valid", dueOn: &invalidDate},
+		{name: "invalid defer date", title: "valid", deferUntil: &invalidDate},
 	}
 
 	for _, test := range tests {
@@ -164,9 +186,10 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 			repository := &recordingRepository{}
 			service := NewService(repository)
 			_, err := service.Add(context.Background(), AddFields{
-				Title: test.title,
-				Note:  test.note,
-				DueOn: test.dueOn,
+				Title:      test.title,
+				Note:       test.note,
+				DueOn:      test.dueOn,
+				DeferUntil: test.deferUntil,
 			})
 			if err == nil {
 				t.Fatal("Add() error = nil, want invalid_argument")
@@ -178,7 +201,11 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 			if repository.addCalls != 0 {
 				t.Errorf("repository Add() calls = %d, want 0", repository.addCalls)
 			}
-			if test.dueOn != nil && !strings.Contains(err.Error(), *test.dueOn) {
+			rejected := test.dueOn
+			if rejected == nil {
+				rejected = test.deferUntil
+			}
+			if rejected != nil && !strings.Contains(err.Error(), *rejected) {
 				t.Errorf("Add() error = %q, want rejected input", err)
 			}
 		})
@@ -271,12 +298,28 @@ func TestParseListStatus(t *testing.T) {
 	}
 }
 
+func TestAvailableNormalizesNil(t *testing.T) {
+	t.Parallel()
+
+	repository := &recordingRepository{}
+	available, err := NewService(repository).Available(context.Background())
+	if err != nil {
+		t.Fatalf("Available() error = %v", err)
+	}
+	if available == nil || len(available) != 0 {
+		t.Errorf("Available() = %#v, want non-nil empty list", available)
+	}
+	if repository.availableCalls != 1 {
+		t.Errorf("repository Available() calls = %d, want 1", repository.availableCalls)
+	}
+}
+
 func TestListValidatesOptionsAndNormalizesNil(t *testing.T) {
 	t.Parallel()
 
 	repository := &recordingRepository{}
 	service := NewService(repository)
-	options := ListOptions{Status: ListStatusDone, Date: DateSelectorDue}
+	options := ListOptions{Status: ListStatusDone, Date: DateSelectorDeferred}
 
 	listed, err := service.List(context.Background(), options)
 	if err != nil {
@@ -321,10 +364,12 @@ func TestEditPreservesRequestedFieldsAndNormalizesTimestamp(t *testing.T) {
 	title := "  Revised title  "
 	note := "line one\nline two\n"
 	dueOn := "today"
+	deferUntil := "tomorrow"
 	edited, err := service.Edit(context.Background(), 7, EditFields{
-		Title: &title,
-		Note:  &note,
-		DueOn: DateChange{Set: &dueOn},
+		Title:      &title,
+		Note:       &note,
+		DueOn:      DateChange{Set: &dueOn},
+		DeferUntil: DateChange{Set: &deferUntil},
 	})
 	if err != nil {
 		t.Fatalf("Edit() error = %v", err)
@@ -341,6 +386,9 @@ func TestEditPreservesRequestedFieldsAndNormalizesTimestamp(t *testing.T) {
 	if repository.editFields.DueOn.Set == nil || *repository.editFields.DueOn.Set != "2026-07-27" {
 		t.Errorf("edited due date = %#v, want canonical 2026-07-27", repository.editFields.DueOn)
 	}
+	if repository.editFields.DeferUntil.Set == nil || *repository.editFields.DeferUntil.Set != "2026-07-28" {
+		t.Errorf("edited defer date = %#v, want canonical 2026-07-28", repository.editFields.DeferUntil)
+	}
 	if nowCalls != 1 || repository.editTimestamp != "2026-07-27T16:34:56.987Z" || edited.UpdatedAt != repository.editTimestamp {
 		t.Errorf("clock calls/timestamp = %d/%q, want one call and UTC milliseconds", nowCalls, repository.editTimestamp)
 	}
@@ -352,8 +400,9 @@ func TestEditDistinguishesClearedFieldsFromOmittedFields(t *testing.T) {
 	repository := &recordingRepository{}
 	note := ""
 	_, err := NewService(repository).Edit(context.Background(), 7, EditFields{
-		Note:  &note,
-		DueOn: DateChange{Clear: true},
+		Note:       &note,
+		DueOn:      DateChange{Clear: true},
+		DeferUntil: DateChange{Clear: true},
 	})
 	if err != nil {
 		t.Fatalf("Edit() error = %v", err)
@@ -367,6 +416,9 @@ func TestEditDistinguishesClearedFieldsFromOmittedFields(t *testing.T) {
 	if !repository.editFields.DueOn.Clear || repository.editFields.DueOn.Set != nil {
 		t.Errorf("edited due date = %#v, want explicit clear", repository.editFields.DueOn)
 	}
+	if !repository.editFields.DeferUntil.Clear || repository.editFields.DeferUntil.Set != nil {
+		t.Errorf("edited defer date = %#v, want explicit clear", repository.editFields.DeferUntil)
+	}
 
 	omittedRepository := &recordingRepository{}
 	title := "revised"
@@ -376,6 +428,9 @@ func TestEditDistinguishesClearedFieldsFromOmittedFields(t *testing.T) {
 	}
 	if omittedRepository.editFields.DueOn != (DateChange{}) {
 		t.Errorf("edited due date = %#v, want omitted", omittedRepository.editFields.DueOn)
+	}
+	if omittedRepository.editFields.DeferUntil != (DateChange{}) {
+		t.Errorf("edited defer date = %#v, want omitted", omittedRepository.editFields.DeferUntil)
 	}
 }
 
@@ -399,10 +454,19 @@ func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
 		{name: "invalid title UTF-8", id: 1, fields: EditFields{Title: &invalidTitle}},
 		{name: "invalid note UTF-8", id: 1, fields: EditFields{Note: &invalidNote}},
 		{name: "invalid due date", id: 1, fields: EditFields{DueOn: DateChange{Set: &invalidDate}}},
+		{name: "invalid defer date", id: 1, fields: EditFields{DeferUntil: DateChange{Set: &invalidDate}}},
 		{
 			name: "set and clear due date",
 			id:   1,
 			fields: EditFields{DueOn: DateChange{
+				Set:   &validDate,
+				Clear: true,
+			}},
+		},
+		{
+			name: "set and clear defer date",
+			id:   1,
+			fields: EditFields{DeferUntil: DateChange{
 				Set:   &validDate,
 				Clear: true,
 			}},
