@@ -7,12 +7,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/jmcampanini/gsd/internal/project"
-	"github.com/jmcampanini/gsd/internal/task"
 )
 
-func TestMilestoneThreeSchemaColumnsConstraintsAndProjectIndex(t *testing.T) {
+func TestMilestoneFourSchemaColumnsConstraintsAndIndexes(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -22,62 +19,116 @@ func TestMilestoneThreeSchemaColumnsConstraintsAndProjectIndex(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = storage.Close() })
 
-	projectColumns := schemaColumnNames(t, storage.database, "projects")
-	wantProjectColumns := []string{
-		"id", "title", "note", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at",
+	columns := map[string][]string{
+		"areas": {
+			"id", "title", "note", "archived_at", "position", "created_at", "updated_at",
+		},
+		"projects": {
+			"id", "area_id", "title", "note", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at",
+		},
+		"tasks": {
+			"id", "project_id", "area_id", "title", "note", "defer_until", "due_on", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at",
+		},
 	}
-	if !reflect.DeepEqual(projectColumns, wantProjectColumns) {
-		t.Errorf("projects columns = %v, want %v", projectColumns, wantProjectColumns)
-	}
-	taskColumns := schemaColumnNames(t, storage.database, "tasks")
-	wantTaskColumns := []string{
-		"id", "project_id", "title", "note", "defer_until", "due_on", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at",
-	}
-	if !reflect.DeepEqual(taskColumns, wantTaskColumns) {
-		t.Errorf("tasks columns = %v, want %v", taskColumns, wantTaskColumns)
+	for object, want := range columns {
+		if got := schemaColumnNames(t, storage.database, object); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s columns = %v, want %v", object, got, want)
+		}
 	}
 
-	var projectIndexCount int
-	if err := storage.database.QueryRowContext(ctx, `
+	for tableName, indexNames := range map[string][]string{
+		"projects": {"idx_projects_area"},
+		"tasks":    {"idx_tasks_project", "idx_tasks_area"},
+	} {
+		for _, indexName := range indexNames {
+			var count int
+			if err := storage.database.QueryRowContext(ctx, `
 SELECT COUNT(*)
-FROM pragma_index_list('tasks')
-WHERE name = 'idx_tasks_project'
-`).Scan(&projectIndexCount); err != nil {
-		t.Fatalf("inspect task project index: %v", err)
-	}
-	if projectIndexCount != 1 {
-		t.Errorf("idx_tasks_project count = %d, want 1", projectIndexCount)
-	}
-
-	if _, err := storage.database.ExecContext(ctx, `
-INSERT INTO projects (title, done_at, cancelled_at, position)
-VALUES ('invalid state', '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z', 0)
-`); err == nil {
-		t.Error("insert project with both exits error = nil, want CHECK failure")
-	}
-	if _, err := storage.database.ExecContext(ctx, `
-INSERT INTO tasks (project_id, title, position) VALUES (99, 'orphan', 0)
-`); err == nil {
-		t.Error("insert task with missing project error = nil, want FK failure")
+FROM pragma_index_list(?)
+WHERE name = ?
+`, tableName, indexName).Scan(&count); err != nil {
+				t.Fatalf("inspect %s: %v", indexName, err)
+			}
+			if count != 1 {
+				t.Errorf("%s count = %d, want 1", indexName, count)
+			}
+		}
 	}
 
-	result, err := storage.database.ExecContext(ctx, `
-INSERT INTO projects (title, position) VALUES ('parent', 0)
+	for _, relationship := range []struct {
+		table  string
+		parent string
+		column string
+	}{
+		{table: "projects", parent: "areas", column: "area_id"},
+		{table: "tasks", parent: "projects", column: "project_id"},
+		{table: "tasks", parent: "areas", column: "area_id"},
+	} {
+		var count int
+		if err := storage.database.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM pragma_foreign_key_list(?)
+WHERE "table" = ? AND "from" = ? AND on_delete = 'RESTRICT'
+`, relationship.table, relationship.parent, relationship.column).Scan(&count); err != nil {
+			t.Fatalf("inspect %s.%s foreign key: %v", relationship.table, relationship.column, err)
+		}
+		if count != 1 {
+			t.Errorf("%s.%s RESTRICT foreign key count = %d, want 1", relationship.table, relationship.column, count)
+		}
+	}
+
+	for _, statement := range []string{
+		"INSERT INTO areas (position) VALUES (0)",
+		"INSERT INTO areas (title) VALUES ('missing position')",
+	} {
+		if _, err := storage.database.ExecContext(ctx, statement); err == nil {
+			t.Errorf("%s error = nil, want required-column failure", statement)
+		}
+	}
+
+	areaID := insertFixture(t, storage.database, `
+INSERT INTO areas (title, position) VALUES ('Home', 0)
 `)
-	if err != nil {
-		t.Fatalf("insert parent project: %v", err)
-	}
-	projectID, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("read parent project ID: %v", err)
+	projectID := insertFixture(t, storage.database, `
+INSERT INTO projects (title, position) VALUES ('Standalone', 0)
+`)
+
+	for description, statement := range map[string]string{
+		"project area FK": "INSERT INTO projects (area_id, title, position) VALUES (99, 'orphan', 0)",
+		"task project FK": "INSERT INTO tasks (project_id, title, position) VALUES (99, 'orphan', 0)",
+		"task area FK":    "INSERT INTO tasks (area_id, title, position) VALUES (99, 'orphan', 0)",
+	} {
+		if _, err := storage.database.ExecContext(ctx, statement); err == nil {
+			t.Errorf("%s error = nil, want FK failure", description)
+		}
 	}
 	if _, err := storage.database.ExecContext(ctx, `
-INSERT INTO tasks (project_id, title, position) VALUES (?, 'child', 0)
-`, projectID); err != nil {
-		t.Fatalf("insert child task: %v", err)
+INSERT INTO tasks (project_id, area_id, title, position)
+VALUES (?, ?, 'two containers', 0)
+`, projectID, areaID); err == nil {
+		t.Error("insert task with project and area error = nil, want CHECK failure")
 	}
-	if _, err := storage.database.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", projectID); err == nil {
-		t.Error("delete nonempty project error = nil, want RESTRICT failure")
+
+	if _, err := storage.database.ExecContext(ctx, `
+INSERT INTO projects (area_id, title, position) VALUES (?, 'Contained project', 0)
+`, areaID); err != nil {
+		t.Fatalf("insert contained project: %v", err)
+	}
+	taskAreaID := insertFixture(t, storage.database, `
+INSERT INTO areas (title, position) VALUES ('Task area', 1)
+`)
+	if _, err := storage.database.ExecContext(ctx, `
+INSERT INTO tasks (area_id, title, position) VALUES (?, 'Loose task', 0)
+`, taskAreaID); err != nil {
+		t.Fatalf("insert loose area task: %v", err)
+	}
+	for description, id := range map[string]int64{
+		"contained project": areaID,
+		"loose task":        taskAreaID,
+	} {
+		if _, err := storage.database.ExecContext(ctx, "DELETE FROM areas WHERE id = ?", id); err == nil {
+			t.Errorf("delete area with %s error = nil, want RESTRICT failure", description)
+		}
 	}
 }
 
@@ -89,58 +140,45 @@ func TestAutomaticallyAllocatedEntityIDsAreNotReusedAfterDeletion(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	projects := NewProjects(storage)
-	tasks := NewTasks(storage)
 	t.Cleanup(func() { _ = storage.Close() })
 
-	firstProject, err := projects.Add(
-		ctx,
-		project.AddFields{Title: "first"},
-		"2026-01-01T00:00:00.000Z",
-	)
-	if err != nil {
-		t.Fatalf("Add(first project) error = %v", err)
+	entities := []string{"areas", "projects", "tasks"}
+	firstIDs := make([]int64, len(entities))
+	for index, tableName := range entities {
+		firstIDs[index] = insertFixture(
+			t,
+			storage.database,
+			"INSERT INTO "+tableName+" (title, position) VALUES ('first', 0)",
+		)
 	}
-	firstTask, err := tasks.Add(
-		ctx,
-		task.AddFields{Title: "first"},
-		"2026-01-01T00:00:00.000Z",
-	)
-	if err != nil {
-		t.Fatalf("Add(first task) error = %v", err)
-	}
-	if _, err := tasks.Delete(ctx, firstTask.ID); err != nil {
-		t.Fatalf("Delete(first task) error = %v", err)
-	}
-	if _, err := projects.Delete(ctx, firstProject.ID); err != nil {
-		t.Fatalf("Delete(first project) error = %v", err)
+	for index, tableName := range entities {
+		if _, err := storage.database.ExecContext(
+			ctx,
+			"DELETE FROM "+tableName+" WHERE id = ?",
+			firstIDs[index],
+		); err != nil {
+			t.Fatalf("delete first row from %s: %v", tableName, err)
+		}
 	}
 
-	secondProject, err := projects.Add(
-		ctx,
-		project.AddFields{Title: "second"},
-		"2026-01-02T00:00:00.000Z",
-	)
-	if err != nil {
-		t.Fatalf("Add(second project) error = %v", err)
-	}
-	secondTask, err := tasks.Add(
-		ctx,
-		task.AddFields{Title: "second"},
-		"2026-01-02T00:00:00.000Z",
-	)
-	if err != nil {
-		t.Fatalf("Add(second task) error = %v", err)
-	}
-	if secondProject.ID <= firstProject.ID {
-		t.Errorf("project ID after deletion = %d, want greater than %d", secondProject.ID, firstProject.ID)
-	}
-	if secondTask.ID <= firstTask.ID {
-		t.Errorf("task ID after deletion = %d, want greater than %d", secondTask.ID, firstTask.ID)
+	for index, tableName := range entities {
+		secondID := insertFixture(
+			t,
+			storage.database,
+			"INSERT INTO "+tableName+" (title, position) VALUES ('second', 0)",
+		)
+		if secondID <= firstIDs[index] {
+			t.Errorf(
+				"%s ID after deletion = %d, want greater than %d",
+				tableName,
+				secondID,
+				firstIDs[index],
+			)
+		}
 	}
 }
 
-func TestMilestoneThreeViewsApplyContainmentAndExposeLogbookContract(t *testing.T) {
+func TestMilestoneFourViewsApplyAreaPredicatesAndExposeEnrichment(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -148,86 +186,90 @@ func TestMilestoneThreeViewsApplyContainmentAndExposeLogbookContract(t *testing.
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	projects := NewProjects(storage)
-	tasks := NewTasks(storage)
 	t.Cleanup(func() { _ = storage.Close() })
 
-	parent, err := projects.Add(
-		ctx,
-		project.AddFields{Title: "parent"},
-		"2026-01-01T00:00:00.000Z",
-	)
-	if err != nil {
-		t.Fatalf("Add(project) error = %v", err)
+	activeAreaID := insertFixture(t, storage.database, `
+INSERT INTO areas (title, position) VALUES ('Home', 0)
+`)
+	archivedAreaID := insertFixture(t, storage.database, `
+INSERT INTO areas (title, archived_at, position)
+VALUES ('Retired', '2026-01-01T00:00:00.000Z', 1)
+`)
+	activeProjectID := insertFixture(t, storage.database, `
+INSERT INTO projects (area_id, title, position) VALUES (?, 'Kitchen', 0)
+`, activeAreaID)
+	archivedProjectID := insertFixture(t, storage.database, `
+INSERT INTO projects (area_id, title, position) VALUES (?, 'Old project', 0)
+`, archivedAreaID)
+	resolvedProjectID := insertFixture(t, storage.database, `
+INSERT INTO projects (area_id, title, done_at, position)
+VALUES (?, 'Finished project', '2026-01-02T00:00:00.000Z', 1)
+`, activeAreaID)
+
+	inboxID := insertFixture(t, storage.database, `
+INSERT INTO tasks (title, position) VALUES ('Inbox', 0)
+`)
+	activeLooseID := insertFixture(t, storage.database, `
+INSERT INTO tasks (area_id, title, position) VALUES (?, 'Active loose', 0)
+`, activeAreaID)
+	_ = insertFixture(t, storage.database, `
+INSERT INTO tasks (area_id, title, position) VALUES (?, 'Archived loose', 0)
+`, archivedAreaID)
+	activeProjectTaskID := insertFixture(t, storage.database, `
+INSERT INTO tasks (project_id, title, position) VALUES (?, 'Project task', 0)
+`, activeProjectID)
+	_ = insertFixture(t, storage.database, `
+INSERT INTO tasks (project_id, title, position) VALUES (?, 'Archived project task', 0)
+`, archivedProjectID)
+	_ = insertFixture(t, storage.database, `
+INSERT INTO tasks (project_id, title, position) VALUES (?, 'Resolved project task', 0)
+`, resolvedProjectID)
+	doneLooseID := insertFixture(t, storage.database, `
+INSERT INTO tasks (area_id, title, done_at, position)
+VALUES (?, 'Done loose', '2026-01-03T00:00:00.000Z', 1)
+`, activeAreaID)
+	cancelledProjectTaskID := insertFixture(t, storage.database, `
+INSERT INTO tasks (project_id, title, cancelled_at, position)
+VALUES (?, 'Cancelled project task', '2026-01-04T00:00:00.000Z', 1)
+`, activeProjectID)
+
+	wantTaskViewColumns := []string{
+		"id", "project_id", "area_id", "title", "note", "defer_until", "due_on", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at", "project_title", "governing_area_id", "governing_area_title",
 	}
-	contained, err := tasks.Add(
-		ctx,
-		task.AddFields{ProjectID: &parent.ID, Title: "contained"},
-		"2026-01-02T00:00:00.000Z",
-	)
-	if err != nil {
-		t.Fatalf("Add(contained task) error = %v", err)
-	}
-	loose, err := tasks.Add(
-		ctx,
-		task.AddFields{Title: "loose"},
-		"2026-01-03T00:00:00.000Z",
-	)
-	if err != nil {
-		t.Fatalf("Add(loose task) error = %v", err)
+	for _, view := range []string{"inbox", "available"} {
+		if got := schemaColumnNames(t, storage.database, view); !reflect.DeepEqual(got, wantTaskViewColumns) {
+			t.Errorf("%s columns = %v, want %v", view, got, wantTaskViewColumns)
+		}
 	}
 
-	inbox, err := tasks.Inbox(ctx)
-	if err != nil {
-		t.Fatalf("Inbox() error = %v", err)
-	}
-	if len(inbox) != 1 || inbox[0].ID != loose.ID {
-		t.Errorf("Inbox() = %#v, want only loose task", inbox)
-	}
-
-	var projectTitle string
-	if err := storage.database.QueryRowContext(
-		ctx,
-		"SELECT project_title FROM available WHERE id = ?",
-		contained.ID,
-	).Scan(&projectTitle); err != nil {
-		t.Fatalf("query available project title: %v", err)
-	}
-	if projectTitle != parent.Title {
-		t.Errorf("available project title = %q, want %q", projectTitle, parent.Title)
+	inboxRows := queryViewFixtures(t, storage.database, `
+SELECT id, project_title, governing_area_id, governing_area_title
+FROM inbox
+ORDER BY id
+`)
+	if len(inboxRows) != 1 || inboxRows[0].id != inboxID ||
+		inboxRows[0].projectTitle != nil || inboxRows[0].governingAreaID != nil ||
+		inboxRows[0].governingAreaTitle != nil {
+		t.Errorf("inbox rows = %#v, want only unenriched inbox task %d", inboxRows, inboxID)
 	}
 
-	projectResolvedAt := "2026-01-04T00:00:00.000Z"
-	if _, err := storage.database.ExecContext(
-		ctx,
-		"UPDATE projects SET done_at = ? WHERE id = ?",
-		projectResolvedAt,
-		parent.ID,
-	); err != nil {
-		t.Fatalf("resolve project fixture: %v", err)
+	availableRows := queryViewFixtures(t, storage.database, `
+SELECT id, project_title, governing_area_id, governing_area_title
+FROM available
+ORDER BY id
+`)
+	if len(availableRows) != 3 {
+		t.Fatalf("available rows = %#v, want inbox and two active-area paths", availableRows)
 	}
-	available, err := tasks.Available(ctx)
-	if err != nil {
-		t.Fatalf("Available() error = %v", err)
-	}
-	if len(available) != 1 || available[0].ID != loose.ID {
-		t.Errorf("Available() = %#v, want loose task and no task in resolved project", available)
-	}
+	assertViewFixture(t, availableRows[0], inboxID, nil, nil, nil)
+	assertViewFixture(t, availableRows[1], activeLooseID, nil, &activeAreaID, stringPointer("Home"))
+	assertViewFixture(t, availableRows[2], activeProjectTaskID, stringPointer("Kitchen"), &activeAreaID, stringPointer("Home"))
 
-	taskResolvedAt := "2026-01-05T00:00:00.000Z"
-	if _, err := storage.database.ExecContext(
-		ctx,
-		"UPDATE tasks SET cancelled_at = ? WHERE id = ?",
-		taskResolvedAt,
-		contained.ID,
-	); err != nil {
-		t.Fatalf("resolve task fixture: %v", err)
+	wantLogbookColumns := []string{
+		"kind", "id", "title", "status", "resolved_at", "project_title", "governing_area_id", "governing_area_title",
 	}
-
-	logbookColumns := schemaColumnNames(t, storage.database, "logbook")
-	wantLogbookColumns := []string{"kind", "id", "title", "status", "resolved_at", "project_title"}
-	if !reflect.DeepEqual(logbookColumns, wantLogbookColumns) {
-		t.Errorf("logbook columns = %v, want %v", logbookColumns, wantLogbookColumns)
+	if got := schemaColumnNames(t, storage.database, "logbook"); !reflect.DeepEqual(got, wantLogbookColumns) {
+		t.Errorf("logbook columns = %v, want %v", got, wantLogbookColumns)
 	}
 	var logbookSQL string
 	if err := storage.database.QueryRowContext(
@@ -240,52 +282,146 @@ func TestMilestoneThreeViewsApplyContainmentAndExposeLogbookContract(t *testing.
 		t.Errorf("logbook SQL = %q, want no ORDER BY", logbookSQL)
 	}
 
-	var taskEntry struct {
-		kind         string
-		id           int64
-		title        string
-		status       string
-		resolvedAt   string
-		projectTitle *string
+	rows, err := storage.database.QueryContext(ctx, `
+SELECT kind, id, project_title, governing_area_id, governing_area_title
+FROM logbook
+ORDER BY kind, id
+`)
+	if err != nil {
+		t.Fatalf("query logbook enrichment: %v", err)
 	}
-	if err := storage.database.QueryRowContext(
-		ctx,
-		"SELECT kind, id, title, status, resolved_at, project_title FROM logbook WHERE kind = 'task' AND id = ?",
-		contained.ID,
-	).Scan(
-		&taskEntry.kind,
-		&taskEntry.id,
-		&taskEntry.title,
-		&taskEntry.status,
-		&taskEntry.resolvedAt,
-		&taskEntry.projectTitle,
-	); err != nil {
-		t.Fatalf("query task logbook entry: %v", err)
+	defer func() { _ = rows.Close() }()
+
+	type logbookFixture struct {
+		kind               string
+		id                 int64
+		projectTitle       *string
+		governingAreaID    *int64
+		governingAreaTitle *string
 	}
-	if taskEntry.kind != "task" || taskEntry.id != contained.ID || taskEntry.title != contained.Title ||
-		taskEntry.status != "cancelled" || taskEntry.resolvedAt != taskResolvedAt ||
-		taskEntry.projectTitle == nil || *taskEntry.projectTitle != parent.Title {
-		t.Errorf("task logbook entry = %#v, want resolved task with project title", taskEntry)
+	entries := make([]logbookFixture, 0, 3)
+	for rows.Next() {
+		var entry logbookFixture
+		if err := rows.Scan(
+			&entry.kind,
+			&entry.id,
+			&entry.projectTitle,
+			&entry.governingAreaID,
+			&entry.governingAreaTitle,
+		); err != nil {
+			t.Fatalf("scan logbook enrichment: %v", err)
+		}
+		entries = append(entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate logbook enrichment: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("logbook entries = %#v, want resolved project and two resolved tasks", entries)
+	}
+	if entries[0].kind != "project" || entries[0].id != resolvedProjectID ||
+		entries[0].projectTitle != nil || !sameInt64Pointer(entries[0].governingAreaID, activeAreaID) ||
+		!sameStringPointer(entries[0].governingAreaTitle, "Home") {
+		t.Errorf("project logbook entry = %#v, want active-area enrichment", entries[0])
+	}
+	if entries[1].kind != "task" || entries[1].id != doneLooseID ||
+		entries[1].projectTitle != nil || !sameInt64Pointer(entries[1].governingAreaID, activeAreaID) ||
+		!sameStringPointer(entries[1].governingAreaTitle, "Home") {
+		t.Errorf("direct task logbook entry = %#v, want active-area enrichment", entries[1])
+	}
+	if entries[2].kind != "task" || entries[2].id != cancelledProjectTaskID ||
+		!sameStringPointer(entries[2].projectTitle, "Kitchen") ||
+		!sameInt64Pointer(entries[2].governingAreaID, activeAreaID) ||
+		!sameStringPointer(entries[2].governingAreaTitle, "Home") {
+		t.Errorf("project task logbook entry = %#v, want inherited area enrichment", entries[2])
+	}
+}
+
+type viewFixture struct {
+	id                 int64
+	projectTitle       *string
+	governingAreaID    *int64
+	governingAreaTitle *string
+}
+
+func insertFixture(t *testing.T, database *sql.DB, query string, arguments ...any) int64 {
+	t.Helper()
+
+	result, err := database.Exec(query, arguments...)
+	if err != nil {
+		t.Fatalf("insert fixture: %v", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("read fixture ID: %v", err)
 	}
 
-	var projectKind, projectStatus, resolvedAt string
-	var noProjectTitle *string
-	if err := storage.database.QueryRowContext(
-		ctx,
-		"SELECT kind, status, resolved_at, project_title FROM logbook WHERE kind = 'project' AND id = ?",
-		parent.ID,
-	).Scan(&projectKind, &projectStatus, &resolvedAt, &noProjectTitle); err != nil {
-		t.Fatalf("query project logbook entry: %v", err)
+	return id
+}
+
+func queryViewFixtures(t *testing.T, database *sql.DB, query string) []viewFixture {
+	t.Helper()
+
+	rows, err := database.Query(query)
+	if err != nil {
+		t.Fatalf("query view fixtures: %v", err)
 	}
-	if projectKind != "project" || projectStatus != "done" || resolvedAt != projectResolvedAt || noProjectTitle != nil {
+	defer func() { _ = rows.Close() }()
+
+	fixtures := make([]viewFixture, 0)
+	for rows.Next() {
+		var fixture viewFixture
+		if err := rows.Scan(
+			&fixture.id,
+			&fixture.projectTitle,
+			&fixture.governingAreaID,
+			&fixture.governingAreaTitle,
+		); err != nil {
+			t.Fatalf("scan view fixture: %v", err)
+		}
+		fixtures = append(fixtures, fixture)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate view fixtures: %v", err)
+	}
+
+	return fixtures
+}
+
+func assertViewFixture(
+	t *testing.T,
+	got viewFixture,
+	wantID int64,
+	wantProjectTitle *string,
+	wantAreaID *int64,
+	wantAreaTitle *string,
+) {
+	t.Helper()
+
+	if got.id != wantID || !reflect.DeepEqual(got.projectTitle, wantProjectTitle) ||
+		!reflect.DeepEqual(got.governingAreaID, wantAreaID) ||
+		!reflect.DeepEqual(got.governingAreaTitle, wantAreaTitle) {
 		t.Errorf(
-			"project logbook entry = (%q, %q, %q, %#v), want done project without project title",
-			projectKind,
-			projectStatus,
-			resolvedAt,
-			noProjectTitle,
+			"view fixture = %#v, want ID %d/project %#v/area %#v/title %#v",
+			got,
+			wantID,
+			wantProjectTitle,
+			wantAreaID,
+			wantAreaTitle,
 		)
 	}
+}
+
+func stringPointer(value string) *string {
+	return &value
+}
+
+func sameInt64Pointer(got *int64, want int64) bool {
+	return got != nil && *got == want
+}
+
+func sameStringPointer(got *string, want string) bool {
+	return got != nil && *got == want
 }
 
 func schemaColumnNames(t *testing.T, database *sql.DB, objectName string) []string {

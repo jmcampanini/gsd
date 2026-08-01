@@ -17,7 +17,7 @@ Milestone 4 is three sequential vertical slices. This is the chunk progress
 checklist; check a chunk only after its implementation and verification items
 below are complete:
 
-- [ ] **Chunk 1 — Areas exist** — a human can create, list, inspect, and edit
+- [x] **Chunk 1 — Areas exist** — a human can create, list, inspect, and edit
       areas, with the complete revision-`9004` schema landed and every new
       view predicate proven by store tests.
 - [ ] **Chunk 2 — Containment** — a human can place projects and loose tasks
@@ -269,24 +269,24 @@ them, and every Milestone 4 schema change is live under revision `9004`.
 
 ### Implementation
 
-- [ ] Land the complete revision-`9004` schema: `areas` table, `area_id`
+- [x] Land the complete revision-`9004` schema: `areas` table, `area_id`
       columns with RESTRICT and indexes, the containment CHECK, the three
       rebuilt views, and the version bump. Prove bootstrap, constraints,
       ID non-reuse, and all view predicates with real SQLite, including the
       archived exclusion and enrichment columns via raw-SQL fixtures ahead
       of their CLI surface.
-- [ ] Add `internal/area` (values, `Store` interface with `Add`, `Find`,
+- [x] Add `internal/area` (values, `Store` interface with `Add`, `Find`,
       `List`, `Edit`, service validation) and `store.Areas` with global
       append positions.
-- [ ] Add `areas add "TITLE" [--note TEXT|-]`, `areas list`, `area show N`,
+- [x] Add `areas add "TITLE" [--note TEXT|-]`, `areas list`, `area show N`,
       and `area edit N [--title TEXT] [--note TEXT|-]`; bare `gsd areas` and
       bare `gsd area` are usage errors, exit 2, without opening the
       database.
-- [ ] Render area rows: JSON table rows; human `areas list` id/title table
+- [x] Render area rows: JSON table rows; human `areas list` id/title table
       and `area show` field/value table.
-- [ ] Introduce the Milestone 4 subprocess workflow: area CRUD persistence
+- [x] Introduce the Milestone 4 subprocess workflow: area CRUD persistence
       across invocations.
-- [ ] Run `make check` and build the real binary before opening the chunk
+- [x] Run `make check` and build the real binary before opening the chunk
       pull request.
 
 ### Human proof
@@ -294,13 +294,13 @@ them, and every Milestone 4 schema change is live under revision `9004`.
 Against a fresh database with the real built binary, captured as the chunk
 demo (`.sandbox/demos/4-chunk-1.html`):
 
-- [ ] `gsd areas add "Home"`, `gsd areas add "Health"`; `gsd areas list`
+- [x] `gsd areas add "Home"`, `gsd areas add "Health"`; `gsd areas list`
       shows both in creation order.
-- [ ] `gsd area show 1` renders the field/value table; `gsd area edit 1
+- [x] `gsd area show 1` renders the field/value table; `gsd area edit 1
       --note "Everything house"` persists and `gsd area show 1` reflects it.
-- [ ] `gsd areas add ""` fails `invalid_argument` with exit 1; `gsd area
+- [x] `gsd areas add ""` fails `invalid_argument` with exit 1; `gsd area
       show 99` fails `not_found` with exit 1.
-- [ ] Bare `gsd areas` and bare `gsd area` are usage errors with exit 2.
+- [x] Bare `gsd areas` and bare `gsd area` are usage errors with exit 2.
 
 ## Chunk 2 — Containment
 
@@ -393,6 +393,9 @@ narrated recursive opt-in.
       `area delete N [--recursive]`; add mutually exclusive `--archived`/
       `--all` to `areas list` with the partition semantics and the
       `archived` marker cell in human rows.
+- [ ] Resolve `area.ParseListSlice`: use it in the Chunk 3 production flag
+      path or delete it and its tests if the boolean flags map directly to
+      listing-slice constants.
 - [ ] Compose unarchive-first recovery guidance at the command adapter;
       render the deletion narration and JSON envelope.
 - [ ] Extend the subprocess workflow to the complete milestone workflow:

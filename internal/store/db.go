@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	schemaRevision = 9003
+	schemaRevision = 9004
 	busyTimeoutMS  = 5000
 )
 
