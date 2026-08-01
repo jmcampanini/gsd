@@ -13,6 +13,7 @@ type recordingStore struct {
 	addCalls           int
 	title              string
 	note               string
+	addedProjectID     *int64
 	addedDueOn         *string
 	addedDeferUntil    *string
 	timestamp          string
@@ -42,12 +43,14 @@ func (r *recordingStore) Add(
 	r.addCalls++
 	r.title = fields.Title
 	r.note = fields.Note
+	r.addedProjectID = fields.ProjectID
 	r.addedDueOn = fields.DueOn
 	r.addedDeferUntil = fields.DeferUntil
 	r.timestamp = timestamp
 
 	return Task{
 		ID:         1,
+		ProjectID:  fields.ProjectID,
 		Title:      fields.Title,
 		Note:       fields.Note,
 		DueOn:      fields.DueOn,
@@ -133,9 +136,11 @@ func TestAddPreservesAcceptedTextAndNormalizesTimestamp(t *testing.T) {
 
 	title := "  Keep surrounding space  "
 	note := "line one\nline two\n"
+	projectID := int64(7)
 	dueOn := "tomorrow"
 	deferUntil := "today"
 	created, err := service.Add(context.Background(), AddFields{
+		ProjectID:  &projectID,
 		Title:      title,
 		Note:       note,
 		DueOn:      &dueOn,
@@ -149,6 +154,15 @@ func TestAddPreservesAcceptedTextAndNormalizesTimestamp(t *testing.T) {
 	}
 	if store.note != note || created.Note != note {
 		t.Errorf("note = %q, want exact %q", created.Note, note)
+	}
+	if store.addedProjectID == nil || *store.addedProjectID != projectID ||
+		created.ProjectID == nil || *created.ProjectID != projectID {
+		t.Errorf(
+			"project ID = %#v/%#v, want %d",
+			store.addedProjectID,
+			created.ProjectID,
+			projectID,
+		)
 	}
 	if store.addedDueOn == nil || *store.addedDueOn != "2026-07-28" ||
 		created.DueOn == nil || *created.DueOn != "2026-07-28" {
@@ -167,8 +181,10 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 	t.Parallel()
 
 	invalidDate := "2026-02-30"
+	invalidProjectID := int64(0)
 	tests := []struct {
 		name       string
+		projectID  *int64
 		title      string
 		note       string
 		dueOn      *string
@@ -177,6 +193,7 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 		{name: "blank title", title: " \t\n"},
 		{name: "invalid title UTF-8", title: string([]byte{0xff})},
 		{name: "invalid note UTF-8", title: "valid", note: string([]byte{0xff})},
+		{name: "nonpositive project ID", projectID: &invalidProjectID, title: "valid"},
 		{name: "invalid due date", title: "valid", dueOn: &invalidDate},
 		{name: "invalid defer date", title: "valid", deferUntil: &invalidDate},
 	}
@@ -188,6 +205,7 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 			store := &recordingStore{}
 			service := NewService(store)
 			_, err := service.Add(context.Background(), AddFields{
+				ProjectID:  test.projectID,
 				Title:      test.title,
 				Note:       test.note,
 				DueOn:      test.dueOn,
@@ -321,7 +339,12 @@ func TestListValidatesOptionsAndNormalizesNil(t *testing.T) {
 
 	store := &recordingStore{}
 	service := NewService(store)
-	options := ListOptions{Status: ListStatusDone, Date: DateSelectorDeferred}
+	projectID := int64(7)
+	options := ListOptions{
+		Status:    ListStatusDone,
+		Date:      DateSelectorDeferred,
+		ProjectID: &projectID,
+	}
 
 	listed, err := service.List(context.Background(), options)
 	if err != nil {
@@ -334,9 +357,11 @@ func TestListValidatesOptionsAndNormalizesNil(t *testing.T) {
 		t.Errorf("store List() calls/options = %d/%#v, want 1/%#v", store.listCalls, store.listedOptions, options)
 	}
 
+	invalidProjectID := int64(0)
 	invalid := []ListOptions{
 		{Status: ListStatus("invalid")},
 		{Status: ListStatusOpen, Date: DateSelector("invalid")},
+		{Status: ListStatusOpen, ProjectID: &invalidProjectID},
 	}
 	for _, request := range invalid {
 		_, err = service.List(context.Background(), request)
@@ -365,9 +390,11 @@ func TestEditPreservesRequestedFieldsAndNormalizesTimestamp(t *testing.T) {
 
 	title := "  Revised title  "
 	note := "line one\nline two\n"
+	projectID := int64(9)
 	dueOn := "today"
 	deferUntil := "tomorrow"
 	edited, err := service.Edit(context.Background(), 7, EditFields{
+		Project:    ProjectChange{Set: &projectID},
 		Title:      &title,
 		Note:       &note,
 		DueOn:      DateChange{Set: &dueOn},
@@ -384,6 +411,10 @@ func TestEditPreservesRequestedFieldsAndNormalizesTimestamp(t *testing.T) {
 	}
 	if store.editFields.Note == nil || *store.editFields.Note != note {
 		t.Errorf("edited note = %#v, want exact %q", store.editFields.Note, note)
+	}
+	if store.editFields.Project.Set == nil || *store.editFields.Project.Set != projectID ||
+		store.editFields.Project.Clear {
+		t.Errorf("edited project = %#v, want set to %d", store.editFields.Project, projectID)
 	}
 	if store.editFields.DueOn.Set == nil || *store.editFields.DueOn.Set != "2026-07-27" {
 		t.Errorf("edited due date = %#v, want canonical 2026-07-27", store.editFields.DueOn)
@@ -402,6 +433,7 @@ func TestEditDistinguishesClearedFieldsFromOmittedFields(t *testing.T) {
 	store := &recordingStore{}
 	note := ""
 	_, err := NewService(store).Edit(context.Background(), 7, EditFields{
+		Project:    ProjectChange{Clear: true},
 		Note:       &note,
 		DueOn:      DateChange{Clear: true},
 		DeferUntil: DateChange{Clear: true},
@@ -414,6 +446,9 @@ func TestEditDistinguishesClearedFieldsFromOmittedFields(t *testing.T) {
 	}
 	if store.editFields.Note == nil || *store.editFields.Note != "" {
 		t.Errorf("edited note = %#v, want explicit empty string", store.editFields.Note)
+	}
+	if !store.editFields.Project.Clear || store.editFields.Project.Set != nil {
+		t.Errorf("edited project = %#v, want explicit clear", store.editFields.Project)
 	}
 	if !store.editFields.DueOn.Clear || store.editFields.DueOn.Set != nil {
 		t.Errorf("edited due date = %#v, want explicit clear", store.editFields.DueOn)
@@ -434,6 +469,9 @@ func TestEditDistinguishesClearedFieldsFromOmittedFields(t *testing.T) {
 	if omittedStore.editFields.DeferUntil != (DateChange{}) {
 		t.Errorf("edited defer date = %#v, want omitted", omittedStore.editFields.DeferUntil)
 	}
+	if omittedStore.editFields.Project != (ProjectChange{}) {
+		t.Errorf("edited project = %#v, want omitted", omittedStore.editFields.Project)
+	}
 }
 
 func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
@@ -445,6 +483,8 @@ func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
 	invalidDate := "next tuesday"
 	validDate := "today"
 	validTitle := "valid"
+	invalidProjectID := int64(0)
+	validProjectID := int64(7)
 	tests := []struct {
 		name   string
 		id     int64
@@ -455,6 +495,21 @@ func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
 		{name: "blank title", id: 1, fields: EditFields{Title: &blankTitle}},
 		{name: "invalid title UTF-8", id: 1, fields: EditFields{Title: &invalidTitle}},
 		{name: "invalid note UTF-8", id: 1, fields: EditFields{Note: &invalidNote}},
+		{
+			name: "nonpositive project ID",
+			id:   1,
+			fields: EditFields{Project: ProjectChange{
+				Set: &invalidProjectID,
+			}},
+		},
+		{
+			name: "set and clear project",
+			id:   1,
+			fields: EditFields{Project: ProjectChange{
+				Set:   &validProjectID,
+				Clear: true,
+			}},
+		},
 		{name: "invalid due date", id: 1, fields: EditFields{DueOn: DateChange{Set: &invalidDate}}},
 		{name: "invalid defer date", id: 1, fields: EditFields{DeferUntil: DateChange{Set: &invalidDate}}},
 		{

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -37,6 +38,7 @@ type fakeApplication struct {
 	deleteError     error
 	addTitle        string
 	addNote         string
+	addProjectID    *int64
 	addDueOn        *string
 	addDeferUntil   *string
 	listOptions     task.ListOptions
@@ -50,6 +52,7 @@ type fakeApplication struct {
 func (f *fakeApplication) Add(_ context.Context, fields task.AddFields) (task.Task, error) {
 	f.addTitle = fields.Title
 	f.addNote = fields.Note
+	f.addProjectID = fields.ProjectID
 	f.addDueOn = fields.DueOn
 	f.addDeferUntil = fields.DeferUntil
 	return f.addResult, f.addError
@@ -121,9 +124,34 @@ func runCommand(t *testing.T, application task.Application, args ...string) comm
 	return runCommandWithInput(t, application, strings.NewReader(""), args...)
 }
 
+func runProjectCommand(t *testing.T, application project.Application, args ...string) commandResult {
+	t.Helper()
+	return runCommandWithApplications(t, applications{projects: application}, strings.NewReader(""), args...)
+}
+
+func runProjectCommandWithInput(
+	t *testing.T,
+	application project.Application,
+	input io.Reader,
+	args ...string,
+) commandResult {
+	t.Helper()
+	return runCommandWithApplications(t, applications{projects: application}, input, args...)
+}
+
 func runCommandWithInput(
 	t *testing.T,
 	application task.Application,
+	input io.Reader,
+	args ...string,
+) commandResult {
+	t.Helper()
+	return runCommandWithApplications(t, applications{tasks: application}, input, args...)
+}
+
+func runCommandWithApplications(
+	t *testing.T,
+	available applications,
 	input io.Reader,
 	args ...string,
 ) commandResult {
@@ -132,10 +160,10 @@ func runCommandWithInput(
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	result := commandResult{}
-	factory := func(_ context.Context, path string) (task.Application, io.Closer, error) {
+	factory := func(_ context.Context, path string) (applications, io.Closer, error) {
 		result.opens++
 		result.openPath = path
-		return application, closeRecorder{close: func() { result.closes++ }}, nil
+		return available, closeRecorder{close: func() { result.closes++ }}, nil
 	}
 	root := newRootCommandWithFactory(factory)
 	root.SetIn(input)
@@ -251,6 +279,7 @@ func TestJSONCommandOutput(t *testing.T) {
 	}
 	for _, field := range []string{
 		"id",
+		"project_id",
 		"title",
 		"note",
 		"defer_until",
@@ -266,11 +295,17 @@ func TestJSONCommandOutput(t *testing.T) {
 			t.Errorf("JSON fields = %v, missing %q", fields, field)
 		}
 	}
-	if len(fields) != 11 {
-		t.Errorf("JSON field count = %d, want 11", len(fields))
+	if len(fields) != 12 {
+		t.Errorf("JSON field count = %d, want 12", len(fields))
 	}
-	if string(fields["done_at"]) != "null" || string(fields["cancelled_at"]) != "null" {
-		t.Errorf("nullable fields = (%s, %s), want null", fields["done_at"], fields["cancelled_at"])
+	if string(fields["project_id"]) != "null" || string(fields["done_at"]) != "null" ||
+		string(fields["cancelled_at"]) != "null" {
+		t.Errorf(
+			"nullable fields = (%s, %s, %s), want null",
+			fields["project_id"],
+			fields["done_at"],
+			fields["cancelled_at"],
+		)
 	}
 	if application.addTitle != "capture" || application.addNote != "details" ||
 		application.addDueOn == nil || *application.addDueOn != "tomorrow" ||

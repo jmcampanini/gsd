@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/spf13/cobra"
 )
@@ -14,17 +15,22 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 	var note string
 	var dueOn string
 	var deferUntil string
+	var projectIDValue string
 	command := &cobra.Command{
 		Use:   "add TITLE",
-		Short: "Add a task to the inbox",
+		Short: "Add a task",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
+			projectID, err := parseProjectIDFlag(command, projectIDValue)
+			if err != nil {
+				return err
+			}
 			resolvedNote, err := resolveNote(command, note)
 			if err != nil {
 				return err
 			}
 
-			fields := task.AddFields{Title: args[0], Note: resolvedNote}
+			fields := task.AddFields{ProjectID: projectID, Title: args[0], Note: resolvedNote}
 			if command.Flags().Changed("due") {
 				fields.DueOn = &dueOn
 			}
@@ -32,7 +38,7 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 				fields.DeferUntil = &deferUntil
 			}
 
-			return withApplication(command, options, factory, func(application task.Application) error {
+			return withTaskApplication(command, options, factory, func(application task.Application) error {
 				created, err := application.Add(command.Context(), fields)
 				if err != nil {
 					return err
@@ -46,6 +52,7 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 		},
 	}
 	command.Flags().StringVar(&note, "note", "", "task note or - to read stdin")
+	command.Flags().StringVar(&projectIDValue, "project", "", "project ID")
 	command.Flags().StringVar(&dueOn, "due", "", "task due date")
 	command.Flags().StringVar(&deferUntil, "defer", "", "task defer date")
 
@@ -58,7 +65,7 @@ func newInboxCommand(options *rootOptions, factory applicationFactory) *cobra.Co
 		Short: "List open inbox tasks",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			return withApplication(command, options, factory, func(application task.Application) error {
+			return withTaskApplication(command, options, factory, func(application task.Application) error {
 				tasks, err := application.Inbox(command.Context())
 				if err != nil {
 					return err
@@ -79,7 +86,7 @@ func newAvailableCommand(options *rootOptions, factory applicationFactory) *cobr
 		Short: "List available tasks",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			return withApplication(command, options, factory, func(application task.Application) error {
+			return withTaskApplication(command, options, factory, func(application task.Application) error {
 				tasks, err := application.Available(command.Context())
 				if err != nil {
 					return err
@@ -105,7 +112,7 @@ func newShowCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 				return err
 			}
 
-			return withApplication(command, options, factory, func(application task.Application) error {
+			return withTaskApplication(command, options, factory, func(application task.Application) error {
 				found, err := application.Show(command.Context(), id)
 				if err != nil {
 					return err
@@ -127,6 +134,8 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 	var noDue bool
 	var deferUntil string
 	var noDefer bool
+	var projectIDValue string
+	var noProject bool
 	command := &cobra.Command{
 		Use:   "edit ID",
 		Short: "Edit a task",
@@ -136,8 +145,14 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 			if err != nil {
 				return err
 			}
+			projectID, err := parseProjectIDFlag(command, projectIDValue)
+			if err != nil {
+				return err
+			}
 
 			fields := task.EditFields{}
+			fields.Project.Set = projectID
+			fields.Project.Clear = noProject
 			if command.Flags().Changed("title") {
 				fields.Title = &title
 			}
@@ -157,7 +172,7 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 			}
 			fields.DeferUntil.Clear = noDefer
 
-			return withApplication(command, options, factory, func(application task.Application) error {
+			return withTaskApplication(command, options, factory, func(application task.Application) error {
 				edited, editErr := application.Edit(command.Context(), id, fields)
 				if editErr != nil {
 					return editErr
@@ -172,12 +187,15 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 	}
 	command.Flags().StringVar(&title, "title", "", "task title")
 	command.Flags().StringVar(&note, "note", "", "task note or - to read stdin")
+	command.Flags().StringVar(&projectIDValue, "project", "", "project ID")
+	command.Flags().BoolVar(&noProject, "no-project", false, "remove the task from its project")
 	command.Flags().StringVar(&dueOn, "due", "", "task due date")
 	command.Flags().BoolVar(&noDue, "no-due", false, "clear the task due date")
 	command.Flags().StringVar(&deferUntil, "defer", "", "task defer date")
 	command.Flags().BoolVar(&noDefer, "no-defer", false, "clear the task defer date")
 	command.MarkFlagsMutuallyExclusive("due", "no-due")
 	command.MarkFlagsMutuallyExclusive("defer", "no-defer")
+	command.MarkFlagsMutuallyExclusive("project", "no-project")
 
 	return command
 }
@@ -187,12 +205,17 @@ func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 	var due bool
 	var overdue bool
 	var deferred bool
+	var projectIDValue string
 	command := &cobra.Command{
 		Use:   "list",
 		Short: "List tasks",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			status, err := task.ParseListStatus(statusValue)
+			if err != nil {
+				return err
+			}
+			projectID, err := parseProjectIDFlag(command, projectIDValue)
 			if err != nil {
 				return err
 			}
@@ -207,9 +230,9 @@ func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 			if deferred {
 				selector = task.DateSelectorDeferred
 			}
-			listOptions := task.ListOptions{Status: status, Date: selector}
+			listOptions := task.ListOptions{Status: status, Date: selector, ProjectID: projectID}
 
-			return withApplication(command, options, factory, func(application task.Application) error {
+			return withTaskApplication(command, options, factory, func(application task.Application) error {
 				tasks, err := application.List(command.Context(), listOptions)
 				if err != nil {
 					return err
@@ -223,6 +246,7 @@ func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 		},
 	}
 	command.Flags().StringVar(&statusValue, "status", statusValue, "filter by status: open, done, cancelled, or all")
+	command.Flags().StringVar(&projectIDValue, "project", "", "filter by project ID")
 	command.Flags().BoolVar(&due, "due", false, "list tasks with due dates")
 	command.Flags().BoolVar(&overdue, "overdue", false, "list overdue open tasks")
 	command.Flags().BoolVar(&deferred, "deferred", false, "list tasks deferred beyond today")
@@ -283,6 +307,19 @@ func newDeleteCommand(options *rootOptions, factory applicationFactory) *cobra.C
 	)
 }
 
+func parseProjectIDFlag(command *cobra.Command, value string) (*int64, error) {
+	if !command.Flags().Changed("project") {
+		return nil, nil
+	}
+
+	id, err := project.ParseID(value)
+	if err != nil {
+		return nil, err
+	}
+
+	return &id, nil
+}
+
 func resolveNote(command *cobra.Command, value string) (string, error) {
 	if value != "-" {
 		return value, nil
@@ -292,7 +329,7 @@ func resolveNote(command *cobra.Command, value string) (string, error) {
 	if err != nil {
 		return "", apperr.New(
 			apperr.Internal,
-			fmt.Sprintf("read task note: %v", err),
+			fmt.Sprintf("read note: %v", err),
 			err,
 		)
 	}
@@ -320,7 +357,7 @@ func newTaskMutationCommand(
 				return err
 			}
 
-			return withApplication(command, options, factory, func(application task.Application) error {
+			return withTaskApplication(command, options, factory, func(application task.Application) error {
 				affected, err := mutate(command.Context(), application, id)
 				if err != nil {
 					return err

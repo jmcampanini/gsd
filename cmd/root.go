@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/store"
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/spf13/cobra"
@@ -18,7 +19,12 @@ type rootOptions struct {
 	json         bool
 }
 
-type applicationFactory func(context.Context, string) (task.Application, io.Closer, error)
+type applications struct {
+	tasks    task.Application
+	projects project.Application
+}
+
+type applicationFactory func(context.Context, string) (applications, io.Closer, error)
 
 func Execute() int {
 	return execute(newRootCommand(), os.Args[1:])
@@ -64,6 +70,8 @@ func newRootCommandWithFactory(factory applicationFactory) *cobra.Command {
 		newEditCommand(options, factory),
 		newInboxCommand(options, factory),
 		newListCommand(options, factory),
+		newProjectCommand(options, factory),
+		newProjectsCommand(options, factory),
 		newReopenCommand(options, factory),
 		newShowCommand(options, factory),
 	)
@@ -74,27 +82,30 @@ func newRootCommandWithFactory(factory applicationFactory) *cobra.Command {
 func defaultApplicationFactory(
 	ctx context.Context,
 	requestedPath string,
-) (task.Application, io.Closer, error) {
+) (applications, io.Closer, error) {
 	path, err := store.ResolvePath(requestedPath)
 	if err != nil {
-		return nil, nil, err
+		return applications{}, nil, err
 	}
 
 	database, err := store.Open(ctx, path)
 	if err != nil {
-		return nil, nil, err
+		return applications{}, nil, err
 	}
 
-	return task.NewService(store.NewTasks(database)), database, nil
+	return applications{
+		tasks:    task.NewService(store.NewTasks(database)),
+		projects: project.NewService(store.NewProjects(database)),
+	}, database, nil
 }
 
-func withApplication(
+func withApplications(
 	command *cobra.Command,
 	options *rootOptions,
 	factory applicationFactory,
-	run func(task.Application) error,
+	run func(applications) error,
 ) error {
-	application, closer, err := factory(command.Context(), options.databasePath)
+	available, closer, err := factory(command.Context(), options.databasePath)
 	if err != nil {
 		return normalizeApplicationError(err)
 	}
@@ -102,7 +113,29 @@ func withApplication(
 		_ = closer.Close()
 	}()
 
-	return normalizeApplicationError(run(application))
+	return normalizeApplicationError(run(available))
+}
+
+func withTaskApplication(
+	command *cobra.Command,
+	options *rootOptions,
+	factory applicationFactory,
+	run func(task.Application) error,
+) error {
+	return withApplications(command, options, factory, func(available applications) error {
+		return run(available.tasks)
+	})
+}
+
+func withProjectApplication(
+	command *cobra.Command,
+	options *rootOptions,
+	factory applicationFactory,
+	run func(project.Application) error,
+) error {
+	return withApplications(command, options, factory, func(available applications) error {
+		return run(available.projects)
+	})
 }
 
 func normalizeApplicationError(err error) error {

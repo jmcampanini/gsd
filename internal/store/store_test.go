@@ -14,7 +14,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-func TestOpenBootstrapsReducedSchemaAndConfiguresConnections(t *testing.T) {
+func TestOpenBootstrapsMilestoneThreeSchemaAndConfiguresConnections(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -31,19 +31,22 @@ func TestOpenBootstrapsReducedSchemaAndConfiguresConnections(t *testing.T) {
 	if err := storage.database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("read user_version: %v", err)
 	}
-	if version != schemaRevision {
-		t.Errorf("user_version = %d, want %d", version, schemaRevision)
+	if version != 9003 {
+		t.Errorf("user_version = %d, want 9003", version)
 	}
 
-	var strict int
-	if err := storage.database.QueryRowContext(
-		ctx,
-		"SELECT strict FROM pragma_table_list WHERE name = 'tasks'",
-	).Scan(&strict); err != nil {
-		t.Fatalf("read tasks table metadata: %v", err)
-	}
-	if strict != 1 {
-		t.Errorf("tasks strict = %d, want 1", strict)
+	for _, tableName := range []string{"projects", "tasks"} {
+		var strict int
+		if err := storage.database.QueryRowContext(
+			ctx,
+			"SELECT strict FROM pragma_table_list WHERE name = ?",
+			tableName,
+		).Scan(&strict); err != nil {
+			t.Fatalf("read %s table metadata: %v", tableName, err)
+		}
+		if strict != 1 {
+			t.Errorf("%s strict = %d, want 1", tableName, strict)
+		}
 	}
 
 	var availableSQL string
@@ -54,12 +57,14 @@ func TestOpenBootstrapsReducedSchemaAndConfiguresConnections(t *testing.T) {
 		t.Fatalf("read available view: %v", err)
 	}
 	wantAvailableSQL := `CREATE VIEW available AS
-SELECT *
-FROM tasks
-WHERE status = 'open'
-  AND (defer_until IS NULL OR defer_until <= date('now', 'localtime'))`
+SELECT t.*, p.title AS project_title
+FROM tasks t
+LEFT JOIN projects p ON p.id = t.project_id
+WHERE t.status = 'open'
+  AND (t.project_id IS NULL OR p.status = 'open')
+  AND (t.defer_until IS NULL OR t.defer_until <= date('now', 'localtime'))`
 	if strings.Join(strings.Fields(availableSQL), " ") != strings.Join(strings.Fields(wantAvailableSQL), " ") {
-		t.Errorf("available view = %q, want reduced task-only definition", availableSQL)
+		t.Errorf("available view = %q, want project-aware definition", availableSQL)
 	}
 
 	storage.database.SetMaxOpenConns(2)
@@ -302,7 +307,7 @@ func TestOpenRejectsUnsafeBootstrapStates(t *testing.T) {
 		name  string
 		setup string
 	}{
-		{name: "old development revision", setup: "PRAGMA user_version = 9001"},
+		{name: "previous development revision", setup: "PRAGMA user_version = 9002"},
 		{name: "wrong revision", setup: "PRAGMA user_version = 42"},
 		{name: "nonempty version zero", setup: "CREATE TABLE existing (id INTEGER)"},
 	}
