@@ -1,6 +1,6 @@
 # Milestone 3 — Projects
 
-Data mode: throwaway. Depends on: Milestone 2.
+Data mode: throwaway. Depends on: the consolidated Time baseline.
 
 ## Capability
 

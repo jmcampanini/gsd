@@ -391,7 +391,7 @@ func TestTaskWorkflow(t *testing.T) {
 	)
 }
 
-func TestMilestone2TimeWorkflow(t *testing.T) {
+func TestTaskTimeWorkflow(t *testing.T) {
 	for attempt := range 3 {
 		reference := time.Now()
 		capturedDate := calendarDate(reference, 0)

@@ -3,10 +3,10 @@
 `gsd` (get shit done) is a CLI (with a post-v1 TUI planned) wrapping a
 personal to-do system. Its design goals are simple, extendable primitives, a
 Things-inspired workflow, and a SQLite backend. The current baseline provides
-the repository and CLI foundation plus a complete bare-inbox task lifecycle.
-The broader model below remains the forward-looking canonical v1 target and is
-delivered incrementally through `MILESTONES.md`. The SQL schema lives in
-`SCHEMA.md`.
+the repository and CLI foundation, a complete bare-inbox task lifecycle, and
+calendar-aware due dates, deferrals, and an `available` view. The broader model
+below remains the forward-looking canonical v1 target and is delivered
+incrementally through `MILESTONES.md`. The SQL schema lives in `SCHEMA.md`.
 
 ## Primitives
 

@@ -58,7 +58,7 @@ FROM tasks
 WHERE status = 'open'
   AND (defer_until IS NULL OR defer_until <= date('now', 'localtime'))`
 	if strings.Join(strings.Fields(availableSQL), " ") != strings.Join(strings.Fields(wantAvailableSQL), " ") {
-		t.Errorf("available view = %q, want reduced Milestone 2 definition", availableSQL)
+		t.Errorf("available view = %q, want reduced task-only definition", availableSQL)
 	}
 
 	storage.database.SetMaxOpenConns(2)

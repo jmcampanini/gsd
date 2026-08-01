@@ -129,6 +129,10 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
 - **Dates**: canonical `YYYY-MM-DD`, plus a closed keyword set — `today`,
   `tomorrow`, weekday names (`mon`..`sun` = next occurrence), `+Nd`,
   `+Nw`. Nothing else parses.
+- **Date filters are mutually exclusive**: `--due` selects tasks in the chosen
+  status whose due date is set; `--overdue` selects only open tasks due before
+  the local calendar day; `--deferred` selects tasks in the chosen status
+  deferred beyond the local calendar day.
 - **Notes are markdown by convention** but never parsed or interpreted by
   any tool. `--note ""` clears a note. `--note -` reads stdin through EOF
   without stripping trailing newlines.
