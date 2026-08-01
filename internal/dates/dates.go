@@ -20,13 +20,7 @@ func Parse(value string, reference time.Time) (string, error) {
 	}
 
 	if weekday, ok := parseWeekday(value); ok {
-		year, month, day := reference.Date()
-		if !canonicalYear(year) {
-			return "", invalidDate()
-		}
-
-		current := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
-		days := (int(weekday) - int(current.Weekday()) + 7) % 7
+		days := (int(weekday) - int(reference.Weekday()) + 7) % 7
 		if days == 0 {
 			days = 7
 		}
