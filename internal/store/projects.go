@@ -223,10 +223,7 @@ RETURNING `+projectColumns, id))
 
 	return project.Project{}, apperr.New(
 		apperr.Conflict,
-		fmt.Sprintf(
-			"cannot delete project %d while it contains tasks; use --recursive to delete the project and its tasks",
-			id,
-		),
+		fmt.Sprintf("cannot delete project %d while it contains tasks", id),
 		err,
 	)
 }

@@ -611,6 +611,23 @@ func TestProjectRecursiveDeleteHumanNarration(t *testing.T) {
 	requireProjectCommandHumanOutput(t, emptyResult, "Deleted: project 10  Empty\n")
 }
 
+func TestProjectDeleteConflictAddsRecursiveGuidance(t *testing.T) {
+	t.Parallel()
+
+	application := &fakeProjectApplication{deleteError: apperr.New(
+		apperr.Conflict,
+		"cannot delete project 9 while it contains tasks",
+		nil,
+	)}
+	result := runProjectCommand(t, application, "project", "delete", "9", "--json")
+	got := decodeProjectCommandError(t, result)
+	want := "cannot delete project 9 while it contains tasks; " +
+		"use --recursive to delete the project and its tasks"
+	if got.Code != apperr.Conflict || got.Message != want {
+		t.Errorf("error = %#v, want conflict with --recursive recovery guidance", got)
+	}
+}
+
 func TestProjectLifecycleErrorUsesErrorStreamAndClosesApplication(t *testing.T) {
 	t.Parallel()
 

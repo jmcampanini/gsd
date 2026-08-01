@@ -11,6 +11,7 @@
 - Concrete SQLite code, schema bootstrap, and row scanning belong in `internal/store`; do not expose `database/sql` types across the store boundary.
 - Open runtime dependencies inside behavioral command execution through an injected factory. Help, version, and argument parsing must not open the database.
 - Return stable coded application errors from service/store boundaries. Convert unexpected errors to `internal` and Cobra syntax failures to `usage` at the root adapter.
+- Service and store error messages state semantics only. Recovery guidance that names CLI flags or command spellings is presentation and is composed by the command adapter.
 - Route all success and error rendering through shared writers so JSON remains compact and newline-terminated, errors stay on stderr, and human output stays on stdout.
 
 ## Test ownership

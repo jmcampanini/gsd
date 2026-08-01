@@ -3,8 +3,10 @@
 `gsd` (get shit done) is a CLI (with a post-v1 TUI planned) wrapping a
 personal to-do system. Its design goals are simple, extendable primitives, a
 Things-inspired workflow, and a SQLite backend. The current baseline provides
-the repository and CLI foundation, a complete bare-inbox task lifecycle, and
-calendar-aware due dates, deferrals, and an `available` view. The broader model
+the repository and CLI foundation, a complete bare-inbox task lifecycle,
+calendar-aware due dates, deferrals, and an `available` view, plus projects
+with task containment, narrated completion cascades, and the interleaved
+`logbook`. The broader model
 below remains the forward-looking canonical v1 target and is delivered
 incrementally through `MILESTONES.md`. The SQL schema lives in `SCHEMA.md`.
 
@@ -67,16 +69,24 @@ Hard delete exists but is the uncommon path — the normal end of life is
   (own, or inherited through its project) is not archived, and
   `defer_until` is empty or ≤ today.
 - **Logbook**: everything done or cancelled — tasks and projects — ordered
-  by resolution time, newest first.
+  by resolution time, newest first; a project lists above the tasks its
+  cascade cancelled at the same instant.
 
 ## Completion cascade and deletion
 
 - Completing a project auto-cancels its remaining open tasks (CLI reports
   what it cancelled).
 - Cancelling a project cancels its open tasks.
+- Reopening a project clears only its exit: the cascade is never undone,
+  and tasks it cancelled stay cancelled until individually reopened.
+- A done or cancelled project is closed history: completing, cancelling, or
+  reopening its tasks, adding tasks into it, and moving tasks in or out are
+  conflicts until the project is reopened. Content edits and hard deletes
+  of contained tasks stay allowed.
 - Hard deletes never destroy other entities: deleting a non-empty area or
-  project is an error — archive it or empty it first. A recursive delete
-  may exist as an explicit CLI command, never as a side effect.
+  project is an error — archive it (areas) or empty it first. A recursive
+  delete exists only as an explicit CLI opt-in (`--recursive`), never as a
+  side effect.
 - Tag attachments are parts, not entities: they go with their owner.
   Deleting a tag detaches it from everything it was on.
 

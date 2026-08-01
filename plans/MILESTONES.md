@@ -37,13 +37,19 @@ Delivered strict local-calendar due and defer dates, date-aware list filters,
 and the actionable `available` view with human and JSON output and end-to-end
 coverage.
 
+### Milestone 3 — Projects
+
+Delivered projects with task containment and append-on-re-parent, the
+transactional completion/cancellation cascade with narration, the
+resolved-project guard, RESTRICT-guarded deletion with an explicit
+`--recursive` opt-in, and the interleaved `logbook`.
+
 ## Active roadmap
 
-Active planning begins with the Projects milestone:
+Active planning begins with the Areas milestone:
 
 | # | Milestone | Capability delivered | Data mode |
 |---|-----------|----------------------|-----------|
-| 3 | [Projects](MILESTONE_3.md) | Projects, cascade, `logbook` | throwaway |
 | 4 | [Areas](MILESTONE_4.md) | Areas, archive, governing-area inheritance | throwaway |
 | 5 | [Tags](MILESTONE_5.md) | Tags across all entities | throwaway |
 | 6 | [Config](MILESTONE_6.md) | Config file via go-config-loader; color modes | throwaway |

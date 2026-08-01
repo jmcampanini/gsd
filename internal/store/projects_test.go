@@ -397,8 +397,8 @@ func TestProjectDeleteHonorsRestrictAndRecursiveTransaction(t *testing.T) {
 	untouchedInboxTask := addStoredTask(t, tasks, task.AddFields{Title: "inbox"})
 
 	if _, err := projects.Delete(ctx, created.ID); errorCode(err) != apperr.Conflict ||
-		!strings.Contains(err.Error(), "--recursive") {
-		t.Fatalf("Delete(containing project) error = %v, want conflict with recursive guidance", err)
+		!strings.Contains(err.Error(), "contains tasks") {
+		t.Fatalf("Delete(containing project) error = %v, want containment conflict", err)
 	}
 
 	aborted, err := projects.Add(

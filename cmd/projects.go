@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 
+	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/spf13/cobra"
 )
@@ -221,6 +222,13 @@ func newProjectDeleteCommand(options *rootOptions, factory applicationFactory) *
 			return withProjectApplication(command, options, factory, func(application project.Application) error {
 				deletion, err := application.Delete(command.Context(), id, recursive)
 				if err != nil {
+					if code, ok := apperr.CodeOf(err); ok && code == apperr.Conflict && !recursive {
+						return apperr.New(
+							apperr.Conflict,
+							err.Error()+"; use --recursive to delete the project and its tasks",
+							err,
+						)
+					}
 					return err
 				}
 				if options.json {
