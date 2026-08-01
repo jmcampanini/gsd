@@ -16,7 +16,8 @@ project. The entity graph is now structurally complete.
   (RESTRICT) plus the containment
   `CHECK (project_id IS NULL OR area_id IS NULL)` — schema-enforced
   mutual exclusion at last.
-- Indexes: `idx_tasks_project`, `idx_tasks_area`, `idx_projects_area`.
+- Indexes: `idx_tasks_area`, `idx_projects_area` (`idx_tasks_project`
+  shipped in Milestone 3).
 - Views rebuilt to their near-final form: `inbox` (both containers NULL),
   `available` (archived-governing-area exclusion via
   `COALESCE(t.area_id, p.area_id)`), `logbook` (governing area columns).
@@ -27,7 +28,7 @@ project. The entity graph is now structurally complete.
 
 ```text
 gsd areas add "TITLE" [--note TEXT|-]
-gsd areas list [--archived]
+gsd areas list [--archived | --all]
 gsd area show N
 gsd area edit N [--title TEXT] [--note TEXT|-]
 gsd area archive N
@@ -50,8 +51,16 @@ gsd edit N [--area N | --no-area] ...
   `show` still see them. Unarchive restores; position preserved.
 - `area delete` RESTRICT on any contained project or task;
   `--recursive` is the explicit one-transaction opt-in.
-- **Proposed default**: `areas list` hides archived areas unless
-  `--archived`, which lists only archived ones.
+- An archived area is retired history, mirroring the resolved-project
+  guard through the governing area (own, or inherited through the
+  project): creating into it, re-parenting into or out of it, and
+  completing, cancelling, or reopening anything it governs are
+  `conflict` with unarchive-first guidance; a blocked move names every
+  blocker. Content edits and deletes stay allowed, and archiving never
+  mutates contents.
+- **Accepted default**: `areas list` hides archived areas; `--archived`
+  lists only archived ones; `--all` lists both. The two flags are
+  mutually exclusive.
 
 ## Chunks
 
@@ -98,16 +107,23 @@ Fresh temp db, `--json`:
 2. `available` shows all five tasks; each row's `governing_area_id`
    is correct (inherited for project tasks, NULL for inbox).
 3. `area archive A`: `available` drops to area-B task + inbox task.
-   `list --area A` still sees the loose task.
-4. `unarchive`; all five return; `areas list` / `--archived` partition
-   correctly during 3–4.
-5. Mutual exclusion: task add and edit with both containers → error.
+   `list --area A` still sees the loose task. The guard holds: adding
+   into A, re-parenting into or out of A, and resolving or reopening
+   anything A governs → `conflict`; a content edit and a task delete
+   under A succeed.
+4. `unarchive`; all five return; `areas list` / `--archived` / `--all`
+   partition correctly during 3–4.
+5. Mutual exclusion: task add and edit with both containers → error;
+   `list` with both filters → error.
 6. Re-parent the project to area B; its tasks' governing area follows
    and the project appends to the end of B's project list.
 7. Delete a task inside the project and the loose task in area A — task
    deletes never block (RESTRICT is for containers only).
-8. `area delete` on non-empty A → `conflict`; empty B of its task, delete
-   B → succeeds.
+8. `area delete` on non-empty B → `conflict` (after step 6 it holds the
+   project and its loose task); A — emptied by steps 6–7 — deletes
+   cleanly.
+9. `area delete B --recursive`: one transaction removes the project, its
+   remaining task, and B's loose task, and reports them all.
 
 ## Exit criteria
 
