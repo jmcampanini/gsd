@@ -149,11 +149,14 @@ New `internal/project` package following the task package's shape: a
 with the standard status filter defaulting to open, an `Exit` enum, and the
 narration envelopes `Resolution` (`project` + `cancelled_tasks`) and
 `Deletion` (`project` + `deleted_tasks`), which reference `task.Task`. The
-consumer-defined `project.Store` interface carries use-case methods:
-`Add`, `Find`, `List`, `Edit`, `Resolve`, `Reopen`, `Delete`, and
-`DeleteRecursive`. The service owns ID/title/note validation, status
-parsing, exit selection, and timestamping, and calls exactly one store
-method per use case.
+consumer-defined `project.Store` interface carries persistence primitives:
+`Add`, `Find`, `List`, `Edit`, `Resolve`, `CancelOpenTasks`, `Reopen`,
+`Delete`, and `DeleteTasks`, plus
+`WithinTransaction(context.Context, func(Store) error) error`. The service
+owns ID/title/note validation, status parsing, exit selection, timestamping,
+and multi-statement orchestration. Single-statement use cases call one store
+method; resolve and recursive delete enter `WithinTransaction` and compose
+their project and task mutations through the transaction-bound `Store`.
 
 ### Task application
 
@@ -185,13 +188,18 @@ and the package scan helpers. Single-entity mutations remain single atomic
 statements whose predicates enforce the guards (project existence and
 openness for containment; project openness for task transitions), with
 classification queries producing `not_found` or `conflict` after a miss —
-the established guard-and-classify pattern. `Resolve` and `DeleteRecursive`
-are the first multi-statement transactions: `BEGIN IMMEDIATE`, the project
-mutation with its guard, the task mutation returning affected rows ordered
-`position, id`, `COMMIT`, rolling back on any failure. The per-entity split
-is code organization, not access control: `store.Projects` writes the
-`tasks` table inside its transactions. List SQL is assembled only from
-validated enums and IDs; raw flag values never become SQL.
+the established guard-and-classify pattern. Project resolution and recursive
+deletion are the first multi-statement transactions. The project service
+owns their scope and mutation sequence through `project.Store`'s
+`WithinTransaction` callback; `store.Projects` implements that boundary with
+`BEGIN IMMEDIATE`, a transaction-bound `store.Projects`, `COMMIT`, and
+rollback on any failure. Resolution mutates the guarded project and then
+cancels its open tasks; recursive deletion deletes the tasks and then the
+project. Task mutations return affected rows ordered by `position, id`. The
+per-entity split is code organization, not access control: `store.Projects`
+writes the `tasks` table through its transaction-bound persistence methods.
+List SQL is assembled only from validated enums and IDs; raw flag values
+never become SQL.
 
 ### Command and output adapters
 
@@ -324,10 +332,12 @@ delete projects with RESTRICT protection and an explicit recursive opt-in.
 
 ### Implementation
 
-- [ ] Add `Resolve`, `Reopen`, `Delete`, and `DeleteRecursive` to
-      `project.Store` with the `Resolution` and `Deletion` envelopes;
-      implement the transactional cascade and recursive delete in
-      `store.Projects` with guard-and-classify conflicts, one shared
+- [ ] Extend `project.Store` with `Resolve`, `CancelOpenTasks`, `Reopen`,
+      `Delete`, `DeleteTasks`, and `WithinTransaction`; have the project
+      service build the `Resolution` and `Deletion` envelopes while owning
+      the cascade and recursive-delete transaction scope and mutation
+      sequence. Implement the transaction boundary and persistence primitives
+      in `store.Projects` with guard-and-classify conflicts, one shared
       timestamp, `position, id` ordering, and rollback proof.
 - [ ] Add the resolved-project guard to task `done`, `cancel`, and `reopen`
       store predicates with `conflict` classification.
