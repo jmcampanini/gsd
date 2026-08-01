@@ -15,41 +15,18 @@ import (
 
 func TestProjectContainmentWorkflow(t *testing.T) {
 	databasePath := filepath.Join(workDir, "projects", "gsd.db")
+	runJSON := func(args ...string) processResult {
+		return runGSD(t, append(args, "--db", databasePath, "--json")...)
+	}
 
-	kitchen := decodeProject(t, runGSD(
-		t,
-		"projects",
-		"add",
-		"Kitchen reno",
-		"--db",
-		databasePath,
-		"--json",
-	))
+	kitchen := decodeProject(t, runJSON("projects", "add", "Kitchen reno"))
 	if kitchen.ID != 1 || kitchen.Title != "Kitchen reno" || kitchen.Status != "open" || kitchen.Position != 0 {
 		t.Errorf("kitchen project = %#v, want first open project", kitchen)
 	}
 
-	quotes := decodeTask(t, runGSD(
-		t,
-		"add",
-		"Get quotes",
-		"--project",
-		fmt.Sprint(kitchen.ID),
-		"--db",
-		databasePath,
-		"--json",
-	))
-	tiles := decodeTask(t, runGSD(
-		t,
-		"add",
-		"Pick tiles",
-		"--project",
-		fmt.Sprint(kitchen.ID),
-		"--db",
-		databasePath,
-		"--json",
-	))
-	loose := decodeTask(t, runGSD(t, "add", "Buy milk", "--db", databasePath, "--json"))
+	quotes := decodeTask(t, runJSON("add", "Get quotes", "--project", fmt.Sprint(kitchen.ID)))
+	tiles := decodeTask(t, runJSON("add", "Pick tiles", "--project", fmt.Sprint(kitchen.ID)))
+	loose := decodeTask(t, runJSON("add", "Buy milk"))
 	if !hasProject(quotes, kitchen.ID) || quotes.Position != 0 ||
 		!hasProject(tiles, kitchen.ID) || tiles.Position != 1 {
 		t.Errorf("contained tasks = %#v/%#v, want project-scoped positions 0 and 1", quotes, tiles)
@@ -58,132 +35,72 @@ func TestProjectContainmentWorkflow(t *testing.T) {
 		t.Errorf("loose task = %#v, want inbox position 0", loose)
 	}
 
-	listed := decodeTasks(t, runGSD(
-		t,
-		"list",
-		"--project",
-		fmt.Sprint(kitchen.ID),
-		"--db",
-		databasePath,
-		"--json",
-	))
+	listed := decodeTasks(t, runJSON("list", "--project", fmt.Sprint(kitchen.ID)))
 	if len(listed) != 2 || listed[0].ID != quotes.ID || listed[1].ID != tiles.ID {
 		t.Errorf("project tasks = %#v, want quotes then tiles", listed)
 	}
-	inbox := decodeTasks(t, runGSD(t, "inbox", "--db", databasePath, "--json"))
+	inbox := decodeTasks(t, runJSON("inbox"))
 	if len(inbox) != 1 || inbox[0].ID != loose.ID {
 		t.Errorf("inbox = %#v, want only loose task", inbox)
 	}
 
-	bathroom := decodeProject(t, runGSD(
-		t,
-		"projects",
-		"add",
-		"Bathroom",
-		"--db",
-		databasePath,
-		"--json",
-	))
-	projects := decodeProjects(t, runGSD(t, "projects", "list", "--db", databasePath, "--json"))
+	bathroom := decodeProject(t, runJSON("projects", "add", "Bathroom"))
+	projects := decodeProjects(t, runJSON("projects", "list"))
 	if len(projects) != 2 || projects[0].ID != kitchen.ID || projects[1].ID != bathroom.ID {
 		t.Errorf("projects = %#v, want kitchen then bathroom", projects)
 	}
 
-	bathroomFirst := decodeTask(t, runGSD(
-		t,
+	bathroomFirst := decodeTask(t, runJSON(
 		"add",
 		"Measure walls",
 		"--project",
 		fmt.Sprint(bathroom.ID),
-		"--db",
-		databasePath,
-		"--json",
 	))
-	moved := decodeTask(t, runGSD(
-		t,
+	moved := decodeTask(t, runJSON(
 		"edit",
 		fmt.Sprint(tiles.ID),
 		"--project",
 		fmt.Sprint(bathroom.ID),
-		"--db",
-		databasePath,
-		"--json",
 	))
 	if !hasProject(moved, bathroom.ID) || moved.Position != bathroomFirst.Position+1 {
 		t.Errorf("moved task = %#v, want appended after %#v", moved, bathroomFirst)
 	}
-	restated := decodeTask(t, runGSD(
-		t,
+	restated := decodeTask(t, runJSON(
 		"edit",
 		fmt.Sprint(tiles.ID),
 		"--project",
 		fmt.Sprint(bathroom.ID),
-		"--db",
-		databasePath,
-		"--json",
 	))
 	if !hasProject(restated, bathroom.ID) || restated.Position != moved.Position {
 		t.Errorf("same-container edit = %#v, want membership and position unchanged from %#v", restated, moved)
 	}
 
-	returned := decodeTask(t, runGSD(
-		t,
-		"edit",
-		fmt.Sprint(tiles.ID),
-		"--no-project",
-		"--db",
-		databasePath,
-		"--json",
-	))
+	returned := decodeTask(t, runJSON("edit", fmt.Sprint(tiles.ID), "--no-project"))
 	if returned.ProjectID != nil || returned.Position != loose.Position+1 {
 		t.Errorf("returned task = %#v, want appended after inbox task %#v", returned, loose)
 	}
 
 	note := "Budget: 20k"
-	editedProject := decodeProject(t, runGSD(
-		t,
+	editedProject := decodeProject(t, runJSON(
 		"project",
 		"edit",
 		fmt.Sprint(kitchen.ID),
 		"--note",
 		note,
-		"--db",
-		databasePath,
-		"--json",
 	))
-	shownProject := decodeProject(t, runGSD(
-		t,
-		"project",
-		"show",
-		fmt.Sprint(kitchen.ID),
-		"--db",
-		databasePath,
-		"--json",
-	))
+	shownProject := decodeProject(t, runJSON("project", "show", fmt.Sprint(kitchen.ID)))
 	if editedProject.Note != note || !reflect.DeepEqual(shownProject, editedProject) {
 		t.Errorf("edited/shown project = %#v/%#v, want persisted note", editedProject, shownProject)
 	}
 
-	assertJSONError(
-		t,
-		runGSD(t, "add", "missing", "--project", "99", "--db", databasePath, "--json"),
-		apperr.NotFound,
-	)
-	assertJSONError(
-		t,
-		runGSD(t, "list", "--project", "99", "--db", databasePath, "--json"),
-		apperr.NotFound,
-	)
-	conflict := runGSD(
-		t,
+	assertJSONError(t, runJSON("add", "missing", "--project", "99"), apperr.NotFound)
+	assertJSONError(t, runJSON("list", "--project", "99"), apperr.NotFound)
+	conflict := runJSON(
 		"edit",
 		fmt.Sprint(tiles.ID),
 		"--project",
 		fmt.Sprint(kitchen.ID),
 		"--no-project",
-		"--db",
-		databasePath,
-		"--json",
 	)
 	if conflict.exitCode != 2 || conflict.stdout != "" || conflict.stderr == "" {
 		t.Errorf("membership flag conflict = %#v, want stderr-only usage error", conflict)
