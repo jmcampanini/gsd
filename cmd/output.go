@@ -123,6 +123,46 @@ func writeProjectMutation(writer io.Writer, action string, current project.Proje
 	return err
 }
 
+func writeProjectResolution(writer io.Writer, action string, resolution project.Resolution) error {
+	if err := writeProjectMutation(writer, action, resolution.Project); err != nil {
+		return err
+	}
+
+	return writeNarratedTasks(writer, "Cancelled", "open task", resolution.CancelledTasks)
+}
+
+func writeProjectDeletion(writer io.Writer, deletion project.Deletion) error {
+	if err := writeProjectMutation(writer, "Deleted", deletion.Project); err != nil {
+		return err
+	}
+
+	return writeNarratedTasks(writer, "Deleted", "task", deletion.DeletedTasks)
+}
+
+func writeNarratedTasks(writer io.Writer, action string, noun string, tasks []task.Task) error {
+	if len(tasks) == 0 {
+		return nil
+	}
+
+	plural := ""
+	if len(tasks) != 1 {
+		plural = "s"
+	}
+	if _, err := fmt.Fprintf(writer, "%s %d %s%s:\n", action, len(tasks), noun, plural); err != nil {
+		return err
+	}
+
+	rows := make([][]string, 0, len(tasks))
+	for _, current := range tasks {
+		rows = append(rows, []string{
+			strconv.FormatInt(current.ID, 10),
+			humanText(current.Title, false),
+		})
+	}
+
+	return writeTable(writer, rows)
+}
+
 func writeProjectList(writer io.Writer, projects []project.Project) error {
 	if len(projects) == 0 {
 		return nil

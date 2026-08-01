@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -101,14 +102,8 @@ func (s *Tasks) Find(ctx context.Context, id int64) (task.Task, error) {
 }
 
 func (s *Tasks) List(ctx context.Context, options task.ListOptions) ([]task.Task, error) {
-	if options.ProjectID != nil {
-		if _, err := NewProjects(s.db).Find(ctx, *options.ProjectID); err != nil {
-			return nil, err
-		}
-	}
-
-	conditions := make([]string, 0, 3)
-	arguments := make([]any, 0, 2)
+	conditions := make([]string, 0, 2)
+	arguments := make([]any, 0, 1)
 	switch options.Status {
 	case task.ListStatusOpen, task.ListStatusDone, task.ListStatusCancelled:
 		conditions = append(conditions, "status = ?")
@@ -134,8 +129,32 @@ func (s *Tasks) List(ctx context.Context, options task.ListOptions) ([]task.Task
 	}
 
 	if options.ProjectID != nil {
-		conditions = append(conditions, "project_id IS ?")
-		arguments = append(arguments, *options.ProjectID)
+		query := "WITH listed_tasks AS (SELECT " + taskColumns +
+			" FROM tasks WHERE project_id = ?"
+		if len(conditions) > 0 {
+			query += " AND " + strings.Join(conditions, " AND ")
+		}
+		query += `
+), requested_project AS (
+    SELECT 1 FROM projects WHERE id = ?
+)
+SELECT * FROM listed_tasks
+UNION ALL
+SELECT 0, NULL, '', '', NULL, NULL, NULL, NULL, '', 0, '', ''
+FROM requested_project
+WHERE NOT EXISTS (SELECT 1 FROM listed_tasks)
+ORDER BY position, id`
+		scopedArguments := make([]any, 0, len(arguments)+2)
+		scopedArguments = append(scopedArguments, *options.ProjectID)
+		scopedArguments = append(scopedArguments, arguments...)
+		scopedArguments = append(scopedArguments, *options.ProjectID)
+
+		rows, err := s.db.database.QueryContext(ctx, query, scopedArguments...)
+		if err != nil {
+			return nil, fmt.Errorf("list project tasks: %w", err)
+		}
+
+		return collectProjectTasks(rows, *options.ProjectID)
 	}
 
 	query := "SELECT " + taskColumns + " FROM tasks"
@@ -278,7 +297,16 @@ func (s *Tasks) Done(ctx context.Context, id int64, timestamp string) (task.Task
 		"complete",
 		`UPDATE tasks
 SET done_at = ?, updated_at = ?
-WHERE id = ? AND done_at IS NULL AND cancelled_at IS NULL
+WHERE id = ?
+  AND done_at IS NULL
+  AND cancelled_at IS NULL
+  AND (
+      project_id IS NULL
+      OR EXISTS (
+          SELECT 1 FROM projects
+          WHERE projects.id = tasks.project_id AND projects.status = 'open'
+      )
+  )
 RETURNING `+taskColumns,
 		timestamp,
 		timestamp,
@@ -293,7 +321,16 @@ func (s *Tasks) Cancel(ctx context.Context, id int64, timestamp string) (task.Ta
 		"cancel",
 		`UPDATE tasks
 SET cancelled_at = ?, updated_at = ?
-WHERE id = ? AND done_at IS NULL AND cancelled_at IS NULL
+WHERE id = ?
+  AND done_at IS NULL
+  AND cancelled_at IS NULL
+  AND (
+      project_id IS NULL
+      OR EXISTS (
+          SELECT 1 FROM projects
+          WHERE projects.id = tasks.project_id AND projects.status = 'open'
+      )
+  )
 RETURNING `+taskColumns,
 		timestamp,
 		timestamp,
@@ -308,7 +345,15 @@ func (s *Tasks) Reopen(ctx context.Context, id int64, timestamp string) (task.Ta
 		"reopen",
 		`UPDATE tasks
 SET done_at = NULL, cancelled_at = NULL, updated_at = ?
-WHERE id = ? AND (done_at IS NOT NULL OR cancelled_at IS NOT NULL)
+WHERE id = ?
+  AND (done_at IS NOT NULL OR cancelled_at IS NOT NULL)
+  AND (
+      project_id IS NULL
+      OR EXISTS (
+          SELECT 1 FROM projects
+          WHERE projects.id = tasks.project_id AND projects.status = 'open'
+      )
+  )
 RETURNING `+taskColumns,
 		timestamp,
 		id,
@@ -343,8 +388,28 @@ func (s *Tasks) transition(
 		return task.Task{}, fmt.Errorf("%s task: %w", action, err)
 	}
 
-	if _, findErr := s.Find(ctx, id); findErr != nil {
+	current, findErr := s.Find(ctx, id)
+	if findErr != nil {
 		return task.Task{}, findErr
+	}
+	if current.ProjectID != nil {
+		container, projectErr := NewProjects(s.db).Find(ctx, *current.ProjectID)
+		if projectErr != nil {
+			return task.Task{}, projectErr
+		}
+		if container.Status != "open" {
+			return task.Task{}, apperr.New(
+				apperr.Conflict,
+				fmt.Sprintf(
+					"cannot %s task %d while project %d is resolved; reopen project %d first",
+					action,
+					id,
+					container.ID,
+					container.ID,
+				),
+				err,
+			)
+		}
 	}
 
 	return task.Task{}, apperr.New(
@@ -368,28 +433,60 @@ func (s *Tasks) classifyMembershipEdit(
 		return fmt.Errorf("edit task: %w", cause)
 	}
 
+	var destinationProject *project.Project
 	if destination != nil {
-		if err := s.classifyOpenProject(
-			ctx,
-			*destination,
-			fmt.Sprintf("move task %d into project %d", taskID, *destination),
-			cause,
-		); err != nil {
+		found, err := NewProjects(s.db).Find(ctx, *destination)
+		if err != nil {
 			return err
 		}
+		destinationProject = &found
 	}
+	var sourceProject *project.Project
 	if current.ProjectID != nil {
-		if err := s.classifyOpenProject(
-			ctx,
-			*current.ProjectID,
-			fmt.Sprintf("move task %d out of project %d", taskID, *current.ProjectID),
-			cause,
-		); err != nil {
+		found, err := NewProjects(s.db).Find(ctx, *current.ProjectID)
+		if err != nil {
 			return err
 		}
+		sourceProject = &found
 	}
 
-	return fmt.Errorf("edit task: %w", cause)
+	destinationResolved := destinationProject != nil && destinationProject.Status != "open"
+	sourceResolved := sourceProject != nil && sourceProject.Status != "open"
+	switch {
+	case sourceResolved && destinationResolved:
+		return apperr.New(
+			apperr.Conflict,
+			fmt.Sprintf(
+				"cannot move task %d from project %d to project %d while both projects are resolved; reopen both projects first",
+				taskID,
+				sourceProject.ID,
+				destinationProject.ID,
+			),
+			cause,
+		)
+	case destinationResolved:
+		return apperr.New(
+			apperr.Conflict,
+			fmt.Sprintf(
+				"cannot move task %d into project %d while the project is resolved; reopen the project first",
+				taskID,
+				destinationProject.ID,
+			),
+			cause,
+		)
+	case sourceResolved:
+		return apperr.New(
+			apperr.Conflict,
+			fmt.Sprintf(
+				"cannot move task %d out of project %d while the project is resolved; reopen the project first",
+				taskID,
+				sourceProject.ID,
+			),
+			cause,
+		)
+	default:
+		return fmt.Errorf("edit task: %w", cause)
+	}
 }
 
 func (s *Tasks) classifyOpenProject(
@@ -415,6 +512,37 @@ func (s *Tasks) classifyOpenProject(
 
 type rowScanner interface {
 	Scan(...any) error
+}
+
+func collectProjectTasks(rows *sql.Rows, projectID int64) ([]task.Task, error) {
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	projectExists := false
+	tasks := make([]task.Task, 0)
+	for rows.Next() {
+		current, err := scanTask(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan listed project task: %w", err)
+		}
+		projectExists = true
+		if current.ID != 0 {
+			tasks = append(tasks, current)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate listed project tasks: %w", err)
+	}
+	if !projectExists {
+		return nil, apperr.New(
+			apperr.NotFound,
+			fmt.Sprintf("no project %d", projectID),
+			sql.ErrNoRows,
+		)
+	}
+
+	return tasks, nil
 }
 
 func collectTasks(rows *sql.Rows, scanAction, iterateAction string) ([]task.Task, error) {

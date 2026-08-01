@@ -7,25 +7,53 @@ import (
 	"time"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/task"
 )
 
 type recordingStore struct {
-	addCalls      int
-	addFields     AddFields
-	addTimestamp  string
-	addError      error
-	findCalls     int
-	findID        int64
-	findError     error
-	listCalls     int
-	listOptions   ListOptions
-	listResult    []Project
-	listError     error
-	editCalls     int
-	editID        int64
-	editFields    EditFields
-	editTimestamp string
-	editError     error
+	addCalls             int
+	addFields            AddFields
+	addTimestamp         string
+	addError             error
+	findCalls            int
+	findID               int64
+	findError            error
+	listCalls            int
+	listOptions          ListOptions
+	listResult           []Project
+	listError            error
+	editCalls            int
+	editID               int64
+	editFields           EditFields
+	editTimestamp        string
+	editError            error
+	resolveCalls         int
+	resolveID            int64
+	resolveExit          Exit
+	resolveTimestamp     string
+	resolveResult        Project
+	resolveError         error
+	cancelOpenTasksCalls int
+	cancelProjectID      int64
+	cancelTimestamp      string
+	cancelResult         []task.Task
+	cancelError          error
+	reopenCalls          int
+	reopenID             int64
+	reopenTimestamp      string
+	reopenResult         Project
+	reopenError          error
+	deleteCalls          int
+	deleteID             int64
+	deleteResult         Project
+	deleteError          error
+	deleteTasksCalls     int
+	deleteTasksProjectID int64
+	deleteTasksResult    []task.Task
+	deleteTasksError     error
+	transactionCalls     int
+	transactionStore     Store
+	lifecycleSequence    []string
 }
 
 func (r *recordingStore) Add(
@@ -71,6 +99,84 @@ func (r *recordingStore) Edit(
 	r.editTimestamp = timestamp
 
 	return Project{ID: id, UpdatedAt: timestamp}, r.editError
+}
+
+func (r *recordingStore) Resolve(
+	_ context.Context,
+	id int64,
+	exit Exit,
+	timestamp string,
+) (Project, error) {
+	r.resolveCalls++
+	r.resolveID = id
+	r.resolveExit = exit
+	r.resolveTimestamp = timestamp
+	r.lifecycleSequence = append(r.lifecycleSequence, "resolve")
+
+	if r.resolveResult.ID == 0 {
+		r.resolveResult = Project{ID: id, UpdatedAt: timestamp}
+	}
+	return r.resolveResult, r.resolveError
+}
+
+func (r *recordingStore) CancelOpenTasks(
+	_ context.Context,
+	projectID int64,
+	timestamp string,
+) ([]task.Task, error) {
+	r.cancelOpenTasksCalls++
+	r.cancelProjectID = projectID
+	r.cancelTimestamp = timestamp
+	r.lifecycleSequence = append(r.lifecycleSequence, "cancel open tasks")
+	return r.cancelResult, r.cancelError
+}
+
+func (r *recordingStore) Reopen(
+	_ context.Context,
+	id int64,
+	timestamp string,
+) (Project, error) {
+	r.reopenCalls++
+	r.reopenID = id
+	r.reopenTimestamp = timestamp
+
+	if r.reopenResult.ID == 0 {
+		r.reopenResult = Project{ID: id, UpdatedAt: timestamp}
+	}
+	return r.reopenResult, r.reopenError
+}
+
+func (r *recordingStore) Delete(_ context.Context, id int64) (Project, error) {
+	r.deleteCalls++
+	r.deleteID = id
+	r.lifecycleSequence = append(r.lifecycleSequence, "delete project")
+
+	if r.deleteResult.ID == 0 {
+		r.deleteResult = Project{ID: id}
+	}
+	return r.deleteResult, r.deleteError
+}
+
+func (r *recordingStore) DeleteTasks(
+	_ context.Context,
+	projectID int64,
+) ([]task.Task, error) {
+	r.deleteTasksCalls++
+	r.deleteTasksProjectID = projectID
+	r.lifecycleSequence = append(r.lifecycleSequence, "delete tasks")
+	return r.deleteTasksResult, r.deleteTasksError
+}
+
+func (r *recordingStore) WithinTransaction(
+	ctx context.Context,
+	operation func(Store) error,
+) error {
+	r.transactionCalls++
+	store := r.transactionStore
+	if store == nil {
+		store = r
+	}
+	return operation(store)
 }
 
 func TestStoreErrorsPassThroughUnchanged(t *testing.T) {
@@ -326,6 +432,358 @@ func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
 			}
 			if store.editCalls != 0 {
 				t.Errorf("store Edit() calls = %d, want 0", store.editCalls)
+			}
+		})
+	}
+}
+
+func TestLifecycleRejectsInvalidIDsAndExitsBeforeDelegation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		apply func(*Service) error
+	}{
+		{
+			name: "resolve ID",
+			apply: func(service *Service) error {
+				_, err := service.Resolve(context.Background(), 0, ExitDone)
+				return err
+			},
+		},
+		{
+			name: "resolve exit",
+			apply: func(service *Service) error {
+				_, err := service.Resolve(context.Background(), 1, Exit("open"))
+				return err
+			},
+		},
+		{
+			name: "reopen ID",
+			apply: func(service *Service) error {
+				_, err := service.Reopen(context.Background(), 0)
+				return err
+			},
+		},
+		{
+			name: "nonrecursive delete ID",
+			apply: func(service *Service) error {
+				_, err := service.Delete(context.Background(), 0, false)
+				return err
+			},
+		},
+		{
+			name: "recursive delete ID",
+			apply: func(service *Service) error {
+				_, err := service.Delete(context.Background(), 0, true)
+				return err
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &recordingStore{}
+			service := NewService(store)
+			nowCalls := 0
+			service.now = func() time.Time {
+				nowCalls++
+				return time.Time{}
+			}
+
+			if err := test.apply(service); errorCode(err) != apperr.InvalidArgument {
+				t.Errorf("lifecycle error = %v, want invalid_argument", err)
+			}
+			storeCalls := store.resolveCalls + store.cancelOpenTasksCalls + store.reopenCalls +
+				store.deleteCalls + store.deleteTasksCalls + store.transactionCalls
+			if storeCalls != 0 || nowCalls != 0 {
+				t.Errorf("store/clock calls = %d/%d, want 0/0", storeCalls, nowCalls)
+			}
+		})
+	}
+}
+
+func TestResolveUsesOneTransactionAndTimestampForTheCascade(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		exit           Exit
+		value          string
+		cancelledTasks []task.Task
+	}{
+		{name: "done", exit: ExitDone, value: "done", cancelledTasks: []task.Task{{ID: 12}}},
+		{name: "cancelled", exit: ExitCancelled, value: "cancelled"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			resolvedProject := Project{ID: 7, Status: test.value}
+			transactionStore := &recordingStore{
+				resolveResult: resolvedProject,
+				cancelResult:  test.cancelledTasks,
+			}
+			store := &recordingStore{transactionStore: transactionStore}
+			service := NewService(store)
+			nowCalls := 0
+			service.now = func() time.Time {
+				nowCalls++
+				return time.Date(
+					2026,
+					time.July,
+					27,
+					12,
+					34,
+					56,
+					987654321,
+					time.FixedZone("offset", -4*60*60),
+				)
+			}
+
+			resolution, err := service.Resolve(context.Background(), 7, test.exit)
+			if err != nil {
+				t.Fatalf("Resolve() error = %v", err)
+			}
+			if string(test.exit) != test.value {
+				t.Errorf("exit value = %q, want %q", test.exit, test.value)
+			}
+			if store.transactionCalls != 1 || store.resolveCalls != 0 || store.cancelOpenTasksCalls != 0 {
+				t.Errorf(
+					"outer transaction/resolve/cancel calls = %d/%d/%d, want 1/0/0",
+					store.transactionCalls,
+					store.resolveCalls,
+					store.cancelOpenTasksCalls,
+				)
+			}
+			if len(transactionStore.lifecycleSequence) != 2 ||
+				transactionStore.lifecycleSequence[0] != "resolve" ||
+				transactionStore.lifecycleSequence[1] != "cancel open tasks" {
+				t.Errorf(
+					"transaction mutation sequence = %v, want resolve then cancel open tasks",
+					transactionStore.lifecycleSequence,
+				)
+			}
+			const wantTimestamp = "2026-07-27T16:34:56.987Z"
+			if nowCalls != 1 || transactionStore.resolveTimestamp != wantTimestamp ||
+				transactionStore.cancelTimestamp != wantTimestamp {
+				t.Errorf(
+					"clock/resolve/cancel timestamps = %d/%q/%q, want 1/%q/%q",
+					nowCalls,
+					transactionStore.resolveTimestamp,
+					transactionStore.cancelTimestamp,
+					wantTimestamp,
+					wantTimestamp,
+				)
+			}
+			if transactionStore.resolveID != 7 || transactionStore.cancelProjectID != 7 ||
+				transactionStore.resolveExit != test.exit {
+				t.Errorf(
+					"resolve/cancel IDs and exit = %d/%d/%q, want 7/7/%q",
+					transactionStore.resolveID,
+					transactionStore.cancelProjectID,
+					transactionStore.resolveExit,
+					test.exit,
+				)
+			}
+			if resolution.Project != resolvedProject {
+				t.Errorf("resolution project = %#v, want %#v", resolution.Project, resolvedProject)
+			}
+			if resolution.CancelledTasks == nil ||
+				len(resolution.CancelledTasks) != len(test.cancelledTasks) {
+				t.Errorf(
+					"cancelled tasks = %#v, want non-nil list of length %d",
+					resolution.CancelledTasks,
+					len(test.cancelledTasks),
+				)
+			}
+		})
+	}
+}
+
+func TestReopenDelegatesOneTimestampWithoutATransaction(t *testing.T) {
+	t.Parallel()
+
+	store := &recordingStore{reopenResult: Project{ID: 7, Status: string(ListStatusOpen)}}
+	service := NewService(store)
+	nowCalls := 0
+	service.now = func() time.Time {
+		nowCalls++
+		return time.Date(2026, time.July, 27, 12, 34, 56, 987654321, time.UTC)
+	}
+
+	reopened, err := service.Reopen(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("Reopen() error = %v", err)
+	}
+	if reopened != store.reopenResult || store.reopenCalls != 1 || store.reopenID != 7 {
+		t.Errorf(
+			"Reopen() result/calls/ID = %#v/%d/%d, want %#v/1/7",
+			reopened,
+			store.reopenCalls,
+			store.reopenID,
+			store.reopenResult,
+		)
+	}
+	if nowCalls != 1 || store.reopenTimestamp != "2026-07-27T12:34:56.987Z" {
+		t.Errorf("clock calls/timestamp = %d/%q, want one UTC timestamp", nowCalls, store.reopenTimestamp)
+	}
+	if store.transactionCalls != 0 {
+		t.Errorf("transaction calls = %d, want 0", store.transactionCalls)
+	}
+}
+
+func TestDeleteUsesATransactionOnlyForRecursiveDeletion(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nonrecursive", func(t *testing.T) {
+		t.Parallel()
+
+		deletedProject := Project{ID: 7, Title: "empty"}
+		store := &recordingStore{deleteResult: deletedProject}
+		deletion, err := NewService(store).Delete(context.Background(), 7, false)
+		if err != nil {
+			t.Fatalf("Delete() error = %v", err)
+		}
+		if store.transactionCalls != 0 || store.deleteCalls != 1 || store.deleteTasksCalls != 0 {
+			t.Errorf(
+				"transaction/project/task delete calls = %d/%d/%d, want 0/1/0",
+				store.transactionCalls,
+				store.deleteCalls,
+				store.deleteTasksCalls,
+			)
+		}
+		if deletion.Project != deletedProject || deletion.DeletedTasks == nil || len(deletion.DeletedTasks) != 0 {
+			t.Errorf("Delete() = %#v, want project and non-nil empty deleted tasks", deletion)
+		}
+	})
+
+	t.Run("recursive", func(t *testing.T) {
+		t.Parallel()
+
+		deletedProject := Project{ID: 7, Title: "populated"}
+		deletedTasks := []task.Task{{ID: 8}, {ID: 9}}
+		transactionStore := &recordingStore{
+			deleteResult:      deletedProject,
+			deleteTasksResult: deletedTasks,
+		}
+		store := &recordingStore{transactionStore: transactionStore}
+		deletion, err := NewService(store).Delete(context.Background(), 7, true)
+		if err != nil {
+			t.Fatalf("Delete() error = %v", err)
+		}
+		if store.transactionCalls != 1 || store.deleteCalls != 0 || store.deleteTasksCalls != 0 {
+			t.Errorf(
+				"outer transaction/project/task delete calls = %d/%d/%d, want 1/0/0",
+				store.transactionCalls,
+				store.deleteCalls,
+				store.deleteTasksCalls,
+			)
+		}
+		if len(transactionStore.lifecycleSequence) != 2 ||
+			transactionStore.lifecycleSequence[0] != "delete tasks" ||
+			transactionStore.lifecycleSequence[1] != "delete project" {
+			t.Errorf(
+				"transaction mutation sequence = %v, want delete tasks then delete project",
+				transactionStore.lifecycleSequence,
+			)
+		}
+		if transactionStore.deleteTasksProjectID != 7 || transactionStore.deleteID != 7 {
+			t.Errorf(
+				"task/project delete IDs = %d/%d, want 7/7",
+				transactionStore.deleteTasksProjectID,
+				transactionStore.deleteID,
+			)
+		}
+		if deletion.Project != deletedProject || len(deletion.DeletedTasks) != len(deletedTasks) ||
+			deletion.DeletedTasks[0].ID != 8 || deletion.DeletedTasks[1].ID != 9 {
+			t.Errorf("Delete() = %#v, want project and deleted tasks", deletion)
+		}
+	})
+
+	t.Run("recursive empty project", func(t *testing.T) {
+		t.Parallel()
+
+		transactionStore := &recordingStore{}
+		store := &recordingStore{transactionStore: transactionStore}
+		deletion, err := NewService(store).Delete(context.Background(), 7, true)
+		if err != nil {
+			t.Fatalf("Delete() error = %v", err)
+		}
+		if deletion.DeletedTasks == nil || len(deletion.DeletedTasks) != 0 {
+			t.Errorf("deleted tasks = %#v, want non-nil empty list", deletion.DeletedTasks)
+		}
+	})
+}
+
+func TestLifecycleStoreErrorsPassThroughUnchanged(t *testing.T) {
+	t.Parallel()
+
+	storeError := apperr.New(apperr.Conflict, "store conflict", nil)
+	tests := []struct {
+		name  string
+		store *recordingStore
+		apply func(*Service) error
+	}{
+		{
+			name:  "resolve project",
+			store: &recordingStore{resolveError: storeError},
+			apply: func(service *Service) error {
+				_, err := service.Resolve(context.Background(), 7, ExitDone)
+				return err
+			},
+		},
+		{
+			name:  "cancel open tasks",
+			store: &recordingStore{cancelError: storeError},
+			apply: func(service *Service) error {
+				_, err := service.Resolve(context.Background(), 7, ExitDone)
+				return err
+			},
+		},
+		{
+			name:  "reopen",
+			store: &recordingStore{reopenError: storeError},
+			apply: func(service *Service) error {
+				_, err := service.Reopen(context.Background(), 7)
+				return err
+			},
+		},
+		{
+			name:  "nonrecursive delete",
+			store: &recordingStore{deleteError: storeError},
+			apply: func(service *Service) error {
+				_, err := service.Delete(context.Background(), 7, false)
+				return err
+			},
+		},
+		{
+			name:  "recursive task delete",
+			store: &recordingStore{deleteTasksError: storeError},
+			apply: func(service *Service) error {
+				_, err := service.Delete(context.Background(), 7, true)
+				return err
+			},
+		},
+		{
+			name:  "recursive project delete",
+			store: &recordingStore{deleteError: storeError},
+			apply: func(service *Service) error {
+				_, err := service.Delete(context.Background(), 7, true)
+				return err
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			if err := test.apply(NewService(test.store)); !errors.Is(err, storeError) {
+				t.Errorf("lifecycle error = %v, want preserved store error %v", err, storeError)
 			}
 		})
 	}

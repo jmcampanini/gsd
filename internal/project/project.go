@@ -1,6 +1,10 @@
 package project
 
-import "context"
+import (
+	"context"
+
+	"github.com/jmcampanini/gsd/internal/task"
+)
 
 type ListStatus string
 
@@ -9,6 +13,13 @@ const (
 	ListStatusDone      ListStatus = "done"
 	ListStatusCancelled ListStatus = "cancelled"
 	ListStatusAll       ListStatus = "all"
+)
+
+type Exit string
+
+const (
+	ExitDone      Exit = "done"
+	ExitCancelled Exit = "cancelled"
 )
 
 type Project struct {
@@ -37,11 +48,27 @@ type ListOptions struct {
 	Status ListStatus
 }
 
+type Resolution struct {
+	Project        Project     `json:"project"`
+	CancelledTasks []task.Task `json:"cancelled_tasks"`
+}
+
+type Deletion struct {
+	Project      Project     `json:"project"`
+	DeletedTasks []task.Task `json:"deleted_tasks"`
+}
+
 type Store interface {
 	Add(context.Context, AddFields, string) (Project, error)
 	Find(context.Context, int64) (Project, error)
 	List(context.Context, ListOptions) ([]Project, error)
 	Edit(context.Context, int64, EditFields, string) (Project, error)
+	Resolve(context.Context, int64, Exit, string) (Project, error)
+	CancelOpenTasks(context.Context, int64, string) ([]task.Task, error)
+	Reopen(context.Context, int64, string) (Project, error)
+	Delete(context.Context, int64) (Project, error)
+	DeleteTasks(context.Context, int64) ([]task.Task, error)
+	WithinTransaction(context.Context, func(Store) error) error
 }
 
 type Application interface {
@@ -49,4 +76,7 @@ type Application interface {
 	List(context.Context, ListOptions) ([]Project, error)
 	Show(context.Context, int64) (Project, error)
 	Edit(context.Context, int64, EditFields) (Project, error)
+	Resolve(context.Context, int64, Exit) (Resolution, error)
+	Reopen(context.Context, int64) (Project, error)
+	Delete(context.Context, int64, bool) (Deletion, error)
 }

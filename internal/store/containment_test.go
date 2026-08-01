@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -91,6 +92,67 @@ func TestTaskAddScopesPositionsByContainerAndFiltersByProject(t *testing.T) {
 		ProjectID: &missingProjectID,
 	}); errorCode(err) != apperr.NotFound {
 		t.Errorf("List(missing project) error = %v, want not_found", err)
+	}
+}
+
+func TestProjectTaskListDistinguishesMissingFromExistingFilteredEmpty(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	projects := NewProjects(storage)
+	tasks := NewTasks(storage)
+	t.Cleanup(func() { _ = storage.Close() })
+
+	container, err := projects.Add(
+		ctx,
+		project.AddFields{Title: "container"},
+		"2026-01-01T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Add(project) error = %v", err)
+	}
+	contained := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{ProjectID: &container.ID, Title: "undated open task"},
+	)
+
+	listed, err := tasks.List(ctx, task.ListOptions{
+		Status:    task.ListStatusOpen,
+		ProjectID: &container.ID,
+	})
+	if err != nil {
+		t.Fatalf("List(open project tasks) error = %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != contained.ID {
+		t.Errorf("List(open project tasks) = %#v, want contained task", listed)
+	}
+	for _, options := range []task.ListOptions{
+		{Status: task.ListStatusDone, ProjectID: &container.ID},
+		{Status: task.ListStatusOpen, Date: task.DateSelectorDue, ProjectID: &container.ID},
+		{Status: task.ListStatusAll, Date: task.DateSelectorOverdue, ProjectID: &container.ID},
+		{Status: task.ListStatusAll, Date: task.DateSelectorDeferred, ProjectID: &container.ID},
+	} {
+		listed, err := tasks.List(ctx, options)
+		if err != nil {
+			t.Errorf("List(existing filtered-empty project, %#v) error = %v", options, err)
+			continue
+		}
+		if len(listed) != 0 {
+			t.Errorf("List(existing filtered-empty project, %#v) = %#v, want []", options, listed)
+		}
+	}
+
+	missingID := int64(99)
+	if _, err := tasks.List(ctx, task.ListOptions{
+		Status:    task.ListStatusDone,
+		ProjectID: &missingID,
+	}); errorCode(err) != apperr.NotFound {
+		t.Errorf("List(missing filtered-empty project) error = %v, want not_found", err)
 	}
 }
 
@@ -369,6 +431,84 @@ func TestTaskEditEnforcesResolvedProjectMembershipGuards(t *testing.T) {
 		"2026-01-08T00:00:00.000Z",
 	); errorCode(err) != apperr.NotFound {
 		t.Errorf("Edit(move into missing target) error = %v, want not_found", err)
+	}
+}
+
+func TestTaskMoveReportsBothResolvedProjectsTogether(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	projects := NewProjects(storage)
+	tasks := NewTasks(storage)
+	t.Cleanup(func() { _ = storage.Close() })
+
+	source, err := projects.Add(
+		ctx,
+		project.AddFields{Title: "source"},
+		"2026-01-01T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Add(source) error = %v", err)
+	}
+	destination, err := projects.Add(
+		ctx,
+		project.AddFields{Title: "destination"},
+		"2026-01-01T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Add(destination) error = %v", err)
+	}
+	moving := addStoredTask(t, tasks, task.AddFields{ProjectID: &source.ID, Title: "moving"})
+	if _, err := projects.Resolve(
+		ctx,
+		source.ID,
+		project.ExitDone,
+		"2026-01-02T00:00:00.000Z",
+	); err != nil {
+		t.Fatalf("Resolve(source) error = %v", err)
+	}
+	if _, err := projects.Resolve(
+		ctx,
+		destination.ID,
+		project.ExitCancelled,
+		"2026-01-03T00:00:00.000Z",
+	); err != nil {
+		t.Fatalf("Resolve(destination) error = %v", err)
+	}
+
+	_, err = tasks.Edit(
+		ctx,
+		moving.ID,
+		task.EditFields{Project: task.ProjectChange{Set: &destination.ID}},
+		"2026-01-04T00:00:00.000Z",
+	)
+	if errorCode(err) != apperr.Conflict ||
+		!strings.Contains(err.Error(), fmt.Sprint(source.ID)) ||
+		!strings.Contains(err.Error(), fmt.Sprint(destination.ID)) ||
+		!strings.Contains(err.Error(), "reopen both projects") {
+		t.Errorf("Edit(between two resolved projects) error = %v, want both IDs and reopen-both guidance", err)
+	}
+
+	for _, id := range []int64{source.ID, destination.ID} {
+		if _, err := projects.Reopen(ctx, id, "2026-01-05T00:00:00.000Z"); err != nil {
+			t.Fatalf("Reopen(project %d) error = %v", id, err)
+		}
+	}
+	moved, err := tasks.Edit(
+		ctx,
+		moving.ID,
+		task.EditFields{Project: task.ProjectChange{Set: &destination.ID}},
+		"2026-01-06T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Edit(after reopening both projects) error = %v", err)
+	}
+	if moved.ProjectID == nil || *moved.ProjectID != destination.ID {
+		t.Errorf("Edit(after reopening both projects) = %#v, want destination project %d", moved, destination.ID)
 	}
 }
 

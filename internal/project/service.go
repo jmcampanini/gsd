@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/task"
 )
 
 type Service struct {
@@ -84,6 +85,93 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Projec
 	return s.store.Edit(ctx, id, fields, formatTimestamp(s.now()))
 }
 
+func (s *Service) Resolve(ctx context.Context, id int64, exit Exit) (Resolution, error) {
+	if err := validateID(id); err != nil {
+		return Resolution{}, err
+	}
+	if !validExit(exit) {
+		return Resolution{}, apperr.New(
+			apperr.InvalidArgument,
+			fmt.Sprintf("invalid project exit %q", exit),
+			nil,
+		)
+	}
+
+	timestamp := formatTimestamp(s.now())
+	resolution := Resolution{CancelledTasks: []task.Task{}}
+	err := s.store.WithinTransaction(ctx, func(store Store) error {
+		project, err := store.Resolve(ctx, id, exit, timestamp)
+		if err != nil {
+			return err
+		}
+
+		cancelledTasks, err := store.CancelOpenTasks(ctx, id, timestamp)
+		if err != nil {
+			return err
+		}
+		if cancelledTasks == nil {
+			cancelledTasks = []task.Task{}
+		}
+
+		resolution.Project = project
+		resolution.CancelledTasks = cancelledTasks
+		return nil
+	})
+	if err != nil {
+		return Resolution{}, err
+	}
+
+	return resolution, nil
+}
+
+func (s *Service) Reopen(ctx context.Context, id int64) (Project, error) {
+	if err := validateID(id); err != nil {
+		return Project{}, err
+	}
+
+	return s.store.Reopen(ctx, id, formatTimestamp(s.now()))
+}
+
+func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletion, error) {
+	if err := validateID(id); err != nil {
+		return Deletion{}, err
+	}
+
+	if !recursive {
+		project, err := s.store.Delete(ctx, id)
+		if err != nil {
+			return Deletion{}, err
+		}
+
+		return Deletion{Project: project, DeletedTasks: []task.Task{}}, nil
+	}
+
+	deletion := Deletion{DeletedTasks: []task.Task{}}
+	err := s.store.WithinTransaction(ctx, func(store Store) error {
+		deletedTasks, err := store.DeleteTasks(ctx, id)
+		if err != nil {
+			return err
+		}
+		if deletedTasks == nil {
+			deletedTasks = []task.Task{}
+		}
+
+		project, err := store.Delete(ctx, id)
+		if err != nil {
+			return err
+		}
+
+		deletion.Project = project
+		deletion.DeletedTasks = deletedTasks
+		return nil
+	})
+	if err != nil {
+		return Deletion{}, err
+	}
+
+	return deletion, nil
+}
+
 func ParseID(value string) (int64, error) {
 	if value == "" {
 		return 0, apperr.New(apperr.InvalidArgument, "project ID must be a positive decimal", nil)
@@ -126,6 +214,15 @@ func ParseListStatus(value string) (ListStatus, error) {
 func validListStatus(status ListStatus) bool {
 	switch status {
 	case ListStatusOpen, ListStatusDone, ListStatusCancelled, ListStatusAll:
+		return true
+	default:
+		return false
+	}
+}
+
+func validExit(exit Exit) bool {
+	switch exit {
+	case ExitDone, ExitCancelled:
 		return true
 	default:
 		return false
