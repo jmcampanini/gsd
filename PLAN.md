@@ -28,7 +28,7 @@ after its implementation and verification items below are complete:
 - [x] **Chunk 2 — Lifecycle and cascade** — a human can complete, cancel,
       reopen, and delete projects, with the cascade narrating what it
       cancelled and deletion honoring RESTRICT.
-- [ ] **Chunk 3 — Logbook** — a human can see finished tasks and projects
+- [x] **Chunk 3 — Logbook** — a human can see finished tasks and projects
       interleaved, newest first, with kind markers.
 
 Chunk 0 is the one permitted review-only chunk: it isolates a mechanical,
@@ -414,16 +414,16 @@ resolution day.
 
 ### Implementation
 
-- [ ] Add the `internal/logbook` read model (entry value, consumer-defined
+- [x] Add the `internal/logbook` read model (entry value, consumer-defined
       `Store` interface, thin service) and `store.Logbook` querying the view
       with `resolved_at` descending, project-before-task at the same
       instant, then `id` descending.
-- [ ] Add the `logbook` command: JSON entries with the view column set;
+- [x] Add the `logbook` command: JSON entries with the view column set;
       human rows of kind, id, title, status, and the local calendar day of
       `resolved_at`; empty logbook prints nothing.
-- [ ] Extend the subprocess workflow to the complete milestone workflow,
+- [x] Extend the subprocess workflow to the complete milestone workflow,
       including logbook ordering and kinds.
-- [ ] Run `make check` and build the real binary before opening the chunk
+- [x] Run `make check` and build the real binary before opening the chunk
       pull request.
 
 ### Human proof
@@ -431,13 +431,13 @@ resolution day.
 Against a fresh database with the real built binary, captured as the chunk
 demo (`.sandbox/demos/3-chunk-3.html`):
 
-- [ ] Fresh database: `gsd logbook` prints nothing.
-- [ ] Build the Kitchen reno story: project with two tasks, `gsd done` one,
+- [x] Fresh database: `gsd logbook` prints nothing.
+- [x] Build the Kitchen reno story: project with two tasks, `gsd done` one,
       `gsd project done 1` cancelling the other.
-- [ ] `gsd logbook` shows the project above its same-instant cancelled task,
+- [x] `gsd logbook` shows the project above its same-instant cancelled task,
       the independently completed task below, each row with kind, status,
       and day.
-- [ ] `gsd logbook --json` entries carry `kind`, `resolved_at`, and
+- [x] `gsd logbook --json` entries carry `kind`, `resolved_at`, and
       `project_title` for task entries.
 
 ## Consolidation and exit
