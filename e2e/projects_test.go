@@ -15,41 +15,18 @@ import (
 
 func TestProjectContainmentWorkflow(t *testing.T) {
 	databasePath := filepath.Join(workDir, "projects", "gsd.db")
+	runJSON := func(args ...string) processResult {
+		return runGSD(t, append(args, "--db", databasePath, "--json")...)
+	}
 
-	kitchen := decodeProject(t, runGSD(
-		t,
-		"projects",
-		"add",
-		"Kitchen reno",
-		"--db",
-		databasePath,
-		"--json",
-	))
+	kitchen := decodeProject(t, runJSON("projects", "add", "Kitchen reno"))
 	if kitchen.ID != 1 || kitchen.Title != "Kitchen reno" || kitchen.Status != "open" || kitchen.Position != 0 {
 		t.Errorf("kitchen project = %#v, want first open project", kitchen)
 	}
 
-	quotes := decodeTask(t, runGSD(
-		t,
-		"add",
-		"Get quotes",
-		"--project",
-		fmt.Sprint(kitchen.ID),
-		"--db",
-		databasePath,
-		"--json",
-	))
-	tiles := decodeTask(t, runGSD(
-		t,
-		"add",
-		"Pick tiles",
-		"--project",
-		fmt.Sprint(kitchen.ID),
-		"--db",
-		databasePath,
-		"--json",
-	))
-	loose := decodeTask(t, runGSD(t, "add", "Buy milk", "--db", databasePath, "--json"))
+	quotes := decodeTask(t, runJSON("add", "Get quotes", "--project", fmt.Sprint(kitchen.ID)))
+	tiles := decodeTask(t, runJSON("add", "Pick tiles", "--project", fmt.Sprint(kitchen.ID)))
+	loose := decodeTask(t, runJSON("add", "Buy milk"))
 	if !hasProject(quotes, kitchen.ID) || quotes.Position != 0 ||
 		!hasProject(tiles, kitchen.ID) || tiles.Position != 1 {
 		t.Errorf("contained tasks = %#v/%#v, want project-scoped positions 0 and 1", quotes, tiles)
@@ -58,132 +35,72 @@ func TestProjectContainmentWorkflow(t *testing.T) {
 		t.Errorf("loose task = %#v, want inbox position 0", loose)
 	}
 
-	listed := decodeTasks(t, runGSD(
-		t,
-		"list",
-		"--project",
-		fmt.Sprint(kitchen.ID),
-		"--db",
-		databasePath,
-		"--json",
-	))
+	listed := decodeTasks(t, runJSON("list", "--project", fmt.Sprint(kitchen.ID)))
 	if len(listed) != 2 || listed[0].ID != quotes.ID || listed[1].ID != tiles.ID {
 		t.Errorf("project tasks = %#v, want quotes then tiles", listed)
 	}
-	inbox := decodeTasks(t, runGSD(t, "inbox", "--db", databasePath, "--json"))
+	inbox := decodeTasks(t, runJSON("inbox"))
 	if len(inbox) != 1 || inbox[0].ID != loose.ID {
 		t.Errorf("inbox = %#v, want only loose task", inbox)
 	}
 
-	bathroom := decodeProject(t, runGSD(
-		t,
-		"projects",
-		"add",
-		"Bathroom",
-		"--db",
-		databasePath,
-		"--json",
-	))
-	projects := decodeProjects(t, runGSD(t, "projects", "list", "--db", databasePath, "--json"))
+	bathroom := decodeProject(t, runJSON("projects", "add", "Bathroom"))
+	projects := decodeProjects(t, runJSON("projects", "list"))
 	if len(projects) != 2 || projects[0].ID != kitchen.ID || projects[1].ID != bathroom.ID {
 		t.Errorf("projects = %#v, want kitchen then bathroom", projects)
 	}
 
-	bathroomFirst := decodeTask(t, runGSD(
-		t,
+	bathroomFirst := decodeTask(t, runJSON(
 		"add",
 		"Measure walls",
 		"--project",
 		fmt.Sprint(bathroom.ID),
-		"--db",
-		databasePath,
-		"--json",
 	))
-	moved := decodeTask(t, runGSD(
-		t,
+	moved := decodeTask(t, runJSON(
 		"edit",
 		fmt.Sprint(tiles.ID),
 		"--project",
 		fmt.Sprint(bathroom.ID),
-		"--db",
-		databasePath,
-		"--json",
 	))
 	if !hasProject(moved, bathroom.ID) || moved.Position != bathroomFirst.Position+1 {
 		t.Errorf("moved task = %#v, want appended after %#v", moved, bathroomFirst)
 	}
-	restated := decodeTask(t, runGSD(
-		t,
+	restated := decodeTask(t, runJSON(
 		"edit",
 		fmt.Sprint(tiles.ID),
 		"--project",
 		fmt.Sprint(bathroom.ID),
-		"--db",
-		databasePath,
-		"--json",
 	))
 	if !hasProject(restated, bathroom.ID) || restated.Position != moved.Position {
 		t.Errorf("same-container edit = %#v, want membership and position unchanged from %#v", restated, moved)
 	}
 
-	returned := decodeTask(t, runGSD(
-		t,
-		"edit",
-		fmt.Sprint(tiles.ID),
-		"--no-project",
-		"--db",
-		databasePath,
-		"--json",
-	))
+	returned := decodeTask(t, runJSON("edit", fmt.Sprint(tiles.ID), "--no-project"))
 	if returned.ProjectID != nil || returned.Position != loose.Position+1 {
 		t.Errorf("returned task = %#v, want appended after inbox task %#v", returned, loose)
 	}
 
 	note := "Budget: 20k"
-	editedProject := decodeProject(t, runGSD(
-		t,
+	editedProject := decodeProject(t, runJSON(
 		"project",
 		"edit",
 		fmt.Sprint(kitchen.ID),
 		"--note",
 		note,
-		"--db",
-		databasePath,
-		"--json",
 	))
-	shownProject := decodeProject(t, runGSD(
-		t,
-		"project",
-		"show",
-		fmt.Sprint(kitchen.ID),
-		"--db",
-		databasePath,
-		"--json",
-	))
+	shownProject := decodeProject(t, runJSON("project", "show", fmt.Sprint(kitchen.ID)))
 	if editedProject.Note != note || !reflect.DeepEqual(shownProject, editedProject) {
 		t.Errorf("edited/shown project = %#v/%#v, want persisted note", editedProject, shownProject)
 	}
 
-	assertJSONError(
-		t,
-		runGSD(t, "add", "missing", "--project", "99", "--db", databasePath, "--json"),
-		apperr.NotFound,
-	)
-	assertJSONError(
-		t,
-		runGSD(t, "list", "--project", "99", "--db", databasePath, "--json"),
-		apperr.NotFound,
-	)
-	conflict := runGSD(
-		t,
+	assertJSONError(t, runJSON("add", "missing", "--project", "99"), apperr.NotFound)
+	assertJSONError(t, runJSON("list", "--project", "99"), apperr.NotFound)
+	conflict := runJSON(
 		"edit",
 		fmt.Sprint(tiles.ID),
 		"--project",
 		fmt.Sprint(kitchen.ID),
 		"--no-project",
-		"--db",
-		databasePath,
-		"--json",
 	)
 	if conflict.exitCode != 2 || conflict.stdout != "" || conflict.stderr == "" {
 		t.Errorf("membership flag conflict = %#v, want stderr-only usage error", conflict)
@@ -201,6 +118,192 @@ func TestProjectContainmentWorkflow(t *testing.T) {
 	}
 }
 
+func TestProjectLifecycleWorkflow(t *testing.T) {
+	databasePath := filepath.Join(workDir, "project-lifecycle", "gsd.db")
+	runJSON := func(args ...string) processResult {
+		return runGSD(t, append(args, "--db", databasePath, "--json")...)
+	}
+
+	launch := decodeProject(t, runJSON("projects", "add", "Launch"))
+	completed := decodeTask(t, runJSON(
+		"add",
+		"Write announcement",
+		"--project",
+		fmt.Sprint(launch.ID),
+	))
+	firstOpen := decodeTask(t, runJSON(
+		"add",
+		"Publish release",
+		"--project",
+		fmt.Sprint(launch.ID),
+	))
+	secondOpen := decodeTask(t, runJSON(
+		"add",
+		"Notify customers",
+		"--project",
+		fmt.Sprint(launch.ID),
+	))
+	completed = decodeTask(t, runJSON("done", fmt.Sprint(completed.ID)))
+
+	resolved := decodeProjectResolution(t, runJSON(
+		"project",
+		"done",
+		fmt.Sprint(launch.ID),
+	))
+	if resolved.Project.ID != launch.ID || resolved.Project.Status != "done" ||
+		resolved.Project.DoneAt == nil || resolved.Project.CancelledAt != nil {
+		t.Fatalf("resolved project = %#v, want done launch project", resolved.Project)
+	}
+	if len(resolved.CancelledTasks) != 2 ||
+		resolved.CancelledTasks[0].ID != firstOpen.ID ||
+		resolved.CancelledTasks[1].ID != secondOpen.ID {
+		t.Fatalf(
+			"cancelled tasks = %#v, want the two open tasks in position order",
+			resolved.CancelledTasks,
+		)
+	}
+	for _, cancelled := range resolved.CancelledTasks {
+		if cancelled.Status != "cancelled" || cancelled.CancelledAt == nil ||
+			*cancelled.CancelledAt != *resolved.Project.DoneAt || cancelled.DoneAt != nil {
+			t.Errorf(
+				"cascade task = %#v, want cancellation at project resolution timestamp %q",
+				cancelled,
+				*resolved.Project.DoneAt,
+			)
+		}
+	}
+	persistedCompleted := decodeTask(t, runJSON("show", fmt.Sprint(completed.ID)))
+	if !reflect.DeepEqual(persistedCompleted, completed) {
+		t.Errorf("pre-completed task = %#v, want untouched %#v", persistedCompleted, completed)
+	}
+
+	assertJSONError(
+		t,
+		runJSON("project", "done", fmt.Sprint(launch.ID)),
+		apperr.Conflict,
+	)
+	assertJSONError(t, runJSON("reopen", fmt.Sprint(firstOpen.ID)), apperr.Conflict)
+	assertJSONError(
+		t,
+		runJSON("add", "Late idea", "--project", fmt.Sprint(launch.ID)),
+		apperr.Conflict,
+	)
+
+	edited := decodeTask(t, runJSON(
+		"edit",
+		fmt.Sprint(firstOpen.ID),
+		"--title",
+		"Publish final release",
+	))
+	if edited.Title != "Publish final release" || edited.Status != "cancelled" ||
+		!reflect.DeepEqual(edited.CancelledAt, resolved.CancelledTasks[0].CancelledAt) {
+		t.Errorf("edited resolved-project task = %#v, want content-only edit", edited)
+	}
+
+	reopenedProject := decodeProject(t, runJSON(
+		"project",
+		"reopen",
+		fmt.Sprint(launch.ID),
+	))
+	if reopenedProject.Status != "open" || reopenedProject.DoneAt != nil ||
+		reopenedProject.CancelledAt != nil {
+		t.Errorf("reopened project = %#v, want open project", reopenedProject)
+	}
+	persistedFirst := decodeTask(t, runJSON("show", fmt.Sprint(firstOpen.ID)))
+	persistedSecond := decodeTask(t, runJSON("show", fmt.Sprint(secondOpen.ID)))
+	if persistedFirst.Status != "cancelled" || persistedSecond.Status != "cancelled" ||
+		!reflect.DeepEqual(persistedFirst.CancelledAt, edited.CancelledAt) ||
+		!reflect.DeepEqual(persistedSecond, resolved.CancelledTasks[1]) {
+		t.Errorf(
+			"tasks after project reopen = %#v/%#v, want cascade left intact",
+			persistedFirst,
+			persistedSecond,
+		)
+	}
+
+	reopenedTask := decodeTask(t, runJSON("reopen", fmt.Sprint(firstOpen.ID)))
+	if reopenedTask.Status != "open" || reopenedTask.DoneAt != nil ||
+		reopenedTask.CancelledAt != nil {
+		t.Fatalf("reopened task = %#v, want open task", reopenedTask)
+	}
+	recompleted := decodeProjectResolution(t, runJSON(
+		"project",
+		"done",
+		fmt.Sprint(launch.ID),
+	))
+	if recompleted.Project.Status != "done" || recompleted.Project.DoneAt == nil ||
+		len(recompleted.CancelledTasks) != 1 ||
+		recompleted.CancelledTasks[0].ID != reopenedTask.ID ||
+		recompleted.CancelledTasks[0].CancelledAt == nil ||
+		*recompleted.CancelledTasks[0].CancelledAt != *recompleted.Project.DoneAt {
+		t.Errorf("recompleted resolution = %#v, want reopened task recancelled", recompleted)
+	}
+
+	decodeProject(t, runJSON("project", "reopen", fmt.Sprint(launch.ID)))
+	zeroCascade := decodeProjectResolution(t, runJSON(
+		"project",
+		"done",
+		fmt.Sprint(launch.ID),
+	))
+	if zeroCascade.Project.Status != "done" || zeroCascade.CancelledTasks == nil ||
+		len(zeroCascade.CancelledTasks) != 0 {
+		t.Errorf("zero-task resolution = %#v, want done project and empty cancellation array", zeroCascade)
+	}
+
+	empty := decodeProject(t, runJSON("projects", "add", "Empty project"))
+	deletedEmpty := decodeProject(t, runJSON("project", "delete", fmt.Sprint(empty.ID)))
+	if !reflect.DeepEqual(deletedEmpty, empty) {
+		t.Errorf("deleted empty project = %#v, want snapshot %#v", deletedEmpty, empty)
+	}
+	assertJSONError(
+		t,
+		runJSON("project", "show", fmt.Sprint(empty.ID)),
+		apperr.NotFound,
+	)
+
+	abandoned := decodeProject(t, runJSON("projects", "add", "Abandoned"))
+	abandonedTask := decodeTask(t, runJSON(
+		"add",
+		"Remove preview environment",
+		"--project",
+		fmt.Sprint(abandoned.ID),
+	))
+	cancelled := decodeProjectResolution(t, runJSON(
+		"project",
+		"cancel",
+		fmt.Sprint(abandoned.ID),
+	))
+	if cancelled.Project.Status != "cancelled" || cancelled.Project.CancelledAt == nil ||
+		cancelled.Project.DoneAt != nil || len(cancelled.CancelledTasks) != 1 ||
+		cancelled.CancelledTasks[0].ID != abandonedTask.ID ||
+		cancelled.CancelledTasks[0].CancelledAt == nil ||
+		*cancelled.CancelledTasks[0].CancelledAt != *cancelled.Project.CancelledAt {
+		t.Fatalf("cancelled resolution = %#v, want project and task cancelled together", cancelled)
+	}
+	assertJSONError(
+		t,
+		runJSON("project", "delete", fmt.Sprint(abandoned.ID)),
+		apperr.Conflict,
+	)
+
+	deleted := decodeProjectDeletion(t, runJSON(
+		"project",
+		"delete",
+		fmt.Sprint(abandoned.ID),
+		"--recursive",
+	))
+	if !reflect.DeepEqual(deleted.Project, cancelled.Project) ||
+		!reflect.DeepEqual(deleted.DeletedTasks, cancelled.CancelledTasks) {
+		t.Errorf("recursive deletion = %#v, want cancelled project and its task", deleted)
+	}
+	assertJSONError(
+		t,
+		runJSON("project", "show", fmt.Sprint(abandoned.ID)),
+		apperr.NotFound,
+	)
+	assertJSONError(t, runJSON("show", fmt.Sprint(abandonedTask.ID)), apperr.NotFound)
+}
+
 func decodeProject(t *testing.T, result processResult) project.Project {
 	t.Helper()
 	return decodeJSON[project.Project](t, result, "project")
@@ -209,6 +312,16 @@ func decodeProject(t *testing.T, result processResult) project.Project {
 func decodeProjects(t *testing.T, result processResult) []project.Project {
 	t.Helper()
 	return decodeJSON[[]project.Project](t, result, "projects")
+}
+
+func decodeProjectResolution(t *testing.T, result processResult) project.Resolution {
+	t.Helper()
+	return decodeJSON[project.Resolution](t, result, "project resolution")
+}
+
+func decodeProjectDeletion(t *testing.T, result processResult) project.Deletion {
+	t.Helper()
+	return decodeJSON[project.Deletion](t, result, "project deletion")
 }
 
 func hasProject(current task.Task, id int64) bool {

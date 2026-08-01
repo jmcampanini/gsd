@@ -1,5 +1,5 @@
 CREATE TABLE projects (
-    id           INTEGER PRIMARY KEY,
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
     title        TEXT    NOT NULL,
     note         TEXT    NOT NULL DEFAULT '',
     done_at      TEXT,
@@ -15,7 +15,7 @@ CREATE TABLE projects (
 ) STRICT;
 
 CREATE TABLE tasks (
-    id           INTEGER PRIMARY KEY,
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id   INTEGER REFERENCES projects(id) ON DELETE RESTRICT,
     title        TEXT    NOT NULL,
     note         TEXT    NOT NULL DEFAULT '',

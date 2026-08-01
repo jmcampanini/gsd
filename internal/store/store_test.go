@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -821,6 +822,130 @@ func TestLifecycleTransitionsPreserveTaskAndEnforceState(t *testing.T) {
 	assertPreservedTaskFields(t, cancelled, created)
 	if _, err := tasks.Done(ctx, created.ID, "2026-01-07T00:00:00.000Z"); errorCode(err) != apperr.Conflict {
 		t.Errorf("Done(cancelled) error = %v, want conflict", err)
+	}
+}
+
+func TestTaskLifecycleTransitionsAreBlockedByResolvedProject(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	projects := NewProjects(storage)
+	tasks := NewTasks(storage)
+	t.Cleanup(func() { _ = storage.Close() })
+
+	container, err := projects.Add(
+		ctx,
+		project.AddFields{Title: "resolved"},
+		"2026-01-01T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Add(project) error = %v", err)
+	}
+	completeCandidate := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{ProjectID: &container.ID, Title: "complete candidate"},
+	)
+	cancelCandidate := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{ProjectID: &container.ID, Title: "cancel candidate"},
+	)
+	reopenCandidate := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{ProjectID: &container.ID, Title: "reopen candidate"},
+	)
+	deleteCandidate := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{ProjectID: &container.ID, Title: "delete candidate"},
+	)
+	reopenCandidate, err = tasks.Done(ctx, reopenCandidate.ID, "2026-01-02T00:00:00.000Z")
+	if err != nil {
+		t.Fatalf("Done(reopen candidate) error = %v", err)
+	}
+	if _, err := projects.Resolve(
+		ctx,
+		container.ID,
+		project.ExitDone,
+		"2026-01-03T00:00:00.000Z",
+	); err != nil {
+		t.Fatalf("Resolve(project) error = %v", err)
+	}
+
+	operations := []struct {
+		name  string
+		apply func() error
+	}{
+		{
+			name: "done open task",
+			apply: func() error {
+				_, err := tasks.Done(ctx, completeCandidate.ID, "2026-01-04T00:00:00.000Z")
+				return err
+			},
+		},
+		{
+			name: "cancel open task",
+			apply: func() error {
+				_, err := tasks.Cancel(ctx, cancelCandidate.ID, "2026-01-04T00:00:00.000Z")
+				return err
+			},
+		},
+		{
+			name: "reopen done task",
+			apply: func() error {
+				_, err := tasks.Reopen(ctx, reopenCandidate.ID, "2026-01-04T00:00:00.000Z")
+				return err
+			},
+		},
+		{
+			name: "state conflict still prioritizes project",
+			apply: func() error {
+				_, err := tasks.Done(ctx, reopenCandidate.ID, "2026-01-04T00:00:00.000Z")
+				return err
+			},
+		},
+	}
+	for _, operation := range operations {
+		err := operation.apply()
+		if errorCode(err) != apperr.Conflict || !strings.Contains(err.Error(), "reopen") ||
+			!strings.Contains(err.Error(), fmt.Sprint(container.ID)) {
+			t.Errorf("%s error = %v, want conflict naming resolved project with reopen guidance", operation.name, err)
+		}
+	}
+
+	persistedComplete, err := tasks.Find(ctx, completeCandidate.ID)
+	if err != nil {
+		t.Fatalf("Find(complete candidate) error = %v", err)
+	}
+	persistedCancel, err := tasks.Find(ctx, cancelCandidate.ID)
+	if err != nil {
+		t.Fatalf("Find(cancel candidate) error = %v", err)
+	}
+	persistedReopen, err := tasks.Find(ctx, reopenCandidate.ID)
+	if err != nil {
+		t.Fatalf("Find(reopen candidate) error = %v", err)
+	}
+	if persistedComplete.Status != "open" || persistedCancel.Status != "open" ||
+		persistedReopen.Status != "done" || persistedReopen.UpdatedAt != reopenCandidate.UpdatedAt {
+		t.Errorf(
+			"tasks after blocked transitions = %#v, %#v, %#v; want original states",
+			persistedComplete,
+			persistedCancel,
+			persistedReopen,
+		)
+	}
+	deleted, err := tasks.Delete(ctx, deleteCandidate.ID)
+	if err != nil {
+		t.Fatalf("Delete(task in resolved project) error = %v", err)
+	}
+	if !reflect.DeepEqual(deleted, deleteCandidate) {
+		t.Errorf("Delete(task in resolved project) = %#v, want snapshot %#v", deleted, deleteCandidate)
 	}
 }
 

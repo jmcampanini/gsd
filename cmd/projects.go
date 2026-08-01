@@ -92,7 +92,11 @@ func newProjectCommand(options *rootOptions, factory applicationFactory) *cobra.
 		},
 	}
 	command.AddCommand(
+		newProjectCancelCommand(options, factory),
+		newProjectDeleteCommand(options, factory),
+		newProjectDoneCommand(options, factory),
 		newProjectEditCommand(options, factory),
+		newProjectReopenCommand(options, factory),
 		newProjectShowCommand(options, factory),
 	)
 
@@ -119,6 +123,121 @@ func newProjectShowCommand(options *rootOptions, factory applicationFactory) *co
 			})
 		},
 	}
+}
+
+func newProjectDoneCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	return newProjectResolveCommand(
+		options,
+		factory,
+		"done ID",
+		"Complete a project",
+		"Done",
+		project.ExitDone,
+	)
+}
+
+func newProjectCancelCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	return newProjectResolveCommand(
+		options,
+		factory,
+		"cancel ID",
+		"Cancel a project",
+		"Cancelled",
+		project.ExitCancelled,
+	)
+}
+
+func newProjectResolveCommand(
+	options *rootOptions,
+	factory applicationFactory,
+	use string,
+	short string,
+	action string,
+	exit project.Exit,
+) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			id, err := project.ParseID(args[0])
+			if err != nil {
+				return err
+			}
+
+			return withProjectApplication(command, options, factory, func(application project.Application) error {
+				resolution, err := application.Resolve(command.Context(), id, exit)
+				if err != nil {
+					return err
+				}
+				if options.json {
+					return writeJSON(command.OutOrStdout(), resolution)
+				}
+
+				return writeProjectResolution(command.OutOrStdout(), action, resolution)
+			})
+		},
+	}
+}
+
+func newProjectReopenCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	return &cobra.Command{
+		Use:   "reopen ID",
+		Short: "Reopen a project",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			id, err := project.ParseID(args[0])
+			if err != nil {
+				return err
+			}
+
+			return withProjectApplication(command, options, factory, func(application project.Application) error {
+				reopened, err := application.Reopen(command.Context(), id)
+				if err != nil {
+					return err
+				}
+				if options.json {
+					return writeJSON(command.OutOrStdout(), reopened)
+				}
+
+				return writeProjectMutation(command.OutOrStdout(), "Reopened", reopened)
+			})
+		},
+	}
+}
+
+func newProjectDeleteCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	var recursive bool
+	command := &cobra.Command{
+		Use:   "delete ID",
+		Short: "Delete a project",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			id, err := project.ParseID(args[0])
+			if err != nil {
+				return err
+			}
+
+			return withProjectApplication(command, options, factory, func(application project.Application) error {
+				deletion, err := application.Delete(command.Context(), id, recursive)
+				if err != nil {
+					return err
+				}
+				if options.json {
+					if recursive {
+						return writeJSON(command.OutOrStdout(), deletion)
+					}
+
+					return writeJSON(command.OutOrStdout(), deletion.Project)
+				}
+
+				return writeProjectDeletion(command.OutOrStdout(), deletion)
+			})
+		},
+	}
+	command.Flags().BoolVar(&recursive, "recursive", false, "delete contained tasks")
+
+	return command
 }
 
 func newProjectEditCommand(options *rootOptions, factory applicationFactory) *cobra.Command {

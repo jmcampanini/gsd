@@ -13,19 +13,30 @@ import (
 )
 
 type fakeProjectApplication struct {
-	addResult   project.Project
-	addError    error
-	listResult  []project.Project
-	listError   error
-	showResult  project.Project
-	showError   error
-	editResult  project.Project
-	editError   error
-	addFields   project.AddFields
-	listOptions project.ListOptions
-	showID      int64
-	editID      int64
-	editFields  project.EditFields
+	addResult       project.Project
+	addError        error
+	listResult      []project.Project
+	listError       error
+	showResult      project.Project
+	showError       error
+	editResult      project.Project
+	editError       error
+	resolveResult   project.Resolution
+	resolveError    error
+	reopenResult    project.Project
+	reopenError     error
+	deleteResult    project.Deletion
+	deleteError     error
+	addFields       project.AddFields
+	listOptions     project.ListOptions
+	showID          int64
+	editID          int64
+	editFields      project.EditFields
+	resolveID       int64
+	resolveExit     project.Exit
+	reopenID        int64
+	deleteID        int64
+	deleteRecursive bool
 }
 
 func (f *fakeProjectApplication) Add(
@@ -60,6 +71,72 @@ func (f *fakeProjectApplication) Edit(
 	f.editID = id
 	f.editFields = fields
 	return f.editResult, f.editError
+}
+
+func (f *fakeProjectApplication) Resolve(
+	_ context.Context,
+	id int64,
+	exit project.Exit,
+) (project.Resolution, error) {
+	f.resolveID = id
+	f.resolveExit = exit
+	return f.resolveResult, f.resolveError
+}
+
+func (f *fakeProjectApplication) Reopen(
+	_ context.Context,
+	id int64,
+) (project.Project, error) {
+	f.reopenID = id
+	return f.reopenResult, f.reopenError
+}
+
+func (f *fakeProjectApplication) Delete(
+	_ context.Context,
+	id int64,
+	recursive bool,
+) (project.Deletion, error) {
+	f.deleteID = id
+	f.deleteRecursive = recursive
+	return f.deleteResult, f.deleteError
+}
+
+func decodeProjectJSON[T any](t *testing.T, output string) T {
+	t.Helper()
+	if !strings.HasSuffix(output, "\n") || strings.Count(output, "\n") != 1 {
+		t.Fatalf("output = %q, want one newline-terminated JSON value", output)
+	}
+
+	var decoded T
+	if err := json.Unmarshal([]byte(output), &decoded); err != nil {
+		t.Fatalf("decode project command output: %v", err)
+	}
+	return decoded
+}
+
+func requireProjectCommandJSON[T any](t *testing.T, result commandResult, want T) {
+	t.Helper()
+	if result.exitCode != 0 || result.stderr != "" {
+		t.Fatalf("result = %#v, want JSON success", result)
+	}
+	if got := decodeProjectJSON[T](t, result.stdout); !reflect.DeepEqual(got, want) {
+		t.Fatalf("JSON output = %#v, want %#v", got, want)
+	}
+}
+
+func decodeProjectCommandError(t *testing.T, result commandResult) errorPayload {
+	t.Helper()
+	if result.exitCode != 1 || result.stdout != "" {
+		t.Fatalf("result = %#v, want stderr-only application error", result)
+	}
+	return decodeProjectJSON[errorEnvelope](t, result.stderr).Error
+}
+
+func requireProjectCommandHumanOutput(t *testing.T, result commandResult, want string) {
+	t.Helper()
+	if result.exitCode != 0 || result.stderr != "" || result.stdout != want {
+		t.Errorf("result = %#v, want stdout %q", result, want)
+	}
 }
 
 func TestTaskProjectFlagsAdaptContainmentIntent(t *testing.T) {
@@ -190,18 +267,9 @@ func TestProjectAddAndEditAdaptFieldsAndOutput(t *testing.T) {
 		"chosen.db",
 		"--json",
 	)
-	if addResult.exitCode != 0 || addResult.stderr != "" {
-		t.Fatalf("add result = %#v, want success", addResult)
-	}
+	requireProjectCommandJSON(t, addResult, created)
 	if addApplication.addFields != (project.AddFields{Title: "Kitchen reno", Note: note}) {
 		t.Errorf("Add() fields = %#v, want exact title and stdin note", addApplication.addFields)
-	}
-	var decoded project.Project
-	if err := json.Unmarshal([]byte(addResult.stdout), &decoded); err != nil {
-		t.Fatalf("decode project: %v", err)
-	}
-	if !reflect.DeepEqual(decoded, created) {
-		t.Errorf("JSON project = %#v, want %#v", decoded, created)
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(addResult.stdout), &fields); err != nil {
@@ -347,6 +415,220 @@ func TestProjectShowUsesSchemaOrderFieldValueTable(t *testing.T) {
 	}
 }
 
+func TestProjectResolveCommandsAdaptExitAndJSONEnvelope(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name   string
+		status string
+		exit   project.Exit
+	}{
+		{name: "done", status: "done", exit: project.ExitDone},
+		{name: "cancel", status: "cancelled", exit: project.ExitCancelled},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			want := project.Resolution{
+				Project:        project.Project{ID: 7, Title: "Kitchen", Status: test.status},
+				CancelledTasks: []task.Task{},
+			}
+			application := &fakeProjectApplication{resolveResult: want}
+			result := runProjectCommand(t, application, "project", test.name, "007", "--json")
+			requireProjectCommandJSON(t, result, want)
+			if application.resolveID != 7 || application.resolveExit != test.exit {
+				t.Errorf(
+					"Resolve() arguments = (%d, %q), want (7, %q)",
+					application.resolveID,
+					application.resolveExit,
+					test.exit,
+				)
+			}
+			if result.opens != 1 || result.closes != 1 {
+				t.Errorf("factory lifecycle = %#v, want one open and close", result)
+			}
+		})
+	}
+}
+
+func TestProjectReopenAndDeleteAdaptArgumentsAndJSONShapes(t *testing.T) {
+	t.Parallel()
+
+	reopened := project.Project{ID: 8, Title: "Reset", Status: "open"}
+	reopenApplication := &fakeProjectApplication{reopenResult: reopened}
+	reopenResult := runProjectCommand(t, reopenApplication, "project", "reopen", "8", "--json")
+	requireProjectCommandJSON(t, reopenResult, reopened)
+	if reopenApplication.reopenID != 8 || reopenResult.opens != 1 || reopenResult.closes != 1 {
+		t.Errorf("reopen adaptation/lifecycle = %#v/%#v, want ID 8 and one open/close", reopenApplication, reopenResult)
+	}
+
+	deleted := project.Project{ID: 9, Title: "Doomed", Status: "open"}
+	nonrecursiveApplication := &fakeProjectApplication{deleteResult: project.Deletion{
+		Project:      deleted,
+		DeletedTasks: []task.Task{},
+	}}
+	nonrecursiveResult := runProjectCommand(
+		t,
+		nonrecursiveApplication,
+		"project",
+		"delete",
+		"9",
+		"--json",
+	)
+	requireProjectCommandJSON(t, nonrecursiveResult, deleted)
+	if nonrecursiveApplication.deleteID != 9 || nonrecursiveApplication.deleteRecursive {
+		t.Errorf(
+			"Delete() arguments = (%d, %t), want (9, false)",
+			nonrecursiveApplication.deleteID,
+			nonrecursiveApplication.deleteRecursive,
+		)
+	}
+
+	recursiveApplication := &fakeProjectApplication{deleteResult: project.Deletion{
+		Project:      deleted,
+		DeletedTasks: []task.Task{},
+	}}
+	recursiveResult := runProjectCommand(
+		t,
+		recursiveApplication,
+		"project",
+		"delete",
+		"9",
+		"--recursive",
+		"--json",
+	)
+	wantDeletion := project.Deletion{Project: deleted, DeletedTasks: []task.Task{}}
+	requireProjectCommandJSON(t, recursiveResult, wantDeletion)
+	if recursiveApplication.deleteID != 9 || !recursiveApplication.deleteRecursive ||
+		recursiveResult.opens != 1 || recursiveResult.closes != 1 {
+		t.Errorf(
+			"recursive adaptation/lifecycle = (%d, %t)/%#v, want (9, true) and one open/close",
+			recursiveApplication.deleteID,
+			recursiveApplication.deleteRecursive,
+			recursiveResult,
+		)
+	}
+}
+
+func TestProjectLifecycleHumanNarration(t *testing.T) {
+	t.Parallel()
+
+	doneResult := runProjectCommand(
+		t,
+		&fakeProjectApplication{resolveResult: project.Resolution{
+			Project: project.Project{ID: 7, Title: "Kitchen\x1b[31m"},
+			CancelledTasks: []task.Task{
+				{ID: 3, Title: "Pick\rtiles\nnow"},
+			},
+		}},
+		"project",
+		"done",
+		"7",
+	)
+	wantDone := "Done: project 7  Kitchen\\x1b[31m\n" +
+		"Cancelled 1 open task:\n" +
+		"  3  Pick\\rtiles\\nnow\n"
+	requireProjectCommandHumanOutput(t, doneResult, wantDone)
+	if strings.ContainsAny(doneResult.stdout, "\x1b\r") {
+		t.Errorf("done stdout = %q, want terminal controls escaped", doneResult.stdout)
+	}
+
+	cancelResult := runProjectCommand(
+		t,
+		&fakeProjectApplication{resolveResult: project.Resolution{
+			Project: project.Project{ID: 8, Title: "Abandon"},
+			CancelledTasks: []task.Task{
+				{ID: 4, Title: "First"},
+				{ID: 3, Title: "Second"},
+			},
+		}},
+		"project",
+		"cancel",
+		"8",
+	)
+	wantCancel := "Cancelled: project 8  Abandon\n" +
+		"Cancelled 2 open tasks:\n" +
+		"  4  First\n" +
+		"  3  Second\n"
+	requireProjectCommandHumanOutput(t, cancelResult, wantCancel)
+
+	zeroResult := runProjectCommand(
+		t,
+		&fakeProjectApplication{resolveResult: project.Resolution{
+			Project:        project.Project{ID: 10, Title: "Already clear"},
+			CancelledTasks: []task.Task{},
+		}},
+		"project",
+		"done",
+		"10",
+	)
+	requireProjectCommandHumanOutput(t, zeroResult, "Done: project 10  Already clear\n")
+
+	reopenResult := runProjectCommand(
+		t,
+		&fakeProjectApplication{reopenResult: project.Project{ID: 10, Title: "Again"}},
+		"project",
+		"reopen",
+		"10",
+	)
+	requireProjectCommandHumanOutput(t, reopenResult, "Reopened: project 10  Again\n")
+}
+
+func TestProjectRecursiveDeleteHumanNarration(t *testing.T) {
+	t.Parallel()
+
+	result := runProjectCommand(
+		t,
+		&fakeProjectApplication{deleteResult: project.Deletion{
+			Project: project.Project{ID: 9, Title: "Doomed"},
+			DeletedTasks: []task.Task{
+				{ID: 1, Title: "First"},
+				{ID: 2, Title: "Second"},
+			},
+		}},
+		"project",
+		"delete",
+		"9",
+		"--recursive",
+	)
+	want := "Deleted: project 9  Doomed\n" +
+		"Deleted 2 tasks:\n" +
+		"  1  First\n" +
+		"  2  Second\n"
+	requireProjectCommandHumanOutput(t, result, want)
+
+	emptyResult := runProjectCommand(
+		t,
+		&fakeProjectApplication{deleteResult: project.Deletion{
+			Project:      project.Project{ID: 10, Title: "Empty"},
+			DeletedTasks: []task.Task{},
+		}},
+		"project",
+		"delete",
+		"10",
+		"--recursive",
+	)
+	requireProjectCommandHumanOutput(t, emptyResult, "Deleted: project 10  Empty\n")
+}
+
+func TestProjectLifecycleErrorUsesErrorStreamAndClosesApplication(t *testing.T) {
+	t.Parallel()
+
+	application := &fakeProjectApplication{resolveError: apperr.New(
+		apperr.Conflict,
+		"project 7 is already done",
+		nil,
+	)}
+	result := runProjectCommand(t, application, "project", "done", "7", "--json")
+	got := decodeProjectCommandError(t, result)
+	if got.Code != apperr.Conflict || got.Message != "project 7 is already done" {
+		t.Errorf("error = %#v, want project conflict diagnostic", got)
+	}
+	if result.opens != 1 || result.closes != 1 {
+		t.Errorf("factory lifecycle = %#v, want one open and close", result)
+	}
+}
+
 func TestTaskShowPlacesProjectAfterID(t *testing.T) {
 	t.Parallel()
 
@@ -374,36 +656,34 @@ func TestProjectValidationAndErrorsUseExpectedLifecycle(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "invalid ID", args: []string{"project", "show", "0", "--json"}},
+		{name: "invalid show ID", args: []string{"project", "show", "0", "--json"}},
+		{name: "invalid done ID", args: []string{"project", "done", "0", "--json"}},
+		{name: "invalid cancel ID", args: []string{"project", "cancel", "+1", "--json"}},
+		{name: "invalid reopen ID", args: []string{"project", "reopen", "nope", "--json"}},
+		{name: "invalid delete ID", args: []string{"--json", "project", "delete", "--", "-1"}},
 		{name: "invalid status", args: []string{"projects", "list", "--status", "later", "--json"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
 			result := runProjectCommand(t, &fakeProjectApplication{}, test.args...)
-			if result.exitCode != 1 || result.opens != 0 || result.stdout != "" {
-				t.Errorf("result = %#v, want application error without open", result)
+			got := decodeProjectCommandError(t, result)
+			if result.opens != 0 {
+				t.Errorf("opens = %d, want validation before application open", result.opens)
 			}
-			var envelope errorEnvelope
-			if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
-				t.Fatalf("decode error: %v", err)
-			}
-			if envelope.Error.Code != apperr.InvalidArgument {
-				t.Errorf("error code = %q, want invalid_argument", envelope.Error.Code)
+			if got.Code != apperr.InvalidArgument {
+				t.Errorf("error code = %q, want invalid_argument", got.Code)
 			}
 		})
 	}
 
 	application := &fakeProjectApplication{showError: apperr.New(apperr.NotFound, "no project 99", nil)}
 	result := runProjectCommand(t, application, "project", "show", "99", "--json")
-	if result.exitCode != 1 || result.opens != 1 || result.closes != 1 || result.stdout != "" {
-		t.Fatalf("result = %#v, want stderr-only not_found with one lifecycle", result)
+	got := decodeProjectCommandError(t, result)
+	if result.opens != 1 || result.closes != 1 {
+		t.Errorf("factory lifecycle = %#v, want one open and close", result)
 	}
-	var envelope errorEnvelope
-	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if envelope.Error.Code != apperr.NotFound || envelope.Error.Message != "no project 99" {
-		t.Errorf("error = %#v, want project not_found diagnostic", envelope.Error)
+	if got.Code != apperr.NotFound || got.Message != "no project 99" {
+		t.Errorf("error = %#v, want project not_found diagnostic", got)
 	}
 }

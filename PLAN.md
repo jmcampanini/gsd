@@ -9,7 +9,9 @@ how the work will be delivered.
 Data remains throwaway. Milestone 3 starts from the consolidated Milestone 2
 time baseline and changes the development schema revision from `9002` to
 `9003`. An older or nonempty development database must fail with the existing
-conflict and deletion guidance; there is no migration.
+conflict and deletion guidance; there is no migration. The automatic ID
+non-reuse change is also a clean break for development databases created by
+an earlier revision-`9003` build: delete and recreate them after updating.
 
 ## Delivery shape
 
@@ -23,7 +25,7 @@ after its implementation and verification items below are complete:
 - [x] **Chunk 1 — Projects exist** — a human can create and inspect projects,
       place tasks in them, re-parent tasks, and see `inbox` and `available`
       respect containment.
-- [ ] **Chunk 2 — Lifecycle and cascade** — a human can complete, cancel,
+- [x] **Chunk 2 — Lifecycle and cascade** — a human can complete, cancel,
       reopen, and delete projects, with the cascade narrating what it
       cancelled and deletion honoring RESTRICT.
 - [ ] **Chunk 3 — Logbook** — a human can see finished tasks and projects
@@ -51,6 +53,13 @@ its outcome, revise this plan before splitting it.
 
 ## Settled behavior
 
+### IDs
+
+Projects and tasks use separate integer ID namespaces with
+`AUTOINCREMENT`, so SQLite does not automatically reuse an ID from a committed
+row after deleting it from the same entity table. Areas and tags inherit this
+rule when they land; relationship tables retain composite keys.
+
 ### Containment and re-parenting
 
 A task belongs to at most one project (`project_id` NULL = inbox until areas
@@ -76,6 +85,9 @@ A done or cancelled project is closed history. These operations return
 
 Content edits (title, note, due, defer) of tasks in resolved projects and
 task deletion remain allowed. Deletes never block on state, only on RESTRICT.
+When a task move is blocked because both its source and destination projects
+are resolved, the conflict names both projects and tells the human to reopen
+both rather than revealing one blocker per retry.
 
 ### Cascade, reopen, and deletion
 
@@ -172,6 +184,8 @@ the mutation is atomic. `ListOptions` gains an optional project filter.
 Chunk 1 establishes the complete Milestone 3 schema in one revision:
 
 - `projects` table per `SCHEMA.md` minus `area_id`;
+- user-addressable project and task IDs use `AUTOINCREMENT`, preventing
+  automatic reuse after committed deletion within their entity namespace;
 - `tasks.project_id REFERENCES projects(id) ON DELETE RESTRICT` and
   `idx_tasks_project` (the containment CHECK waits for `area_id`);
 - `inbox` view gains `project_id IS NULL`; `available` gains the
@@ -218,7 +232,8 @@ likely regression. Every added test must state the regression or explicit
 requirement it protects and why its layer is the cheapest faithful proof.
 
 - **Store tests with real temporary SQLite databases** own revision-`9003`
-  bootstrap, `projects` constraints, container-scoped append positions
+  bootstrap, automatic ID non-reuse after deletion, `projects` constraints,
+  container-scoped append positions
   (proven with interleaved inbox and project inserts asserting in-container
   position values, since whole-table MAX still looks ordered), view
   predicates (inbox containment exclusion, available project-open clause,
@@ -332,55 +347,62 @@ delete projects with RESTRICT protection and an explicit recursive opt-in.
 
 ### Implementation
 
-- [ ] Extend `project.Store` with `Resolve`, `CancelOpenTasks`, `Reopen`,
+- [x] Extend `project.Store` with `Resolve`, `CancelOpenTasks`, `Reopen`,
       `Delete`, `DeleteTasks`, and `WithinTransaction`; have the project
       service build the `Resolution` and `Deletion` envelopes while owning
       the cascade and recursive-delete transaction scope and mutation
       sequence. Implement the transaction boundary and persistence primitives
       in `store.Projects` with guard-and-classify conflicts, one shared
       timestamp, `position, id` ordering, and rollback proof.
-- [ ] Add the resolved-project guard to task `done`, `cancel`, and `reopen`
+- [x] Add the resolved-project guard to task `done`, `cancel`, and `reopen`
       store predicates with `conflict` classification.
-- [ ] Add `project done`, `project cancel`, `project reopen`, and
+- [x] Add `project done`, `project cancel`, `project reopen`, and
       `project delete [--recursive]` commands.
-- [ ] Close the deferred Chunk 1 read-consistency finding when project
+- [x] Close the deferred Chunk 1 read-consistency finding when project
       deletion lands: make `list --project` derive project existence and task
       rows from one consistent SQLite snapshot while preserving the
       `not_found` versus empty-project distinction.
-- [ ] Close the deferred Chunk 1 error-guidance finding once resolved projects
-      are user-reachable: choose and prove the recovery order reported when a
-      task moves between two resolved projects.
-- [ ] Render cascade and deletion narration (mutation line, task section
+- [x] Close the deferred Chunk 1 error-guidance finding once resolved projects
+      are user-reachable: report both resolved source and destination projects
+      in one conflict, prove it with one focused store test, and show the
+      failure and successful recovery in the chunk demo.
+- [x] Render cascade and deletion narration (mutation line, task section
       omitted when empty) and the JSON envelopes.
-- [ ] Extend service, command, and store tests for the newly owned lifecycle
+- [x] Extend service, command, and store tests for the newly owned lifecycle
       behavior only.
-- [ ] Extend the subprocess workflow with cascade, guard, reopen, and
+- [x] Extend the subprocess workflow with cascade, guard, reopen, and
       deletion coverage.
-- [ ] Run `make check` and build the real binary before opening the chunk
+- [x] Run `make check` and build the real binary before opening the chunk
       pull request.
+- [x] Codify review findings with cross-container cascade/delete controls,
+      panic-safe transaction cleanup, and automatic project/task ID non-reuse.
 
 ### Human proof
 
 Against a fresh database with the real built binary, captured as the chunk
 demo (`.sandbox/demos/3-chunk-2.html`):
 
-- [ ] Build a project with three tasks; `gsd done` one; `gsd project done 1`
+- [x] Build a project with three tasks; `gsd done` one; `gsd project done 1`
       prints the done line and a `Cancelled 2 open tasks:` section naming
       both.
-- [ ] `gsd project done 1` again fails `conflict` with exit 1; `gsd done`
+- [x] `gsd project done 1` again fails `conflict` with exit 1; `gsd done`
       on a task inside the done project fails `conflict`.
-- [ ] `gsd add "Late idea" --project 1` fails `conflict`.
-- [ ] `gsd project reopen 1`: the cancelled tasks stay cancelled; `gsd
+- [x] `gsd add "Late idea" --project 1` fails `conflict`.
+- [x] `gsd project reopen 1`: the cancelled tasks stay cancelled; `gsd
       reopen` one task, then `gsd project done 1` re-completes and cancels
       it again.
-- [ ] A project whose tasks are all resolved completes with only the done
+- [x] A project whose tasks are all resolved completes with only the done
       line — no cancelled section.
-- [ ] `gsd projects add "Doomed"` plus one task; `gsd project delete`
+- [x] `gsd projects add "Doomed"` plus one task; `gsd project delete`
       fails `conflict`; `gsd project delete --recursive` succeeds and
       narrates the deleted task.
-- [ ] `gsd project cancel` on a fresh project shows the cancel narration;
-      JSON for one cascade shows the
-      `{"project":...,"cancelled_tasks":[...]}` envelope.
+- [x] `gsd project cancel` on a fresh project shows the cancel narration;
+      the subprocess workflow separately proves the compact
+      `{"project":...,"cancelled_tasks":[...]}` JSON envelope so the demo
+      remains human-readable as required by `plans/PROCESS.md`.
+- [x] In a focused recovery example, create a task in one project, resolve both
+      that source and a destination project, and show that re-parenting reports
+      both blockers; reopen both projects and rerun the same edit successfully.
 
 ## Chunk 3 — Logbook
 
@@ -434,6 +456,9 @@ After every chunk is reviewed and squash-merged into the milestone branch:
 - [ ] Reconcile tests around stable observable contracts and codify lasting
       review findings in `AGENTS.md`, lint/build configuration, or the
       owning tests.
+- [ ] Revisit recursive-deletion conflict presentation: keep semantic
+      containment guidance below the command boundary while preserving exact
+      `--recursive` recovery guidance for CLI users.
 - [ ] Run the automated Milestone 3 subprocess workflow through
       `make check`.
 - [ ] Build the real binary and retain a clean transcript of the workflow
