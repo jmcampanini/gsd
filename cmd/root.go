@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/store"
@@ -24,6 +25,7 @@ type rootOptions struct {
 type applications struct {
 	tasks    task.Application
 	projects project.Application
+	areas    area.Application
 	logbook  logbook.Application
 }
 
@@ -73,6 +75,8 @@ func newRootCommandWithFactoryAndLocation(
 	root.PersistentFlags().BoolVar(&options.json, "json", false, "emit JSON output")
 	root.AddCommand(
 		newAddCommand(options, factory),
+		newAreaCommand(options, factory),
+		newAreasCommand(options, factory),
 		newAvailableCommand(options, factory),
 		newCancelCommand(options, factory),
 		newDeleteCommand(options, factory),
@@ -107,6 +111,7 @@ func defaultApplicationFactory(
 	return applications{
 		tasks:    task.NewService(store.NewTasks(database)),
 		projects: project.NewService(store.NewProjects(database)),
+		areas:    area.NewService(store.NewAreas(database)),
 		logbook:  logbook.NewService(store.NewLogbook(database)),
 	}, database, nil
 }
@@ -147,6 +152,17 @@ func withProjectApplication(
 ) error {
 	return withApplications(command, options, factory, func(available applications) error {
 		return run(available.projects)
+	})
+}
+
+func withAreaApplication(
+	command *cobra.Command,
+	options *rootOptions,
+	factory applicationFactory,
+	run func(area.Application) error,
+) error {
+	return withApplications(command, options, factory, func(available applications) error {
+		return run(available.areas)
 	})
 }
 

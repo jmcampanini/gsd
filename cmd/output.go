@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -63,6 +64,21 @@ func writeAddedTask(writer io.Writer, created task.Task) error {
 
 func writeAddedProject(writer io.Writer, created project.Project) error {
 	_, err := fmt.Fprintf(writer, "Added project %d: %s\n", created.ID, humanText(created.Title, false))
+	return err
+}
+
+func writeAddedArea(writer io.Writer, created area.Area) error {
+	_, err := fmt.Fprintf(writer, "Added area %d: %s\n", created.ID, humanText(created.Title, false))
+	return err
+}
+
+func writeEditedArea(writer io.Writer, edited area.Area) error {
+	_, err := fmt.Fprintf(
+		writer,
+		"Edited: area %d  %s\n",
+		edited.ID,
+		humanText(edited.Title, false),
+	)
 	return err
 }
 
@@ -180,6 +196,27 @@ func writeProjectList(writer io.Writer, projects []project.Project) error {
 	return writeTable(writer, rows)
 }
 
+func writeAreaList(writer io.Writer, areas []area.Area) error {
+	if len(areas) == 0 {
+		return nil
+	}
+
+	rows := make([][]string, 0, len(areas))
+	for _, current := range areas {
+		archived := ""
+		if current.ArchivedAt != nil {
+			archived = "archived"
+		}
+		rows = append(rows, []string{
+			strconv.FormatInt(current.ID, 10),
+			humanText(current.Title, false),
+			archived,
+		})
+	}
+
+	return writeTable(writer, rows)
+}
+
 func writeTask(writer io.Writer, current task.Task) error {
 	rows := [][]string{
 		{"ID", strconv.FormatInt(current.ID, 10)},
@@ -207,6 +244,20 @@ func writeProject(writer io.Writer, current project.Project) error {
 		{"Done at", humanText(nullableString(current.DoneAt), false)},
 		{"Cancelled at", humanText(nullableString(current.CancelledAt), false)},
 		{"Status", humanText(current.Status, false)},
+		{"Position", strconv.FormatInt(current.Position, 10)},
+		{"Created at", humanText(current.CreatedAt, false)},
+		{"Updated at", humanText(current.UpdatedAt, false)},
+	}
+
+	return writeTable(writer, rows)
+}
+
+func writeArea(writer io.Writer, current area.Area) error {
+	rows := [][]string{
+		{"ID", strconv.FormatInt(current.ID, 10)},
+		{"Title", humanText(current.Title, false)},
+		{"Note", humanText(current.Note, true)},
+		{"Archived at", humanText(nullableString(current.ArchivedAt), false)},
 		{"Position", strconv.FormatInt(current.Position, 10)},
 		{"Created at", humanText(current.CreatedAt, false)},
 		{"Updated at", humanText(current.UpdatedAt, false)},
