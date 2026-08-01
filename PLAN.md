@@ -20,7 +20,7 @@ after its implementation and verification items below are complete:
 - [x] **Chunk 0 — Structural refactor** — review-only: shared error package,
       the `Store` interface vocabulary, and per-entity store types, with no
       behavior change.
-- [ ] **Chunk 1 — Projects exist** — a human can create and inspect projects,
+- [x] **Chunk 1 — Projects exist** — a human can create and inspect projects,
       place tasks in them, re-parent tasks, and see `inbox` and `available`
       respect containment.
 - [ ] **Chunk 2 — Lifecycle and cascade** — a human can complete, cancel,
@@ -274,30 +274,30 @@ and see `inbox` exclude contained tasks.
 
 ### Implementation
 
-- [ ] Land the complete revision-`9003` schema: `projects` table,
+- [x] Land the complete revision-`9003` schema: `projects` table,
       `tasks.project_id` with RESTRICT and index, updated `inbox` and
       `available` views, the `logbook` view, and the version bump. Prove
       bootstrap, constraints, and all view predicates with real SQLite,
       including the logbook union ahead of its command.
-- [ ] Prove container-scoped append with interleaved inserts asserting
+- [x] Prove container-scoped append with interleaved inserts asserting
       in-container position values.
-- [ ] Add `internal/project` (values, `Store` interface with `Add`, `Find`,
+- [x] Add `internal/project` (values, `Store` interface with `Add`, `Find`,
       `List`, `Edit`, service validation) and `store.Projects`.
-- [ ] Add `projects add`, `projects list` (status filter defaulting open),
+- [x] Add `projects add`, `projects list` (status filter defaulting open),
       `project show`, and `project edit`; bare `gsd projects` and bare
       `gsd project` are usage errors, exit 2, without opening the database.
-- [ ] Carry `project_id` through the task value, JSON, scanner, and store
+- [x] Carry `project_id` through the task value, JSON, scanner, and store
       round trips; add `--project` to task `add` and `list`; add mutually
       exclusive `--project`/`--no-project` to task `edit` with re-parent
       append and same-container no-op semantics.
-- [ ] Enforce membership guards at the store (nonexistent project →
+- [x] Enforce membership guards at the store (nonexistent project →
       `not_found`; resolved project → `conflict`, proven with raw-SQL
       fixtures until Chunk 2 makes resolved projects reachable).
-- [ ] Add the `Project` row to human task `show`; keep collection rows
+- [x] Add the `Project` row to human task `show`; keep collection rows
       unchanged.
-- [ ] Introduce the Milestone 3 subprocess workflow: containment, listing,
+- [x] Introduce the Milestone 3 subprocess workflow: containment, listing,
       inbox exclusion, and re-parent append across invocations.
-- [ ] Run `make check` and build the real binary before opening the chunk
+- [x] Run `make check` and build the real binary before opening the chunk
       pull request.
 
 ### Human proof
@@ -305,21 +305,21 @@ and see `inbox` exclude contained tasks.
 Against a fresh database with the real built binary, captured as the chunk
 demo (`.sandbox/demos/3-chunk-1.html`):
 
-- [ ] `gsd projects add "Kitchen reno"`, then `gsd add "Get quotes"
+- [x] `gsd projects add "Kitchen reno"`, then `gsd add "Get quotes"
       --project 1`, `gsd add "Pick tiles" --project 1`, and a loose
       `gsd add "Buy milk"`.
-- [ ] `gsd list --project 1` shows the two project tasks; `gsd inbox` shows
+- [x] `gsd list --project 1` shows the two project tasks; `gsd inbox` shows
       only the loose task.
-- [ ] `gsd projects list` and `gsd project show 1` render the project;
+- [x] `gsd projects list` and `gsd project show 1` render the project;
       `gsd project edit 1 --note "Budget: 20k"` persists.
-- [ ] `gsd show 2` displays the `Project` row; `gsd show 2 --json` contains
+- [x] `gsd show 2` displays the `Project` row; `gsd show 2 --json` contains
       `"project_id":1`.
-- [ ] `gsd projects add "Bathroom"`, `gsd edit 2 --project 2`, and
+- [x] `gsd projects add "Bathroom"`, `gsd edit 2 --project 2`, and
       `gsd list --project 2` shows it appended last; `gsd edit 2
       --no-project` returns it to the inbox end.
-- [ ] `gsd add "X" --project 99` fails `not_found` with exit 1; `gsd edit 2
+- [x] `gsd add "X" --project 99` fails `not_found` with exit 1; `gsd edit 2
       --project 1 --no-project` is a usage error with exit 2.
-- [ ] Bare `gsd projects` and bare `gsd project` are usage errors with
+- [x] Bare `gsd projects` and bare `gsd project` are usage errors with
       exit 2.
 
 ## Chunk 2 — Lifecycle and cascade
@@ -343,6 +343,13 @@ delete projects with RESTRICT protection and an explicit recursive opt-in.
       store predicates with `conflict` classification.
 - [ ] Add `project done`, `project cancel`, `project reopen`, and
       `project delete [--recursive]` commands.
+- [ ] Close the deferred Chunk 1 read-consistency finding when project
+      deletion lands: make `list --project` derive project existence and task
+      rows from one consistent SQLite snapshot while preserving the
+      `not_found` versus empty-project distinction.
+- [ ] Close the deferred Chunk 1 error-guidance finding once resolved projects
+      are user-reachable: choose and prove the recovery order reported when a
+      task moves between two resolved projects.
 - [ ] Render cascade and deletion narration (mutation line, task section
       omitted when empty) and the JSON envelopes.
 - [ ] Extend service, command, and store tests for the newly owned lifecycle

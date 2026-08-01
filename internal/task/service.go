@@ -28,6 +28,9 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Task, error) {
 	if !utf8.ValidString(fields.Note) {
 		return Task{}, apperr.New(apperr.InvalidArgument, "note must be valid UTF-8", nil)
 	}
+	if fields.ProjectID != nil && *fields.ProjectID <= 0 {
+		return Task{}, apperr.New(apperr.InvalidArgument, "project ID must be positive", nil)
+	}
 
 	reference := s.now()
 	var err error
@@ -66,6 +69,9 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Task, error)
 	if !validDateSelector(options.Date) {
 		return nil, apperr.New(apperr.InvalidArgument, fmt.Sprintf("invalid date selector %q", options.Date), nil)
 	}
+	if options.ProjectID != nil && *options.ProjectID <= 0 {
+		return nil, apperr.New(apperr.InvalidArgument, "project ID must be positive", nil)
+	}
 
 	return normalizeTasks(s.store.List(ctx, options))
 }
@@ -80,12 +86,19 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, 
 	if fields.DeferUntil.Set != nil && fields.DeferUntil.Clear {
 		return Task{}, apperr.New(apperr.InvalidArgument, "defer date cannot be set and cleared", nil)
 	}
+	if fields.Project.Set != nil && fields.Project.Clear {
+		return Task{}, apperr.New(apperr.InvalidArgument, "project cannot be set and cleared", nil)
+	}
+	if fields.Project.Set != nil && *fields.Project.Set <= 0 {
+		return Task{}, apperr.New(apperr.InvalidArgument, "project ID must be positive", nil)
+	}
 	if fields.Title == nil && fields.Note == nil &&
 		fields.DueOn.Set == nil && !fields.DueOn.Clear &&
-		fields.DeferUntil.Set == nil && !fields.DeferUntil.Clear {
+		fields.DeferUntil.Set == nil && !fields.DeferUntil.Clear &&
+		fields.Project.Set == nil && !fields.Project.Clear {
 		return Task{}, apperr.New(
 			apperr.InvalidArgument,
-			"edit requires --title, --note, --due, --no-due, --defer, or --no-defer",
+			"edit requires --title, --note, --due, --no-due, --defer, --no-defer, --project, or --no-project",
 			nil,
 		)
 	}

@@ -11,7 +11,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-const taskColumns = `id, title, note, defer_until, due_on, done_at, cancelled_at, status, position, created_at, updated_at`
+const taskColumns = `id, project_id, title, note, defer_until, due_on, done_at, cancelled_at, status, position, created_at, updated_at`
 
 type Tasks struct {
 	db *DB
@@ -22,28 +22,51 @@ func NewTasks(database *DB) *Tasks {
 }
 
 func (s *Tasks) Add(ctx context.Context, fields task.AddFields, timestamp string) (task.Task, error) {
+	projectID := nullableID(fields.ProjectID)
 	query := `
-INSERT INTO tasks (title, note, defer_until, due_on, position, created_at, updated_at)
-SELECT ?, ?, ?, ?, COALESCE(MAX(position), -1) + 1, ?, ?
-FROM tasks
+INSERT INTO tasks (
+    project_id, title, note, defer_until, due_on, position, created_at, updated_at
+)
+SELECT ?, ?, ?, ?, ?,
+       COALESCE((SELECT MAX(position) FROM tasks WHERE project_id IS ?), -1) + 1,
+       ?, ?
+WHERE ? IS NULL
+   OR EXISTS (
+       SELECT 1 FROM projects WHERE id = ? AND status = 'open'
+   )
 RETURNING ` + taskColumns
 
 	row := s.db.database.QueryRowContext(
 		ctx,
 		query,
+		projectID,
 		fields.Title,
 		fields.Note,
 		fields.DeferUntil,
 		fields.DueOn,
+		projectID,
 		timestamp,
 		timestamp,
+		projectID,
+		projectID,
 	)
 	created, err := scanTask(row)
-	if err != nil {
+	if err == nil {
+		return created, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) || fields.ProjectID == nil {
 		return task.Task{}, fmt.Errorf("insert task: %w", err)
 	}
+	if classification := s.classifyOpenProject(
+		ctx,
+		*fields.ProjectID,
+		fmt.Sprintf("add task to project %d", *fields.ProjectID),
+		err,
+	); classification != nil {
+		return task.Task{}, classification
+	}
 
-	return created, nil
+	return task.Task{}, fmt.Errorf("insert task: %w", err)
 }
 
 func (s *Tasks) Inbox(ctx context.Context) ([]task.Task, error) {
@@ -78,8 +101,14 @@ func (s *Tasks) Find(ctx context.Context, id int64) (task.Task, error) {
 }
 
 func (s *Tasks) List(ctx context.Context, options task.ListOptions) ([]task.Task, error) {
-	conditions := make([]string, 0, 2)
-	arguments := make([]any, 0, 1)
+	if options.ProjectID != nil {
+		if _, err := NewProjects(s.db).Find(ctx, *options.ProjectID); err != nil {
+			return nil, err
+		}
+	}
+
+	conditions := make([]string, 0, 3)
+	arguments := make([]any, 0, 2)
 	switch options.Status {
 	case task.ListStatusOpen, task.ListStatusDone, task.ListStatusCancelled:
 		conditions = append(conditions, "status = ?")
@@ -104,6 +133,11 @@ func (s *Tasks) List(ctx context.Context, options task.ListOptions) ([]task.Task
 		return nil, fmt.Errorf("invalid date selector %q", options.Date)
 	}
 
+	if options.ProjectID != nil {
+		conditions = append(conditions, "project_id IS ?")
+		arguments = append(arguments, *options.ProjectID)
+	}
+
 	query := "SELECT " + taskColumns + " FROM tasks"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
@@ -124,8 +158,12 @@ func (s *Tasks) Edit(
 	fields task.EditFields,
 	timestamp string,
 ) (task.Task, error) {
-	assignments := make([]string, 0, 6)
-	arguments := make([]any, 0, 7)
+	if fields.Project.Set != nil && fields.Project.Clear {
+		return task.Task{}, errors.New("project cannot be set and cleared")
+	}
+
+	assignments := make([]string, 0, 9)
+	arguments := make([]any, 0, 16)
 	if fields.Title != nil {
 		assignments = append(assignments, "title = ?")
 		arguments = append(arguments, *fields.Title)
@@ -148,22 +186,89 @@ func (s *Tasks) Edit(
 	if fields.DeferUntil.Clear {
 		assignments = append(assignments, "defer_until = NULL")
 	}
-	if len(assignments) == 0 {
+
+	contentChanged := len(assignments) > 0
+	membershipRequested := fields.Project.Set != nil || fields.Project.Clear
+	if !contentChanged && !membershipRequested {
 		return task.Task{}, errors.New("edit requires at least one field")
 	}
 
-	assignments = append(assignments, "updated_at = ?")
-	arguments = append(arguments, timestamp, id)
-	query := "UPDATE tasks SET " + strings.Join(assignments, ", ") + " WHERE id = ? RETURNING " + taskColumns
-	edited, err := scanTask(s.db.database.QueryRowContext(ctx, query, arguments...))
-	if errors.Is(err, sql.ErrNoRows) {
-		return task.Task{}, apperr.New(apperr.NotFound, fmt.Sprintf("no task %d", id), err)
+	var destination any
+	if fields.Project.Set != nil {
+		destination = *fields.Project.Set
 	}
-	if err != nil {
+	if membershipRequested {
+		assignments = append(
+			assignments,
+			`position = CASE
+    WHEN tasks.project_id IS ? THEN tasks.position
+    ELSE COALESCE((
+        SELECT MAX(sibling.position)
+        FROM tasks AS sibling
+        WHERE sibling.project_id IS ?
+    ), -1) + 1
+END`,
+			"project_id = ?",
+		)
+		arguments = append(arguments, destination, destination, destination)
+	}
+
+	if contentChanged {
+		assignments = append(assignments, "updated_at = ?")
+		arguments = append(arguments, timestamp)
+	} else {
+		assignments = append(
+			assignments,
+			"updated_at = CASE WHEN tasks.project_id IS ? THEN tasks.updated_at ELSE ? END",
+		)
+		arguments = append(arguments, destination, timestamp)
+	}
+
+	query := "UPDATE tasks SET " + strings.Join(assignments, ", ") + " WHERE id = ?"
+	arguments = append(arguments, id)
+	if membershipRequested {
+		query += ` AND (
+    tasks.project_id IS ?
+    OR (
+        (
+            tasks.project_id IS NULL
+            OR EXISTS (
+                SELECT 1
+                FROM projects AS source_project
+                WHERE source_project.id = tasks.project_id
+                  AND source_project.status = 'open'
+            )
+        )
+        AND (
+            ? IS NULL
+            OR EXISTS (
+                SELECT 1
+                FROM projects AS destination_project
+                WHERE destination_project.id = ?
+                  AND destination_project.status = 'open'
+            )
+        )
+    )
+)`
+		arguments = append(arguments, destination, destination, destination)
+	}
+	query += " RETURNING " + taskColumns
+
+	edited, err := scanTask(s.db.database.QueryRowContext(ctx, query, arguments...))
+	if err == nil {
+		return edited, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return task.Task{}, fmt.Errorf("edit task: %w", err)
+	}
+	if !membershipRequested {
+		if _, findErr := s.Find(ctx, id); findErr != nil {
+			return task.Task{}, findErr
+		}
 		return task.Task{}, fmt.Errorf("edit task: %w", err)
 	}
 
-	return edited, nil
+	return task.Task{}, s.classifyMembershipEdit(ctx, id, fields.Project.Set, err)
 }
 
 func (s *Tasks) Done(ctx context.Context, id int64, timestamp string) (task.Task, error) {
@@ -249,6 +354,65 @@ func (s *Tasks) transition(
 	)
 }
 
+func (s *Tasks) classifyMembershipEdit(
+	ctx context.Context,
+	taskID int64,
+	destination *int64,
+	cause error,
+) error {
+	current, err := s.Find(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	if sameNullableID(current.ProjectID, destination) {
+		return fmt.Errorf("edit task: %w", cause)
+	}
+
+	if destination != nil {
+		if err := s.classifyOpenProject(
+			ctx,
+			*destination,
+			fmt.Sprintf("move task %d into project %d", taskID, *destination),
+			cause,
+		); err != nil {
+			return err
+		}
+	}
+	if current.ProjectID != nil {
+		if err := s.classifyOpenProject(
+			ctx,
+			*current.ProjectID,
+			fmt.Sprintf("move task %d out of project %d", taskID, *current.ProjectID),
+			cause,
+		); err != nil {
+			return err
+		}
+	}
+
+	return fmt.Errorf("edit task: %w", cause)
+}
+
+func (s *Tasks) classifyOpenProject(
+	ctx context.Context,
+	projectID int64,
+	action string,
+	cause error,
+) error {
+	found, err := NewProjects(s.db).Find(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if found.Status != "open" {
+		return apperr.New(
+			apperr.Conflict,
+			fmt.Sprintf("cannot %s while the project is resolved; reopen the project first", action),
+			cause,
+		)
+	}
+
+	return nil
+}
+
 type rowScanner interface {
 	Scan(...any) error
 }
@@ -277,6 +441,7 @@ func scanTask(scanner rowScanner) (task.Task, error) {
 	var value task.Task
 	err := scanner.Scan(
 		&value.ID,
+		&value.ProjectID,
 		&value.Title,
 		&value.Note,
 		&value.DeferUntil,
@@ -290,4 +455,20 @@ func scanTask(scanner rowScanner) (task.Task, error) {
 	)
 
 	return value, err
+}
+
+func nullableID(value *int64) any {
+	if value == nil {
+		return nil
+	}
+
+	return *value
+}
+
+func sameNullableID(left, right *int64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+
+	return *left == *right
 }
