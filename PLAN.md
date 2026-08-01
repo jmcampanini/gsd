@@ -393,6 +393,9 @@ narrated recursive opt-in.
       `area delete N [--recursive]`; add mutually exclusive `--archived`/
       `--all` to `areas list` with the partition semantics and the
       `archived` marker cell in human rows.
+- [ ] Resolve `area.ParseListSlice`: use it in the Chunk 3 production flag
+      path or delete it and its tests if the boolean flags map directly to
+      listing-slice constants.
 - [ ] Compose unarchive-first recovery guidance at the command adapter;
       render the deletion narration and JSON envelope.
 - [ ] Extend the subprocess workflow to the complete milestone workflow:
