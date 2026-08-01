@@ -109,10 +109,10 @@ func TestDateColumnsEnforceCanonicalValuesAndRoundTripDates(t *testing.T) {
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
-	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
+	tasks := NewTasks(storage)
 	t.Cleanup(func() { _ = storage.Close() })
 
 	dueOn := "2026-08-03"
@@ -162,10 +162,10 @@ func TestAvailableViewUsesLocalDeferBoundaryAndOpenStatus(t *testing.T) {
 	for attempt := range 3 {
 		path := filepath.Join(t.TempDir(), fmt.Sprintf("attempt-%d.db", attempt))
 		storage, err := Open(ctx, path)
-		tasks := NewTasks(storage)
 		if err != nil {
 			t.Fatalf("Open() error = %v", err)
 		}
+		tasks := NewTasks(storage)
 
 		var localDate string
 		if err := storage.database.QueryRowContext(ctx, "SELECT date('now', 'localtime')").Scan(&localDate); err != nil {
@@ -240,10 +240,10 @@ func TestAddAppendsPositionsAcrossResolvedTasksAndGeneratesStatus(t *testing.T) 
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
-	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
+	tasks := NewTasks(storage)
 	t.Cleanup(func() {
 		_ = storage.Close()
 	})
@@ -391,10 +391,10 @@ func TestFindReturnsNotFoundCode(t *testing.T) {
 	t.Parallel()
 
 	storage, err := Open(context.Background(), filepath.Join(t.TempDir(), "gsd.db"))
-	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
+	tasks := NewTasks(storage)
 	t.Cleanup(func() {
 		_ = storage.Close()
 	})
@@ -417,10 +417,10 @@ func TestListFiltersGeneratedStatusesAndOrdersByPositionThenID(t *testing.T) {
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
-	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
+	tasks := NewTasks(storage)
 	t.Cleanup(func() { _ = storage.Close() })
 
 	created := make([]task.Task, 4)
@@ -478,10 +478,10 @@ func TestListDatePredicatesComposeWithStatusAndPreserveOrdering(t *testing.T) {
 	ctx := context.Background()
 	for attempt := range 3 {
 		storage, err := Open(ctx, filepath.Join(t.TempDir(), fmt.Sprintf("attempt-%d.db", attempt)))
-		tasks := NewTasks(storage)
 		if err != nil {
 			t.Fatalf("Open() error = %v", err)
 		}
+		tasks := NewTasks(storage)
 
 		var localDate string
 		if err := storage.database.QueryRowContext(ctx, "SELECT date('now', 'localtime')").Scan(&localDate); err != nil {
@@ -605,10 +605,10 @@ func TestEditAtomicallyUpdatesRequestedFieldsAndReturnsTask(t *testing.T) {
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
-	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
+	tasks := NewTasks(storage)
 	t.Cleanup(func() { _ = storage.Close() })
 
 	initialDueOn := "2026-08-02"
@@ -726,10 +726,10 @@ func TestEditRejectsNoFieldsAndReportsMissingTask(t *testing.T) {
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
-	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
+	tasks := NewTasks(storage)
 	t.Cleanup(func() { _ = storage.Close() })
 
 	if _, err := tasks.Edit(ctx, 1, task.EditFields{}, "2026-01-01T00:00:00.000Z"); err == nil {
@@ -748,10 +748,10 @@ func TestLifecycleTransitionsPreserveTaskAndEnforceState(t *testing.T) {
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
-	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
+	tasks := NewTasks(storage)
 	t.Cleanup(func() { _ = storage.Close() })
 
 	dueOn := "2026-08-03"
@@ -824,10 +824,10 @@ func TestLifecycleMissingTaskReturnsNotFound(t *testing.T) {
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
-	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
+	tasks := NewTasks(storage)
 	t.Cleanup(func() { _ = storage.Close() })
 
 	tests := []struct {
@@ -853,10 +853,10 @@ func TestDeleteReturnsSnapshotWithoutCompactingPositions(t *testing.T) {
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
-	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
+	tasks := NewTasks(storage)
 	t.Cleanup(func() { _ = storage.Close() })
 
 	dueOn := "2026-08-03"
@@ -896,10 +896,10 @@ func TestConcurrentDoneAndCancelExactlyOneSucceeds(t *testing.T) {
 
 	ctx := context.Background()
 	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
-	tasks := NewTasks(storage)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
+	tasks := NewTasks(storage)
 	t.Cleanup(func() { _ = storage.Close() })
 	created, err := tasks.Add(ctx, task.AddFields{Title: "race"}, "2026-01-01T00:00:00.000Z")
 	if err != nil {
