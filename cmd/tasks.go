@@ -11,6 +11,7 @@ import (
 
 func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
 	var note string
+	var dueOn string
 	command := &cobra.Command{
 		Use:   "add TITLE",
 		Short: "Add a task to the inbox",
@@ -21,11 +22,13 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 				return err
 			}
 
+			fields := task.AddFields{Title: args[0], Note: resolvedNote}
+			if command.Flags().Changed("due") {
+				fields.DueOn = &dueOn
+			}
+
 			return withApplication(command, options, factory, func(application task.Application) error {
-				created, err := application.Add(command.Context(), task.AddFields{
-					Title: args[0],
-					Note:  resolvedNote,
-				})
+				created, err := application.Add(command.Context(), fields)
 				if err != nil {
 					return err
 				}
@@ -38,6 +41,7 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 		},
 	}
 	command.Flags().StringVar(&note, "note", "", "task note or - to read stdin")
+	command.Flags().StringVar(&dueOn, "due", "", "task due date")
 
 	return command
 }
@@ -92,6 +96,8 @@ func newShowCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
 	var title string
 	var note string
+	var dueOn string
+	var noDue bool
 	command := &cobra.Command{
 		Use:   "edit ID",
 		Short: "Edit a task",
@@ -113,6 +119,10 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 				}
 				fields.Note = &resolvedNote
 			}
+			if command.Flags().Changed("due") {
+				fields.DueOn.Set = &dueOn
+			}
+			fields.DueOn.Clear = noDue
 
 			return withApplication(command, options, factory, func(application task.Application) error {
 				edited, editErr := application.Edit(command.Context(), id, fields)
@@ -129,12 +139,17 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 	}
 	command.Flags().StringVar(&title, "title", "", "task title")
 	command.Flags().StringVar(&note, "note", "", "task note or - to read stdin")
+	command.Flags().StringVar(&dueOn, "due", "", "task due date")
+	command.Flags().BoolVar(&noDue, "no-due", false, "clear the task due date")
+	command.MarkFlagsMutuallyExclusive("due", "no-due")
 
 	return command
 }
 
 func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
 	statusValue := string(task.ListStatusOpen)
+	var due bool
+	var overdue bool
 	command := &cobra.Command{
 		Use:   "list",
 		Short: "List tasks",
@@ -145,8 +160,17 @@ func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 				return err
 			}
 
+			selector := task.DateSelectorNone
+			if due {
+				selector = task.DateSelectorDue
+			}
+			if overdue {
+				selector = task.DateSelectorOverdue
+			}
+			listOptions := task.ListOptions{Status: status, Date: selector}
+
 			return withApplication(command, options, factory, func(application task.Application) error {
-				tasks, err := application.List(command.Context(), status)
+				tasks, err := application.List(command.Context(), listOptions)
 				if err != nil {
 					return err
 				}
@@ -159,6 +183,9 @@ func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 		},
 	}
 	command.Flags().StringVar(&statusValue, "status", statusValue, "filter by status: open, done, cancelled, or all")
+	command.Flags().BoolVar(&due, "due", false, "list tasks with due dates")
+	command.Flags().BoolVar(&overdue, "overdue", false, "list overdue open tasks")
+	command.MarkFlagsMutuallyExclusive("due", "overdue")
 
 	return command
 }

@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -10,10 +11,11 @@ type recordingRepository struct {
 	addCalls           int
 	title              string
 	note               string
+	addedDueOn         *string
 	timestamp          string
 	findCalls          int
 	listCalls          int
-	listedStatus       ListStatus
+	listedOptions      ListOptions
 	listResult         []Task
 	editCalls          int
 	editID             int64
@@ -35,9 +37,17 @@ func (r *recordingRepository) Add(
 	r.addCalls++
 	r.title = fields.Title
 	r.note = fields.Note
+	r.addedDueOn = fields.DueOn
 	r.timestamp = timestamp
 
-	return Task{ID: 1, Title: fields.Title, Note: fields.Note, CreatedAt: timestamp, UpdatedAt: timestamp}, nil
+	return Task{
+		ID:        1,
+		Title:     fields.Title,
+		Note:      fields.Note,
+		DueOn:     fields.DueOn,
+		CreatedAt: timestamp,
+		UpdatedAt: timestamp,
+	}, nil
 }
 
 func (*recordingRepository) Inbox(context.Context) ([]Task, error) {
@@ -49,9 +59,9 @@ func (r *recordingRepository) Find(_ context.Context, id int64) (Task, error) {
 	return Task{ID: id}, nil
 }
 
-func (r *recordingRepository) List(_ context.Context, status ListStatus) ([]Task, error) {
+func (r *recordingRepository) List(_ context.Context, options ListOptions) ([]Task, error) {
 	r.listCalls++
-	r.listedStatus = status
+	r.listedOptions = options
 	return r.listResult, nil
 }
 
@@ -103,13 +113,16 @@ func TestAddPreservesAcceptedTextAndNormalizesTimestamp(t *testing.T) {
 
 	repository := &recordingRepository{}
 	service := NewService(repository)
+	nowCalls := 0
 	service.now = func() time.Time {
+		nowCalls++
 		return time.Date(2026, time.July, 27, 12, 34, 56, 987654321, time.FixedZone("offset", -4*60*60))
 	}
 
 	title := "  Keep surrounding space  "
 	note := "line one\nline two\n"
-	created, err := service.Add(context.Background(), AddFields{Title: title, Note: note})
+	dueOn := "tomorrow"
+	created, err := service.Add(context.Background(), AddFields{Title: title, Note: note, DueOn: &dueOn})
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -119,22 +132,29 @@ func TestAddPreservesAcceptedTextAndNormalizesTimestamp(t *testing.T) {
 	if repository.note != note || created.Note != note {
 		t.Errorf("note = %q, want exact %q", created.Note, note)
 	}
-	if repository.timestamp != "2026-07-27T16:34:56.987Z" {
-		t.Errorf("timestamp = %q, want UTC milliseconds", repository.timestamp)
+	if repository.addedDueOn == nil || *repository.addedDueOn != "2026-07-28" ||
+		created.DueOn == nil || *created.DueOn != "2026-07-28" {
+		t.Errorf("due date = %#v/%#v, want canonical 2026-07-28", repository.addedDueOn, created.DueOn)
+	}
+	if nowCalls != 1 || repository.timestamp != "2026-07-27T16:34:56.987Z" {
+		t.Errorf("clock calls/timestamp = %d/%q, want one call and UTC milliseconds", nowCalls, repository.timestamp)
 	}
 }
 
 func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 	t.Parallel()
 
+	invalidDate := "2026-02-30"
 	tests := []struct {
 		name  string
 		title string
 		note  string
+		dueOn *string
 	}{
 		{name: "blank title", title: " \t\n"},
 		{name: "invalid title UTF-8", title: string([]byte{0xff})},
 		{name: "invalid note UTF-8", title: "valid", note: string([]byte{0xff})},
+		{name: "invalid due date", title: "valid", dueOn: &invalidDate},
 	}
 
 	for _, test := range tests {
@@ -143,7 +163,11 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 
 			repository := &recordingRepository{}
 			service := NewService(repository)
-			_, err := service.Add(context.Background(), AddFields{Title: test.title, Note: test.note})
+			_, err := service.Add(context.Background(), AddFields{
+				Title: test.title,
+				Note:  test.note,
+				DueOn: test.dueOn,
+			})
 			if err == nil {
 				t.Fatal("Add() error = nil, want invalid_argument")
 			}
@@ -153,6 +177,9 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 			}
 			if repository.addCalls != 0 {
 				t.Errorf("repository Add() calls = %d, want 0", repository.addCalls)
+			}
+			if test.dueOn != nil && !strings.Contains(err.Error(), *test.dueOn) {
+				t.Errorf("Add() error = %q, want rejected input", err)
 			}
 		})
 	}
@@ -244,29 +271,36 @@ func TestParseListStatus(t *testing.T) {
 	}
 }
 
-func TestListValidatesStatusAndNormalizesNil(t *testing.T) {
+func TestListValidatesOptionsAndNormalizesNil(t *testing.T) {
 	t.Parallel()
 
 	repository := &recordingRepository{}
 	service := NewService(repository)
+	options := ListOptions{Status: ListStatusDone, Date: DateSelectorDue}
 
-	listed, err := service.List(context.Background(), ListStatusDone)
+	listed, err := service.List(context.Background(), options)
 	if err != nil {
-		t.Fatalf("List(done) error = %v", err)
+		t.Fatalf("List() error = %v", err)
 	}
 	if listed == nil || len(listed) != 0 {
-		t.Errorf("List(done) = %#v, want non-nil empty list", listed)
+		t.Errorf("List() = %#v, want non-nil empty list", listed)
 	}
-	if repository.listCalls != 1 || repository.listedStatus != ListStatusDone {
-		t.Errorf("repository List() calls/status = %d/%q, want 1/%q", repository.listCalls, repository.listedStatus, ListStatusDone)
+	if repository.listCalls != 1 || repository.listedOptions != options {
+		t.Errorf("repository List() calls/options = %d/%#v, want 1/%#v", repository.listCalls, repository.listedOptions, options)
 	}
 
-	_, err = service.List(context.Background(), ListStatus("invalid"))
-	if err == nil {
-		t.Fatal("List(invalid) error = nil, want invalid_argument")
+	invalid := []ListOptions{
+		{Status: ListStatus("invalid")},
+		{Status: ListStatusOpen, Date: DateSelector("invalid")},
 	}
-	if code, ok := ErrorCodeOf(err); !ok || code != ErrorInvalidArgument {
-		t.Errorf("List(invalid) error = %v, want invalid_argument", err)
+	for _, request := range invalid {
+		_, err = service.List(context.Background(), request)
+		if err == nil {
+			t.Fatalf("List(%#v) error = nil, want invalid_argument", request)
+		}
+		if code, ok := ErrorCodeOf(err); !ok || code != ErrorInvalidArgument {
+			t.Errorf("List(%#v) error = %v, want invalid_argument", request, err)
+		}
 	}
 	if repository.listCalls != 1 {
 		t.Errorf("repository List() calls = %d, want 1", repository.listCalls)
@@ -278,13 +312,20 @@ func TestEditPreservesRequestedFieldsAndNormalizesTimestamp(t *testing.T) {
 
 	repository := &recordingRepository{}
 	service := NewService(repository)
+	nowCalls := 0
 	service.now = func() time.Time {
+		nowCalls++
 		return time.Date(2026, time.July, 27, 12, 34, 56, 987654321, time.FixedZone("offset", -4*60*60))
 	}
 
 	title := "  Revised title  "
 	note := "line one\nline two\n"
-	edited, err := service.Edit(context.Background(), 7, EditFields{Title: &title, Note: &note})
+	dueOn := "today"
+	edited, err := service.Edit(context.Background(), 7, EditFields{
+		Title: &title,
+		Note:  &note,
+		DueOn: DateChange{Set: &dueOn},
+	})
 	if err != nil {
 		t.Fatalf("Edit() error = %v", err)
 	}
@@ -297,17 +338,23 @@ func TestEditPreservesRequestedFieldsAndNormalizesTimestamp(t *testing.T) {
 	if repository.editFields.Note == nil || *repository.editFields.Note != note {
 		t.Errorf("edited note = %#v, want exact %q", repository.editFields.Note, note)
 	}
-	if repository.editTimestamp != "2026-07-27T16:34:56.987Z" || edited.UpdatedAt != repository.editTimestamp {
-		t.Errorf("timestamp = %q, want UTC milliseconds", repository.editTimestamp)
+	if repository.editFields.DueOn.Set == nil || *repository.editFields.DueOn.Set != "2026-07-27" {
+		t.Errorf("edited due date = %#v, want canonical 2026-07-27", repository.editFields.DueOn)
+	}
+	if nowCalls != 1 || repository.editTimestamp != "2026-07-27T16:34:56.987Z" || edited.UpdatedAt != repository.editTimestamp {
+		t.Errorf("clock calls/timestamp = %d/%q, want one call and UTC milliseconds", nowCalls, repository.editTimestamp)
 	}
 }
 
-func TestEditDistinguishesClearedNoteFromOmittedTitle(t *testing.T) {
+func TestEditDistinguishesClearedFieldsFromOmittedFields(t *testing.T) {
 	t.Parallel()
 
 	repository := &recordingRepository{}
 	note := ""
-	_, err := NewService(repository).Edit(context.Background(), 7, EditFields{Note: &note})
+	_, err := NewService(repository).Edit(context.Background(), 7, EditFields{
+		Note:  &note,
+		DueOn: DateChange{Clear: true},
+	})
 	if err != nil {
 		t.Fatalf("Edit() error = %v", err)
 	}
@@ -317,6 +364,19 @@ func TestEditDistinguishesClearedNoteFromOmittedTitle(t *testing.T) {
 	if repository.editFields.Note == nil || *repository.editFields.Note != "" {
 		t.Errorf("edited note = %#v, want explicit empty string", repository.editFields.Note)
 	}
+	if !repository.editFields.DueOn.Clear || repository.editFields.DueOn.Set != nil {
+		t.Errorf("edited due date = %#v, want explicit clear", repository.editFields.DueOn)
+	}
+
+	omittedRepository := &recordingRepository{}
+	title := "revised"
+	_, err = NewService(omittedRepository).Edit(context.Background(), 7, EditFields{Title: &title})
+	if err != nil {
+		t.Fatalf("Edit(omitted due) error = %v", err)
+	}
+	if omittedRepository.editFields.DueOn != (DateChange{}) {
+		t.Errorf("edited due date = %#v, want omitted", omittedRepository.editFields.DueOn)
+	}
 }
 
 func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
@@ -325,6 +385,8 @@ func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
 	blankTitle := " \t\n"
 	invalidTitle := string([]byte{0xff})
 	invalidNote := string([]byte{0xff})
+	invalidDate := "next tuesday"
+	validDate := "today"
 	validTitle := "valid"
 	tests := []struct {
 		name   string
@@ -336,6 +398,15 @@ func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
 		{name: "blank title", id: 1, fields: EditFields{Title: &blankTitle}},
 		{name: "invalid title UTF-8", id: 1, fields: EditFields{Title: &invalidTitle}},
 		{name: "invalid note UTF-8", id: 1, fields: EditFields{Note: &invalidNote}},
+		{name: "invalid due date", id: 1, fields: EditFields{DueOn: DateChange{Set: &invalidDate}}},
+		{
+			name: "set and clear due date",
+			id:   1,
+			fields: EditFields{DueOn: DateChange{
+				Set:   &validDate,
+				Clear: true,
+			}},
+		},
 	}
 
 	for _, test := range tests {

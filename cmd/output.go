@@ -53,7 +53,11 @@ func writeInbox(writer io.Writer, tasks []task.Task) error {
 
 	rows := make([][]string, 0, len(tasks))
 	for _, current := range tasks {
-		rows = append(rows, []string{strconv.FormatInt(current.ID, 10), humanText(current.Title, false)})
+		rows = append(rows, []string{
+			strconv.FormatInt(current.ID, 10),
+			humanText(current.Title, false),
+			taskDateTokens(current),
+		})
 	}
 
 	return writeTable(writer, rows)
@@ -70,6 +74,7 @@ func writeTaskList(writer io.Writer, tasks []task.Task) error {
 			strconv.FormatInt(current.ID, 10),
 			humanText(current.Title, false),
 			humanText(current.Status, false),
+			taskDateTokens(current),
 		})
 	}
 
@@ -92,6 +97,8 @@ func writeTask(writer io.Writer, current task.Task) error {
 		{"ID", strconv.FormatInt(current.ID, 10)},
 		{"Title", humanText(current.Title, false)},
 		{"Note", humanText(current.Note, true)},
+		{"Due on", humanText(nullableString(current.DueOn), false)},
+		{"Defer until", humanText(nullableString(current.DeferUntil), false)},
 		{"Done at", humanText(nullableString(current.DoneAt), false)},
 		{"Cancelled at", humanText(nullableString(current.CancelledAt), false)},
 		{"Status", humanText(current.Status, false)},
@@ -133,6 +140,18 @@ func writeTable(writer io.Writer, rows [][]string) error {
 
 	_, err := fmt.Fprintln(writer, strings.Join(lines, "\n"))
 	return err
+}
+
+func taskDateTokens(current task.Task) string {
+	tokens := make([]string, 0, 4)
+	if current.DueOn != nil {
+		tokens = append(tokens, "due", humanText(*current.DueOn, false))
+	}
+	if current.DeferUntil != nil {
+		tokens = append(tokens, "defer", humanText(*current.DeferUntil, false))
+	}
+
+	return strings.Join(tokens, " ")
 }
 
 func nullableString(value *string) string {

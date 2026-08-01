@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -33,7 +34,8 @@ type fakeApplication struct {
 	deleteError  error
 	addTitle     string
 	addNote      string
-	listStatus   task.ListStatus
+	addDueOn     *string
+	listOptions  task.ListOptions
 	showID       int64
 	editID       int64
 	editFields   task.EditFields
@@ -44,6 +46,7 @@ type fakeApplication struct {
 func (f *fakeApplication) Add(_ context.Context, fields task.AddFields) (task.Task, error) {
 	f.addTitle = fields.Title
 	f.addNote = fields.Note
+	f.addDueOn = fields.DueOn
 	return f.addResult, f.addError
 }
 
@@ -51,8 +54,8 @@ func (f *fakeApplication) Inbox(context.Context) ([]task.Task, error) {
 	return f.inboxResult, f.inboxError
 }
 
-func (f *fakeApplication) List(_ context.Context, status task.ListStatus) ([]task.Task, error) {
-	f.listStatus = status
+func (f *fakeApplication) List(_ context.Context, options task.ListOptions) ([]task.Task, error) {
+	f.listOptions = options
 	return f.listResult, f.listError
 }
 
@@ -187,17 +190,31 @@ func TestExitCodeForError(t *testing.T) {
 func TestJSONCommandOutput(t *testing.T) {
 	t.Parallel()
 
+	dueOn := "2026-07-28"
 	created := task.Task{
 		ID:        7,
 		Title:     "capture",
 		Note:      "details",
+		DueOn:     &dueOn,
 		Status:    "open",
 		Position:  2,
 		CreatedAt: "2026-07-27T12:00:00.000Z",
 		UpdatedAt: "2026-07-27T12:00:00.000Z",
 	}
 	application := &fakeApplication{addResult: created}
-	result := runCommand(t, application, "add", "capture", "--note", "details", "--db", "chosen.db", "--json")
+	result := runCommand(
+		t,
+		application,
+		"add",
+		"capture",
+		"--note",
+		"details",
+		"--due",
+		"tomorrow",
+		"--db",
+		"chosen.db",
+		"--json",
+	)
 
 	if result.exitCode != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr = %q", result.exitCode, result.stderr)
@@ -212,7 +229,7 @@ func TestJSONCommandOutput(t *testing.T) {
 	if err := json.Unmarshal([]byte(result.stdout), &got); err != nil {
 		t.Fatalf("decode stdout: %v", err)
 	}
-	if got != created {
+	if !reflect.DeepEqual(got, created) {
 		t.Errorf("JSON task = %#v, want %#v", got, created)
 	}
 	var fields map[string]json.RawMessage
@@ -223,6 +240,8 @@ func TestJSONCommandOutput(t *testing.T) {
 		"id",
 		"title",
 		"note",
+		"defer_until",
+		"due_on",
 		"done_at",
 		"cancelled_at",
 		"status",
@@ -234,14 +253,17 @@ func TestJSONCommandOutput(t *testing.T) {
 			t.Errorf("JSON fields = %v, missing %q", fields, field)
 		}
 	}
-	if len(fields) != 9 {
-		t.Errorf("JSON field count = %d, want 9", len(fields))
+	if len(fields) != 11 {
+		t.Errorf("JSON field count = %d, want 11", len(fields))
 	}
-	if string(fields["done_at"]) != "null" || string(fields["cancelled_at"]) != "null" {
-		t.Errorf("nullable timestamps = (%s, %s), want null", fields["done_at"], fields["cancelled_at"])
+	if string(fields["defer_until"]) != "null" ||
+		string(fields["done_at"]) != "null" ||
+		string(fields["cancelled_at"]) != "null" {
+		t.Errorf("nullable fields = (%s, %s, %s), want null", fields["defer_until"], fields["done_at"], fields["cancelled_at"])
 	}
-	if application.addTitle != "capture" || application.addNote != "details" {
-		t.Errorf("Add() input = (%q, %q), want exact command input", application.addTitle, application.addNote)
+	if application.addTitle != "capture" || application.addNote != "details" ||
+		application.addDueOn == nil || *application.addDueOn != "tomorrow" {
+		t.Errorf("Add() input = (%q, %q, %#v), want exact command input", application.addTitle, application.addNote, application.addDueOn)
 	}
 	if result.openPath != "chosen.db" || result.opens != 1 || result.closes != 1 {
 		t.Errorf("factory lifecycle = %#v, want chosen path and one open/close", result)
@@ -322,7 +344,16 @@ func TestEditAdaptsFieldsAndHumanOutput(t *testing.T) {
 
 	edited := task.Task{ID: 7, Title: "  revised  ", Status: "open"}
 	application := &fakeApplication{editResult: edited}
-	result := runCommand(t, application, "edit", "7", "--title", "  revised  ", "--note", "")
+	result := runCommand(
+		t,
+		application,
+		"edit",
+		"7",
+		"--title",
+		"  revised  ",
+		"--note",
+		"",
+	)
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)
 	}
@@ -335,6 +366,54 @@ func TestEditAdaptsFieldsAndHumanOutput(t *testing.T) {
 	if application.editFields.Note == nil || *application.editFields.Note != "" {
 		t.Errorf("Edit() note = %#v, want explicit empty string", application.editFields.Note)
 	}
+	if application.editFields.DueOn != (task.DateChange{}) {
+		t.Errorf("Edit() due change = %#v, want omitted", application.editFields.DueOn)
+	}
+}
+
+func TestEditAdaptsDueIntent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		args  []string
+		check func(*testing.T, task.DateChange)
+	}{
+		{
+			name: "set",
+			args: []string{"--due", "+1d"},
+			check: func(t *testing.T, change task.DateChange) {
+				t.Helper()
+				if change.Set == nil || *change.Set != "+1d" || change.Clear {
+					t.Errorf("due change = %#v, want set +1d", change)
+				}
+			},
+		},
+		{
+			name: "clear",
+			args: []string{"--no-due"},
+			check: func(t *testing.T, change task.DateChange) {
+				t.Helper()
+				if !change.Clear || change.Set != nil {
+					t.Errorf("due change = %#v, want explicit clear", change)
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			application := &fakeApplication{editResult: task.Task{ID: 7, Title: "capture"}}
+			args := append([]string{"edit", "7"}, test.args...)
+			args = append(args, "--json")
+			result := runCommand(t, application, args...)
+			if result.exitCode != 0 || result.stderr != "" {
+				t.Fatalf("result = %#v, want success", result)
+			}
+			test.check(t, application.editFields.DueOn)
+		})
+	}
 }
 
 func TestEditWithoutFieldsReturnsApplicationError(t *testing.T) {
@@ -342,7 +421,7 @@ func TestEditWithoutFieldsReturnsApplicationError(t *testing.T) {
 
 	application := &fakeApplication{editError: task.NewError(
 		task.ErrorInvalidArgument,
-		"edit requires --title or --note",
+		"edit requires at least one field",
 		nil,
 	)}
 	result := runCommand(t, application, "edit", "7", "--json")
@@ -392,8 +471,8 @@ func TestListAdaptsStatusAndOutputMode(t *testing.T) {
 	if len(decoded) != len(tasks) || decoded[0] != tasks[0] || decoded[1] != tasks[1] {
 		t.Errorf("list JSON = %#v, want %#v", decoded, tasks)
 	}
-	if jsonApplication.listStatus != task.ListStatusAll {
-		t.Errorf("list status = %q, want all", jsonApplication.listStatus)
+	if jsonApplication.listOptions != (task.ListOptions{Status: task.ListStatusAll}) {
+		t.Errorf("list options = %#v, want all without date selector", jsonApplication.listOptions)
 	}
 
 	humanApplication := &fakeApplication{listResult: tasks}
@@ -401,8 +480,8 @@ func TestListAdaptsStatusAndOutputMode(t *testing.T) {
 	if humanResult.exitCode != 0 || humanResult.stderr != "" {
 		t.Fatalf("human list result = %#v, want success", humanResult)
 	}
-	if humanApplication.listStatus != task.ListStatusOpen {
-		t.Errorf("default list status = %q, want open", humanApplication.listStatus)
+	if humanApplication.listOptions != (task.ListOptions{Status: task.ListStatusOpen}) {
+		t.Errorf("default list options = %#v, want open without date selector", humanApplication.listOptions)
 	}
 	lines := strings.Split(strings.TrimSpace(humanResult.stdout), "\n")
 	if len(lines) != 2 ||
@@ -414,6 +493,59 @@ func TestListAdaptsStatusAndOutputMode(t *testing.T) {
 	emptyResult := runCommand(t, &fakeApplication{listResult: []task.Task{}}, "list")
 	if emptyResult.exitCode != 0 || emptyResult.stdout != "" || emptyResult.stderr != "" {
 		t.Errorf("empty human list = %#v, want no output", emptyResult)
+	}
+}
+
+func TestListAdaptsDeadlineSelectors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		flag     string
+		selector task.DateSelector
+	}{
+		{name: "due", flag: "--due", selector: task.DateSelectorDue},
+		{name: "overdue", flag: "--overdue", selector: task.DateSelectorOverdue},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			application := &fakeApplication{listResult: []task.Task{}}
+			result := runCommand(t, application, "list", "--status", "all", test.flag, "--json")
+			if result.exitCode != 0 || result.stdout != "[]\n" || result.stderr != "" {
+				t.Fatalf("result = %#v, want empty JSON success", result)
+			}
+			want := task.ListOptions{Status: task.ListStatusAll, Date: test.selector}
+			if application.listOptions != want {
+				t.Errorf("list options = %#v, want %#v", application.listOptions, want)
+			}
+		})
+	}
+}
+
+func TestDeadlineFlagConflictsAreUsageErrorsWithoutOpeningDatabase(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "edit", args: []string{"edit", "7", "--due", "today", "--no-due", "--json"}},
+		{name: "list", args: []string{"list", "--due", "--overdue", "--json"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := runCommand(t, &fakeApplication{}, test.args...)
+			if result.exitCode != 2 || result.opens != 0 || result.stdout != "" {
+				t.Errorf("result = %#v, want stderr-only usage error without open", result)
+			}
+			if result.stderr == "" || strings.HasPrefix(result.stderr, "{") {
+				t.Errorf("stderr = %q, want human-readable usage diagnostic", result.stderr)
+			}
+		})
 	}
 }
 
@@ -508,8 +640,10 @@ func TestLifecycleValidationDoesNotOpenDatabase(t *testing.T) {
 func TestHumanOutputUsesPlainTables(t *testing.T) {
 	t.Parallel()
 
+	dueOn := "2026-07-28"
+	deferUntil := "2026-07-29"
 	application := &fakeApplication{inboxResult: []task.Task{
-		{ID: 1, Title: "one"},
+		{ID: 1, Title: "one", DueOn: &dueOn, DeferUntil: &deferUntil},
 		{ID: 20, Title: "twenty"},
 	}}
 	result := runCommand(t, application, "inbox")
@@ -518,6 +652,9 @@ func TestHumanOutputUsesPlainTables(t *testing.T) {
 	}
 	if !strings.Contains(result.stdout, "1") || !strings.Contains(result.stdout, "twenty") {
 		t.Errorf("stdout = %q, want task rows", result.stdout)
+	}
+	if !strings.Contains(result.stdout, "due 2026-07-28 defer 2026-07-29") {
+		t.Errorf("stdout = %q, want compact due-then-defer tokens", result.stdout)
 	}
 	if strings.Contains(result.stdout, "\x1b[") {
 		t.Errorf("stdout = %q, want no ANSI sequences", result.stdout)
@@ -532,21 +669,43 @@ func TestHumanOutputUsesPlainTables(t *testing.T) {
 func TestHumanShowUsesPlainFieldValueTableForMultilineNotes(t *testing.T) {
 	t.Parallel()
 
+	dueOn := "2026-07-28"
+	deferUntil := "2026-07-29"
 	result := runCommand(t, &fakeApplication{showResult: task.Task{
-		ID:        7,
-		Title:     "capture",
-		Note:      "first line\nsecond line\n",
-		Status:    "open",
-		Position:  2,
-		CreatedAt: "2026-07-27T12:00:00.000Z",
-		UpdatedAt: "2026-07-27T13:00:00.000Z",
+		ID:         7,
+		Title:      "capture",
+		Note:       "first line\nsecond line\n",
+		DueOn:      &dueOn,
+		DeferUntil: &deferUntil,
+		Status:     "open",
+		Position:   2,
+		CreatedAt:  "2026-07-27T12:00:00.000Z",
+		UpdatedAt:  "2026-07-27T13:00:00.000Z",
 	}}, "show", "7")
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)
 	}
-	for _, value := range []string{"ID", "Title", "Note", "first line", "second line", "Status", "Created at", "Updated at"} {
+	for _, value := range []string{
+		"ID",
+		"Title",
+		"Note",
+		"first line",
+		"second line",
+		"Status",
+		"Created at",
+		"Updated at",
+	} {
 		if !strings.Contains(result.stdout, value) {
 			t.Errorf("stdout = %q, want %q", result.stdout, value)
+		}
+	}
+	normalizedRows := make(map[string]bool)
+	for _, line := range strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n") {
+		normalizedRows[strings.Join(strings.Fields(line), " ")] = true
+	}
+	for _, row := range []string{"Due on 2026-07-28", "Defer until 2026-07-29"} {
+		if !normalizedRows[row] {
+			t.Errorf("stdout = %q, want associated row %q", result.stdout, row)
 		}
 	}
 	if strings.Contains(result.stdout, "\x1b[") {

@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmcampanini/gsd/internal/task"
 	_ "modernc.org/sqlite"
@@ -388,6 +389,132 @@ func TestTaskWorkflow(t *testing.T) {
 		runGSD(t, "inbox", "--db", wrongRevisionPath, "--json"),
 		task.ErrorConflict,
 	)
+}
+
+func TestMilestone2DeadlineWorkflow(t *testing.T) {
+	for attempt := range 3 {
+		reference := time.Now()
+		capturedDate := calendarDate(reference, 0)
+		tomorrow := calendarDate(reference, 1)
+		yesterday := calendarDate(reference, -1)
+		databasePath := filepath.Join(workDir, fmt.Sprintf("deadlines-%d.db", attempt))
+
+		created := decodeTask(t, runGSD(
+			t,
+			"add",
+			"deadline",
+			"--due",
+			"tomorrow",
+			"--db",
+			databasePath,
+			"--json",
+		))
+		shown := decodeTask(t, runGSD(t, "show", fmt.Sprint(created.ID), "--db", databasePath, "--json"))
+		due := decodeTasks(t, runGSD(t, "list", "--due", "--db", databasePath, "--json"))
+		initialOverdue := decodeTasks(t, runGSD(t, "list", "--overdue", "--db", databasePath, "--json"))
+		humanShow := runGSD(t, "show", fmt.Sprint(created.ID), "--db", databasePath)
+		humanList := runGSD(t, "list", "--due", "--db", databasePath)
+
+		edited := decodeTask(t, runGSD(
+			t,
+			"edit",
+			fmt.Sprint(created.ID),
+			"--due",
+			yesterday,
+			"--db",
+			databasePath,
+			"--json",
+		))
+		overdue := decodeTasks(t, runGSD(t, "list", "--overdue", "--db", databasePath, "--json"))
+		decodeTask(t, runGSD(t, "done", fmt.Sprint(created.ID), "--db", databasePath, "--json"))
+		openOverdue := decodeTasks(t, runGSD(t, "list", "--overdue", "--db", databasePath, "--json"))
+		doneOverdue := decodeTasks(t, runGSD(
+			t,
+			"list",
+			"--status",
+			"done",
+			"--overdue",
+			"--db",
+			databasePath,
+			"--json",
+		))
+		decodeTask(t, runGSD(t, "reopen", fmt.Sprint(created.ID), "--db", databasePath, "--json"))
+		cleared := decodeTask(t, runGSD(
+			t,
+			"edit",
+			fmt.Sprint(created.ID),
+			"--no-due",
+			"--db",
+			databasePath,
+			"--json",
+		))
+		dueAfterClear := decodeTasks(t, runGSD(t, "list", "--due", "--db", databasePath, "--json"))
+
+		for _, value := range []string{"2026-02-30", "2026-8-3", "next tuesday", "+3x"} {
+			assertJSONError(
+				t,
+				runGSD(t, "add", "invalid", "--due", value, "--db", databasePath, "--json"),
+				task.ErrorInvalidArgument,
+			)
+		}
+
+		if calendarDate(time.Now(), 0) != capturedDate {
+			continue
+		}
+
+		if created.DueOn == nil || *created.DueOn != tomorrow ||
+			shown.DueOn == nil || *shown.DueOn != tomorrow {
+			t.Errorf("created/shown due dates = %#v/%#v, want %s", created.DueOn, shown.DueOn, tomorrow)
+		}
+		if len(due) != 1 || due[0].ID != created.ID || len(initialOverdue) != 0 {
+			t.Errorf("initial due/overdue = %#v/%#v, want created task and empty overdue", due, initialOverdue)
+		}
+		if humanShow.exitCode != 0 || humanShow.stderr != "" ||
+			!strings.Contains(humanShow.stdout, "Due on") ||
+			!strings.Contains(humanShow.stdout, tomorrow) ||
+			strings.Contains(humanShow.stdout, "\x1b[") {
+			t.Errorf("human show = %#v, want plain labeled due date", humanShow)
+		}
+		if humanList.exitCode != 0 || humanList.stderr != "" ||
+			!strings.Contains(humanList.stdout, "due "+tomorrow) ||
+			strings.Contains(humanList.stdout, "\x1b[") {
+			t.Errorf("human list = %#v, want plain compact due date", humanList)
+		}
+		if edited.DueOn == nil || *edited.DueOn != yesterday ||
+			len(overdue) != 1 || overdue[0].ID != created.ID {
+			t.Errorf("edited/overdue = %#v/%#v, want yesterday and created task", edited, overdue)
+		}
+		if len(openOverdue) != 0 || len(doneOverdue) != 0 {
+			t.Errorf("resolved overdue lists = %#v/%#v, want empty", openOverdue, doneOverdue)
+		}
+		if cleared.DueOn != nil || len(dueAfterClear) != 0 {
+			t.Errorf("cleared/due list = %#v/%#v, want null due and empty list", cleared, dueAfterClear)
+		}
+
+		all := decodeTasks(t, runGSD(t, "list", "--status", "all", "--db", databasePath, "--json"))
+		if len(all) != 1 || all[0].ID != created.ID {
+			t.Errorf("all tasks after rejected adds = %#v, want only deadline task", all)
+		}
+
+		conflictPath := filepath.Join(workDir, fmt.Sprintf("deadline-conflict-%d.db", attempt))
+		conflict := runGSD(t, "list", "--due", "--overdue", "--db", conflictPath, "--json")
+		if conflict.exitCode != 2 || conflict.stdout != "" || conflict.stderr == "" {
+			t.Errorf("conflicting selectors = %#v, want stderr-only usage error", conflict)
+		}
+		if _, err := os.Stat(conflictPath); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("conflicting selectors database stat error = %v, want not exist", err)
+		}
+		return
+	}
+
+	t.Fatal("local date rolled over during every deadline workflow attempt")
+}
+
+func calendarDate(reference time.Time, days int) string {
+	year, month, day := reference.Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, reference.Location()).
+		AddDate(0, 0, days).
+		Format("2006-01-02")
 }
 
 func decodeTask(t *testing.T, result processResult) task.Task {
