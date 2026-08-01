@@ -36,32 +36,23 @@ func TestMilestoneFourSchemaColumnsConstraintsAndIndexes(t *testing.T) {
 		}
 	}
 
-	for tableName, indexName := range map[string]string{
-		"projects": "idx_projects_area",
-		"tasks":    "idx_tasks_area",
+	for tableName, indexNames := range map[string][]string{
+		"projects": {"idx_projects_area"},
+		"tasks":    {"idx_tasks_project", "idx_tasks_area"},
 	} {
-		var count int
-		if err := storage.database.QueryRowContext(ctx, `
+		for _, indexName := range indexNames {
+			var count int
+			if err := storage.database.QueryRowContext(ctx, `
 SELECT COUNT(*)
 FROM pragma_index_list(?)
 WHERE name = ?
 `, tableName, indexName).Scan(&count); err != nil {
-			t.Fatalf("inspect %s: %v", indexName, err)
+				t.Fatalf("inspect %s: %v", indexName, err)
+			}
+			if count != 1 {
+				t.Errorf("%s count = %d, want 1", indexName, count)
+			}
 		}
-		if count != 1 {
-			t.Errorf("%s count = %d, want 1", indexName, count)
-		}
-	}
-	var projectIndexCount int
-	if err := storage.database.QueryRowContext(ctx, `
-SELECT COUNT(*)
-FROM pragma_index_list('tasks')
-WHERE name = 'idx_tasks_project'
-`).Scan(&projectIndexCount); err != nil {
-		t.Fatalf("inspect idx_tasks_project: %v", err)
-	}
-	if projectIndexCount != 1 {
-		t.Errorf("idx_tasks_project count = %d, want 1", projectIndexCount)
 	}
 
 	for _, relationship := range []struct {
@@ -95,26 +86,12 @@ WHERE "table" = ? AND "from" = ? AND on_delete = 'RESTRICT'
 		}
 	}
 
-	areaResult, err := storage.database.ExecContext(ctx, `
+	areaID := insertFixture(t, storage.database, `
 INSERT INTO areas (title, position) VALUES ('Home', 0)
 `)
-	if err != nil {
-		t.Fatalf("insert area: %v", err)
-	}
-	areaID, err := areaResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("read area ID: %v", err)
-	}
-	projectResult, err := storage.database.ExecContext(ctx, `
+	projectID := insertFixture(t, storage.database, `
 INSERT INTO projects (title, position) VALUES ('Standalone', 0)
 `)
-	if err != nil {
-		t.Fatalf("insert project: %v", err)
-	}
-	projectID, err := projectResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("read project ID: %v", err)
-	}
 
 	for description, statement := range map[string]string{
 		"project area FK": "INSERT INTO projects (area_id, title, position) VALUES (99, 'orphan', 0)",
@@ -165,59 +142,38 @@ func TestAutomaticallyAllocatedEntityIDsAreNotReusedAfterDeletion(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = storage.Close() })
 
-	first := make(map[string]int64, 3)
-	for _, entity := range []struct {
-		name   string
-		insert string
-	}{
-		{name: "area", insert: "INSERT INTO areas (title, position) VALUES ('first', 0)"},
-		{name: "project", insert: "INSERT INTO projects (title, position) VALUES ('first', 0)"},
-		{name: "task", insert: "INSERT INTO tasks (title, position) VALUES ('first', 0)"},
-	} {
-		result, err := storage.database.ExecContext(ctx, entity.insert)
-		if err != nil {
-			t.Fatalf("insert first %s: %v", entity.name, err)
-		}
-		first[entity.name], err = result.LastInsertId()
-		if err != nil {
-			t.Fatalf("read first %s ID: %v", entity.name, err)
-		}
+	entities := []string{"areas", "projects", "tasks"}
+	firstIDs := make([]int64, len(entities))
+	for index, tableName := range entities {
+		firstIDs[index] = insertFixture(
+			t,
+			storage.database,
+			"INSERT INTO "+tableName+" (title, position) VALUES ('first', 0)",
+		)
 	}
-	for _, entity := range []struct {
-		name  string
-		table string
-	}{
-		{name: "task", table: "tasks"},
-		{name: "project", table: "projects"},
-		{name: "area", table: "areas"},
-	} {
+	for index, tableName := range entities {
 		if _, err := storage.database.ExecContext(
 			ctx,
-			"DELETE FROM "+entity.table+" WHERE id = ?",
-			first[entity.name],
+			"DELETE FROM "+tableName+" WHERE id = ?",
+			firstIDs[index],
 		); err != nil {
-			t.Fatalf("delete first %s: %v", entity.name, err)
+			t.Fatalf("delete first row from %s: %v", tableName, err)
 		}
 	}
 
-	for _, entity := range []struct {
-		name   string
-		insert string
-	}{
-		{name: "area", insert: "INSERT INTO areas (title, position) VALUES ('second', 0)"},
-		{name: "project", insert: "INSERT INTO projects (title, position) VALUES ('second', 0)"},
-		{name: "task", insert: "INSERT INTO tasks (title, position) VALUES ('second', 0)"},
-	} {
-		result, err := storage.database.ExecContext(ctx, entity.insert)
-		if err != nil {
-			t.Fatalf("insert second %s: %v", entity.name, err)
-		}
-		second, err := result.LastInsertId()
-		if err != nil {
-			t.Fatalf("read second %s ID: %v", entity.name, err)
-		}
-		if second <= first[entity.name] {
-			t.Errorf("%s ID after deletion = %d, want greater than %d", entity.name, second, first[entity.name])
+	for index, tableName := range entities {
+		secondID := insertFixture(
+			t,
+			storage.database,
+			"INSERT INTO "+tableName+" (title, position) VALUES ('second', 0)",
+		)
+		if secondID <= firstIDs[index] {
+			t.Errorf(
+				"%s ID after deletion = %d, want greater than %d",
+				tableName,
+				secondID,
+				firstIDs[index],
+			)
 		}
 	}
 }
