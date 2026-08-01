@@ -42,11 +42,7 @@ func newProjectsAddCommand(options *rootOptions, factory applicationFactory) *co
 				if addErr != nil {
 					return addErr
 				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), created)
-				}
-
-				return writeAddedProject(command.OutOrStdout(), created)
+				return writeCommandOutput(command.OutOrStdout(), options.json, created, writeAddedProject)
 			})
 		},
 	}
@@ -72,11 +68,7 @@ func newProjectsListCommand(options *rootOptions, factory applicationFactory) *c
 				if listErr != nil {
 					return listErr
 				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), projects)
-				}
-
-				return writeProjectList(command.OutOrStdout(), projects)
+				return writeCommandOutput(command.OutOrStdout(), options.json, projects, writeProjectList)
 			})
 		},
 	}
@@ -123,11 +115,7 @@ func newProjectShowCommand(options *rootOptions, factory applicationFactory) *co
 				if showErr != nil {
 					return showErr
 				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), found)
-				}
-
-				return writeProject(command.OutOrStdout(), found)
+				return writeCommandOutput(command.OutOrStdout(), options.json, found, writeProject)
 			})
 		},
 	}

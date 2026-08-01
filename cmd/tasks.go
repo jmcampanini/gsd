@@ -43,11 +43,7 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 				if err != nil {
 					return err
 				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), created)
-				}
-
-				return writeAddedTask(command.OutOrStdout(), created)
+				return writeCommandOutput(command.OutOrStdout(), options.json, created, writeAddedTask)
 			})
 		},
 	}
@@ -70,11 +66,7 @@ func newInboxCommand(options *rootOptions, factory applicationFactory) *cobra.Co
 				if err != nil {
 					return err
 				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), tasks)
-				}
-
-				return writeOpenTaskList(command.OutOrStdout(), tasks)
+				return writeCommandOutput(command.OutOrStdout(), options.json, tasks, writeOpenTaskList)
 			})
 		},
 	}
@@ -91,11 +83,7 @@ func newAvailableCommand(options *rootOptions, factory applicationFactory) *cobr
 				if err != nil {
 					return err
 				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), tasks)
-				}
-
-				return writeOpenTaskList(command.OutOrStdout(), tasks)
+				return writeCommandOutput(command.OutOrStdout(), options.json, tasks, writeOpenTaskList)
 			})
 		},
 	}
@@ -117,11 +105,7 @@ func newShowCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 				if err != nil {
 					return err
 				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), found)
-				}
-
-				return writeTask(command.OutOrStdout(), found)
+				return writeCommandOutput(command.OutOrStdout(), options.json, found, writeTask)
 			})
 		},
 	}
@@ -237,11 +221,7 @@ func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 				if err != nil {
 					return err
 				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), tasks)
-				}
-
-				return writeTaskList(command.OutOrStdout(), tasks)
+				return writeCommandOutput(command.OutOrStdout(), options.json, tasks, writeTaskList)
 			})
 		},
 	}

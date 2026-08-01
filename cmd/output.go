@@ -34,6 +34,19 @@ func writeJSON(writer io.Writer, value any) error {
 	return nil
 }
 
+func writeCommandOutput[T any](
+	writer io.Writer,
+	jsonMode bool,
+	value T,
+	writeHuman func(io.Writer, T) error,
+) error {
+	if jsonMode {
+		return writeJSON(writer, value)
+	}
+
+	return writeHuman(writer, value)
+}
+
 func writeCommandError(writer io.Writer, jsonMode bool, err error) error {
 	if code, ok := apperr.CodeOf(err); ok && jsonMode {
 		return writeJSON(writer, errorEnvelope{Error: errorPayload{Code: code, Message: err.Error()}})
