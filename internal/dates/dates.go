@@ -2,6 +2,7 @@ package dates
 
 import (
 	"errors"
+	"math"
 	"strconv"
 	"time"
 )
@@ -30,7 +31,7 @@ func Parse(value string, reference time.Time) (string, error) {
 			days = 7
 		}
 
-		return addDays(reference, uint64(days))
+		return addDays(reference, days)
 	}
 
 	if len(value) >= 3 && value[0] == '+' {
@@ -44,7 +45,7 @@ func Parse(value string, reference time.Time) (string, error) {
 			return "", invalidDate()
 		}
 		if unit == 'w' {
-			if amount > ^uint64(0)/7 {
+			if amount > math.MaxInt/7 {
 				return "", invalidDate()
 			}
 			amount *= 7
@@ -82,7 +83,7 @@ func parseWeekday(value string) (time.Weekday, bool) {
 	}
 }
 
-func parseAmount(value string) (uint64, bool) {
+func parseAmount(value string) (int, bool) {
 	if value == "" {
 		return 0, false
 	}
@@ -92,11 +93,11 @@ func parseAmount(value string) (uint64, bool) {
 		}
 	}
 
-	amount, err := strconv.ParseUint(value, 10, 64)
+	amount, err := strconv.Atoi(value)
 	return amount, err == nil
 }
 
-func addDays(reference time.Time, days uint64) (string, error) {
+func addDays(reference time.Time, days int) (string, error) {
 	year, month, day := reference.Date()
 	if !canonicalYear(year) {
 		return "", invalidDate()
@@ -104,11 +105,11 @@ func addDays(reference time.Time, days uint64) (string, error) {
 
 	start := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
 	remaining := dayNumber(9999, time.December, 31) - dayNumber(year, month, day)
-	if days > uint64(remaining) {
+	if days > remaining {
 		return "", invalidDate()
 	}
 
-	return format(start.AddDate(0, 0, int(days))), nil
+	return format(start.AddDate(0, 0, days)), nil
 }
 
 func dayNumber(year int, month time.Month, day int) int {
