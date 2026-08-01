@@ -62,8 +62,8 @@ func (s *Store) Close() error {
 
 func (s *Store) Add(ctx context.Context, fields task.AddFields, timestamp string) (task.Task, error) {
 	query := `
-INSERT INTO tasks (title, note, due_on, position, created_at, updated_at)
-SELECT ?, ?, ?, COALESCE(MAX(position), -1) + 1, ?, ?
+INSERT INTO tasks (title, note, defer_until, due_on, position, created_at, updated_at)
+SELECT ?, ?, ?, ?, COALESCE(MAX(position), -1) + 1, ?, ?
 FROM tasks
 RETURNING ` + taskColumns
 
@@ -72,6 +72,7 @@ RETURNING ` + taskColumns
 		query,
 		fields.Title,
 		fields.Note,
+		fields.DeferUntil,
 		fields.DueOn,
 		timestamp,
 		timestamp,
@@ -103,6 +104,30 @@ func (s *Store) Inbox(ctx context.Context) ([]task.Task, error) {
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate inbox: %w", err)
+	}
+
+	return tasks, nil
+}
+
+func (s *Store) Available(ctx context.Context) ([]task.Task, error) {
+	rows, err := s.database.QueryContext(ctx, "SELECT "+taskColumns+" FROM available ORDER BY position, id")
+	if err != nil {
+		return nil, fmt.Errorf("query available tasks: %w", err)
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	tasks := make([]task.Task, 0)
+	for rows.Next() {
+		current, scanErr := scanTask(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan available task: %w", scanErr)
+		}
+		tasks = append(tasks, current)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate available tasks: %w", err)
 	}
 
 	return tasks, nil
@@ -142,6 +167,8 @@ func (s *Store) List(ctx context.Context, options task.ListOptions) ([]task.Task
 			conditions,
 			"status = 'open' AND due_on < date('now', 'localtime')",
 		)
+	case task.DateSelectorDeferred:
+		conditions = append(conditions, "defer_until > date('now', 'localtime')")
 	default:
 		return nil, fmt.Errorf("invalid date selector %q", options.Date)
 	}
@@ -181,8 +208,8 @@ func (s *Store) Edit(
 	fields task.EditFields,
 	timestamp string,
 ) (task.Task, error) {
-	assignments := make([]string, 0, 4)
-	arguments := make([]any, 0, 5)
+	assignments := make([]string, 0, 6)
+	arguments := make([]any, 0, 7)
 	if fields.Title != nil {
 		assignments = append(assignments, "title = ?")
 		arguments = append(arguments, *fields.Title)
@@ -200,6 +227,16 @@ func (s *Store) Edit(
 	}
 	if fields.DueOn.Clear {
 		assignments = append(assignments, "due_on = NULL")
+	}
+	if fields.DeferUntil.Set != nil && fields.DeferUntil.Clear {
+		return task.Task{}, errors.New("defer date cannot be set and cleared")
+	}
+	if fields.DeferUntil.Set != nil {
+		assignments = append(assignments, "defer_until = ?")
+		arguments = append(arguments, *fields.DeferUntil.Set)
+	}
+	if fields.DeferUntil.Clear {
+		assignments = append(assignments, "defer_until = NULL")
 	}
 	if len(assignments) == 0 {
 		return task.Task{}, errors.New("edit requires at least one field")

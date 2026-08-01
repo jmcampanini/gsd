@@ -12,6 +12,7 @@ import (
 func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
 	var note string
 	var dueOn string
+	var deferUntil string
 	command := &cobra.Command{
 		Use:   "add TITLE",
 		Short: "Add a task to the inbox",
@@ -25,6 +26,9 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 			fields := task.AddFields{Title: args[0], Note: resolvedNote}
 			if command.Flags().Changed("due") {
 				fields.DueOn = &dueOn
+			}
+			if command.Flags().Changed("defer") {
+				fields.DeferUntil = &deferUntil
 			}
 
 			return withApplication(command, options, factory, func(application task.Application) error {
@@ -42,6 +46,7 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 	}
 	command.Flags().StringVar(&note, "note", "", "task note or - to read stdin")
 	command.Flags().StringVar(&dueOn, "due", "", "task due date")
+	command.Flags().StringVar(&deferUntil, "defer", "", "task defer date")
 
 	return command
 }
@@ -54,6 +59,27 @@ func newInboxCommand(options *rootOptions, factory applicationFactory) *cobra.Co
 		RunE: func(command *cobra.Command, _ []string) error {
 			return withApplication(command, options, factory, func(application task.Application) error {
 				tasks, err := application.Inbox(command.Context())
+				if err != nil {
+					return err
+				}
+				if options.json {
+					return writeJSON(command.OutOrStdout(), tasks)
+				}
+
+				return writeInbox(command.OutOrStdout(), tasks)
+			})
+		},
+	}
+}
+
+func newAvailableCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	return &cobra.Command{
+		Use:   "available",
+		Short: "List available tasks",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return withApplication(command, options, factory, func(application task.Application) error {
+				tasks, err := application.Available(command.Context())
 				if err != nil {
 					return err
 				}
@@ -98,6 +124,8 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 	var note string
 	var dueOn string
 	var noDue bool
+	var deferUntil string
+	var noDefer bool
 	command := &cobra.Command{
 		Use:   "edit ID",
 		Short: "Edit a task",
@@ -123,6 +151,10 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 				fields.DueOn.Set = &dueOn
 			}
 			fields.DueOn.Clear = noDue
+			if command.Flags().Changed("defer") {
+				fields.DeferUntil.Set = &deferUntil
+			}
+			fields.DeferUntil.Clear = noDefer
 
 			return withApplication(command, options, factory, func(application task.Application) error {
 				edited, editErr := application.Edit(command.Context(), id, fields)
@@ -141,7 +173,10 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 	command.Flags().StringVar(&note, "note", "", "task note or - to read stdin")
 	command.Flags().StringVar(&dueOn, "due", "", "task due date")
 	command.Flags().BoolVar(&noDue, "no-due", false, "clear the task due date")
+	command.Flags().StringVar(&deferUntil, "defer", "", "task defer date")
+	command.Flags().BoolVar(&noDefer, "no-defer", false, "clear the task defer date")
 	command.MarkFlagsMutuallyExclusive("due", "no-due")
+	command.MarkFlagsMutuallyExclusive("defer", "no-defer")
 
 	return command
 }
@@ -150,6 +185,7 @@ func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 	statusValue := string(task.ListStatusOpen)
 	var due bool
 	var overdue bool
+	var deferred bool
 	command := &cobra.Command{
 		Use:   "list",
 		Short: "List tasks",
@@ -166,6 +202,9 @@ func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 			}
 			if overdue {
 				selector = task.DateSelectorOverdue
+			}
+			if deferred {
+				selector = task.DateSelectorDeferred
 			}
 			listOptions := task.ListOptions{Status: status, Date: selector}
 
@@ -185,7 +224,8 @@ func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 	command.Flags().StringVar(&statusValue, "status", statusValue, "filter by status: open, done, cancelled, or all")
 	command.Flags().BoolVar(&due, "due", false, "list tasks with due dates")
 	command.Flags().BoolVar(&overdue, "overdue", false, "list overdue open tasks")
-	command.MarkFlagsMutuallyExclusive("due", "overdue")
+	command.Flags().BoolVar(&deferred, "deferred", false, "list tasks deferred beyond today")
+	command.MarkFlagsMutuallyExclusive("due", "overdue", "deferred")
 
 	return command
 }

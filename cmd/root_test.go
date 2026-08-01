@@ -14,44 +14,52 @@ import (
 )
 
 type fakeApplication struct {
-	addResult    task.Task
-	addError     error
-	inboxResult  []task.Task
-	inboxError   error
-	listResult   []task.Task
-	listError    error
-	showResult   task.Task
-	showError    error
-	editResult   task.Task
-	editError    error
-	doneResult   task.Task
-	doneError    error
-	cancelResult task.Task
-	cancelError  error
-	reopenResult task.Task
-	reopenError  error
-	deleteResult task.Task
-	deleteError  error
-	addTitle     string
-	addNote      string
-	addDueOn     *string
-	listOptions  task.ListOptions
-	showID       int64
-	editID       int64
-	editFields   task.EditFields
-	mutation     string
-	mutationID   int64
+	addResult       task.Task
+	addError        error
+	inboxResult     []task.Task
+	inboxError      error
+	availableResult []task.Task
+	availableError  error
+	listResult      []task.Task
+	listError       error
+	showResult      task.Task
+	showError       error
+	editResult      task.Task
+	editError       error
+	doneResult      task.Task
+	doneError       error
+	cancelResult    task.Task
+	cancelError     error
+	reopenResult    task.Task
+	reopenError     error
+	deleteResult    task.Task
+	deleteError     error
+	addTitle        string
+	addNote         string
+	addDueOn        *string
+	addDeferUntil   *string
+	listOptions     task.ListOptions
+	showID          int64
+	editID          int64
+	editFields      task.EditFields
+	mutation        string
+	mutationID      int64
 }
 
 func (f *fakeApplication) Add(_ context.Context, fields task.AddFields) (task.Task, error) {
 	f.addTitle = fields.Title
 	f.addNote = fields.Note
 	f.addDueOn = fields.DueOn
+	f.addDeferUntil = fields.DeferUntil
 	return f.addResult, f.addError
 }
 
 func (f *fakeApplication) Inbox(context.Context) ([]task.Task, error) {
 	return f.inboxResult, f.inboxError
+}
+
+func (f *fakeApplication) Available(context.Context) ([]task.Task, error) {
+	return f.availableResult, f.availableError
 }
 
 func (f *fakeApplication) List(_ context.Context, options task.ListOptions) ([]task.Task, error) {
@@ -191,15 +199,17 @@ func TestJSONCommandOutput(t *testing.T) {
 	t.Parallel()
 
 	dueOn := "2026-07-28"
+	deferUntil := "2026-07-27"
 	created := task.Task{
-		ID:        7,
-		Title:     "capture",
-		Note:      "details",
-		DueOn:     &dueOn,
-		Status:    "open",
-		Position:  2,
-		CreatedAt: "2026-07-27T12:00:00.000Z",
-		UpdatedAt: "2026-07-27T12:00:00.000Z",
+		ID:         7,
+		Title:      "capture",
+		Note:       "details",
+		DueOn:      &dueOn,
+		DeferUntil: &deferUntil,
+		Status:     "open",
+		Position:   2,
+		CreatedAt:  "2026-07-27T12:00:00.000Z",
+		UpdatedAt:  "2026-07-27T12:00:00.000Z",
 	}
 	application := &fakeApplication{addResult: created}
 	result := runCommand(
@@ -211,6 +221,8 @@ func TestJSONCommandOutput(t *testing.T) {
 		"details",
 		"--due",
 		"tomorrow",
+		"--defer",
+		"today",
 		"--db",
 		"chosen.db",
 		"--json",
@@ -256,14 +268,19 @@ func TestJSONCommandOutput(t *testing.T) {
 	if len(fields) != 11 {
 		t.Errorf("JSON field count = %d, want 11", len(fields))
 	}
-	if string(fields["defer_until"]) != "null" ||
-		string(fields["done_at"]) != "null" ||
-		string(fields["cancelled_at"]) != "null" {
-		t.Errorf("nullable fields = (%s, %s, %s), want null", fields["defer_until"], fields["done_at"], fields["cancelled_at"])
+	if string(fields["done_at"]) != "null" || string(fields["cancelled_at"]) != "null" {
+		t.Errorf("nullable fields = (%s, %s), want null", fields["done_at"], fields["cancelled_at"])
 	}
 	if application.addTitle != "capture" || application.addNote != "details" ||
-		application.addDueOn == nil || *application.addDueOn != "tomorrow" {
-		t.Errorf("Add() input = (%q, %q, %#v), want exact command input", application.addTitle, application.addNote, application.addDueOn)
+		application.addDueOn == nil || *application.addDueOn != "tomorrow" ||
+		application.addDeferUntil == nil || *application.addDeferUntil != "today" {
+		t.Errorf(
+			"Add() input = (%q, %q, %#v, %#v), want exact command input",
+			application.addTitle,
+			application.addNote,
+			application.addDueOn,
+			application.addDeferUntil,
+		)
 	}
 	if result.openPath != "chosen.db" || result.opens != 1 || result.closes != 1 {
 		t.Errorf("factory lifecycle = %#v, want chosen path and one open/close", result)
@@ -416,6 +433,51 @@ func TestEditAdaptsDueIntent(t *testing.T) {
 	}
 }
 
+func TestEditAdaptsDeferIntent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		args  []string
+		check func(*testing.T, task.DateChange)
+	}{
+		{
+			name: "set",
+			args: []string{"--defer", "+1d"},
+			check: func(t *testing.T, change task.DateChange) {
+				t.Helper()
+				if change.Set == nil || *change.Set != "+1d" || change.Clear {
+					t.Errorf("defer change = %#v, want set +1d", change)
+				}
+			},
+		},
+		{
+			name: "clear",
+			args: []string{"--no-defer"},
+			check: func(t *testing.T, change task.DateChange) {
+				t.Helper()
+				if !change.Clear || change.Set != nil {
+					t.Errorf("defer change = %#v, want explicit clear", change)
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			application := &fakeApplication{editResult: task.Task{ID: 7, Title: "capture"}}
+			args := append([]string{"edit", "7"}, test.args...)
+			args = append(args, "--json")
+			result := runCommand(t, application, args...)
+			if result.exitCode != 0 || result.stderr != "" {
+				t.Fatalf("result = %#v, want success", result)
+			}
+			test.check(t, application.editFields.DeferUntil)
+		})
+	}
+}
+
 func TestEditWithoutFieldsReturnsApplicationError(t *testing.T) {
 	t.Parallel()
 
@@ -449,6 +511,37 @@ func TestEmptyInboxJSONIsArray(t *testing.T) {
 	}
 	if result.stdout != "[]\n" {
 		t.Errorf("stdout = %q, want empty JSON array", result.stdout)
+	}
+}
+
+func TestAvailableAdaptsOutputModes(t *testing.T) {
+	t.Parallel()
+
+	deferUntil := "2026-07-28"
+	tasks := []task.Task{{ID: 7, Title: "actionable", DeferUntil: &deferUntil, Status: "open"}}
+	jsonResult := runCommand(t, &fakeApplication{availableResult: tasks}, "available", "--json")
+	if jsonResult.exitCode != 0 || jsonResult.stderr != "" {
+		t.Fatalf("JSON available result = %#v, want success", jsonResult)
+	}
+	var decoded []task.Task
+	if err := json.Unmarshal([]byte(jsonResult.stdout), &decoded); err != nil {
+		t.Fatalf("decode available JSON: %v", err)
+	}
+	if !reflect.DeepEqual(decoded, tasks) {
+		t.Errorf("available JSON = %#v, want %#v", decoded, tasks)
+	}
+
+	humanResult := runCommand(t, &fakeApplication{availableResult: tasks}, "available")
+	if humanResult.exitCode != 0 || humanResult.stderr != "" {
+		t.Fatalf("human available result = %#v, want success", humanResult)
+	}
+	if strings.Join(strings.Fields(humanResult.stdout), " ") != "7 actionable defer 2026-07-28" {
+		t.Errorf("human available = %q, want inbox-style row without status", humanResult.stdout)
+	}
+
+	emptyResult := runCommand(t, &fakeApplication{availableResult: []task.Task{}}, "available", "--json")
+	if emptyResult.exitCode != 0 || emptyResult.stdout != "[]\n" || emptyResult.stderr != "" {
+		t.Errorf("empty available = %#v, want empty JSON array", emptyResult)
 	}
 }
 
@@ -506,6 +599,7 @@ func TestListAdaptsDeadlineSelectors(t *testing.T) {
 	}{
 		{name: "due", flag: "--due", selector: task.DateSelectorDue},
 		{name: "overdue", flag: "--overdue", selector: task.DateSelectorOverdue},
+		{name: "deferred", flag: "--deferred", selector: task.DateSelectorDeferred},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -524,15 +618,18 @@ func TestListAdaptsDeadlineSelectors(t *testing.T) {
 	}
 }
 
-func TestDeadlineFlagConflictsAreUsageErrorsWithoutOpeningDatabase(t *testing.T) {
+func TestDateFlagConflictsAreUsageErrorsWithoutOpeningDatabase(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
 		args []string
 	}{
-		{name: "edit", args: []string{"edit", "7", "--due", "today", "--no-due", "--json"}},
-		{name: "list", args: []string{"list", "--due", "--overdue", "--json"}},
+		{name: "edit due", args: []string{"edit", "7", "--due", "today", "--no-due", "--json"}},
+		{name: "edit defer", args: []string{"edit", "7", "--defer", "today", "--no-defer", "--json"}},
+		{name: "list due overdue", args: []string{"list", "--due", "--overdue", "--json"}},
+		{name: "list due deferred", args: []string{"list", "--due", "--deferred", "--json"}},
+		{name: "list overdue deferred", args: []string{"list", "--overdue", "--deferred", "--json"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

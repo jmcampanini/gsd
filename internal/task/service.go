@@ -36,12 +36,31 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Task, error) {
 		}
 		fields.DueOn = &canonical
 	}
+	if fields.DeferUntil != nil {
+		canonical, err := parseDate(*fields.DeferUntil, reference)
+		if err != nil {
+			return Task{}, err
+		}
+		fields.DeferUntil = &canonical
+	}
 
 	return s.repository.Add(ctx, fields, formatTimestamp(reference))
 }
 
 func (s *Service) Inbox(ctx context.Context) ([]Task, error) {
 	tasks, err := s.repository.Inbox(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if tasks == nil {
+		return []Task{}, nil
+	}
+
+	return tasks, nil
+}
+
+func (s *Service) Available(ctx context.Context) ([]Task, error) {
+	tasks, err := s.repository.Available(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -86,10 +105,15 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, 
 	if fields.DueOn.Set != nil && fields.DueOn.Clear {
 		return Task{}, NewError(ErrorInvalidArgument, "due date cannot be set and cleared", nil)
 	}
-	if fields.Title == nil && fields.Note == nil && fields.DueOn.Set == nil && !fields.DueOn.Clear {
+	if fields.DeferUntil.Set != nil && fields.DeferUntil.Clear {
+		return Task{}, NewError(ErrorInvalidArgument, "defer date cannot be set and cleared", nil)
+	}
+	if fields.Title == nil && fields.Note == nil &&
+		fields.DueOn.Set == nil && !fields.DueOn.Clear &&
+		fields.DeferUntil.Set == nil && !fields.DeferUntil.Clear {
 		return Task{}, NewError(
 			ErrorInvalidArgument,
-			"edit requires --title, --note, --due, or --no-due",
+			"edit requires --title, --note, --due, --no-due, --defer, or --no-defer",
 			nil,
 		)
 	}
@@ -109,6 +133,13 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, 
 			return Task{}, err
 		}
 		fields.DueOn.Set = &canonical
+	}
+	if fields.DeferUntil.Set != nil {
+		canonical, err := parseDate(*fields.DeferUntil.Set, reference)
+		if err != nil {
+			return Task{}, err
+		}
+		fields.DeferUntil.Set = &canonical
 	}
 
 	return s.repository.Edit(ctx, id, fields, formatTimestamp(reference))
@@ -184,7 +215,7 @@ func validListStatus(status ListStatus) bool {
 
 func validDateSelector(selector DateSelector) bool {
 	switch selector {
-	case DateSelectorNone, DateSelectorDue, DateSelectorOverdue:
+	case DateSelectorNone, DateSelectorDue, DateSelectorOverdue, DateSelectorDeferred:
 		return true
 	default:
 		return false

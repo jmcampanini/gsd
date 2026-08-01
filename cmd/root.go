@@ -56,6 +56,7 @@ func newRootCommandWithFactory(factory applicationFactory) *cobra.Command {
 	root.PersistentFlags().BoolVar(&options.json, "json", false, "emit JSON output")
 	root.AddCommand(
 		newAddCommand(options, factory),
+		newAvailableCommand(options, factory),
 		newCancelCommand(options, factory),
 		newDeleteCommand(options, factory),
 		newDoneCommand(options, factory),
