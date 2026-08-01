@@ -115,7 +115,7 @@ func TestTaskProjectFlagsAdaptContainmentIntent(t *testing.T) {
 	}
 }
 
-func TestTaskProjectFlagUsesDecimalIDGrammarWithoutOpeningDatabase(t *testing.T) {
+func TestTaskProjectFlagRejectsNonDecimalIDAsApplicationErrorWithoutOpeningDatabase(t *testing.T) {
 	t.Parallel()
 
 	result := runCommand(t, &fakeApplication{}, "add", "contained", "--project", "0x8", "--json")

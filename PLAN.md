@@ -343,6 +343,13 @@ delete projects with RESTRICT protection and an explicit recursive opt-in.
       store predicates with `conflict` classification.
 - [ ] Add `project done`, `project cancel`, `project reopen`, and
       `project delete [--recursive]` commands.
+- [ ] Close the deferred Chunk 1 read-consistency finding when project
+      deletion lands: make `list --project` derive project existence and task
+      rows from one consistent SQLite snapshot while preserving the
+      `not_found` versus empty-project distinction.
+- [ ] Close the deferred Chunk 1 error-guidance finding once resolved projects
+      are user-reachable: choose and prove the recovery order reported when a
+      task moves between two resolved projects.
 - [ ] Render cascade and deletion narration (mutation line, task section
       omitted when empty) and the JSON envelopes.
 - [ ] Extend service, command, and store tests for the newly owned lifecycle
