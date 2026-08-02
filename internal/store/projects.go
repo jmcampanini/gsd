@@ -178,6 +178,9 @@ func (s *Projects) Edit(
 			return project.Project{}, err
 		}
 	}
+	if !contentChanged && !movement {
+		return current, nil
+	}
 
 	assignments := make([]string, 0, 5)
 	arguments := make([]any, 0, 6)
@@ -202,12 +205,8 @@ func (s *Projects) Edit(
 		)
 		arguments = append(arguments, areaID, areaID)
 	}
-	if contentChanged || movement {
-		assignments = append(assignments, "updated_at = ?")
-		arguments = append(arguments, timestamp)
-	} else {
-		return current, nil
-	}
+	assignments = append(assignments, "updated_at = ?")
+	arguments = append(arguments, timestamp)
 
 	query := "UPDATE projects SET " + strings.Join(assignments, ", ") +
 		" WHERE id = ? RETURNING " + projectColumnsWithTags("projects.id")
@@ -523,7 +522,7 @@ func (s *Projects) archivedAreaIDs(ctx context.Context, ids ...int64) ([]int64, 
 		}
 	}
 
-	return sortedUniqueIDs(archived), nil
+	return archived, nil
 }
 
 func (s *Projects) validateActiveAreas(ctx context.Context, action string, ids ...int64) error {

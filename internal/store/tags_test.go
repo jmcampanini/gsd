@@ -42,6 +42,26 @@ func TestTagsAddAndFindUseOneCaseInsensitiveNamespace(t *testing.T) {
 	if count := fixtureCount(t, storage.database, "SELECT COUNT(*) FROM tags"); count != 1 {
 		t.Errorf("tag count after conflict = %d, want 1", count)
 	}
+
+	lower, err := tags.Add(ctx, "é", "2026-01-03T00:00:00.000Z")
+	if err != nil {
+		t.Fatalf("Add(non-ASCII lowercase) error = %v", err)
+	}
+	upper, err := tags.Add(ctx, "É", "2026-01-04T00:00:00.000Z")
+	if err != nil {
+		t.Fatalf("Add(non-ASCII uppercase) error = %v", err)
+	}
+	if lower.ID == upper.ID || lower.Title != "é" || upper.Title != "É" {
+		t.Errorf("non-ASCII tags = %#v and %#v, want distinct stored variants", lower, upper)
+	}
+	for name, want := range map[string]tag.Tag{"é": lower, "É": upper} {
+		found, findErr := tags.Find(ctx, name)
+		if findErr != nil {
+			t.Errorf("Find(%q) error = %v", name, findErr)
+		} else if !reflect.DeepEqual(found, want) {
+			t.Errorf("Find(%q) = %#v, want %#v", name, found, want)
+		}
+	}
 }
 
 func TestTagsListAndCountUsageAggregateEveryEntityKindAndOrderNoCase(t *testing.T) {

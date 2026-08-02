@@ -430,22 +430,22 @@ demo (`.sandbox/demos/5-chunk-2.html`):
 
 After every chunk is reviewed and squash-merged into the milestone branch:
 
-- [ ] Reconcile the accepted semantics into the canonical specifications:
+- [x] Reconcile the accepted semantics into the canonical specifications:
       idempotent attach and detach, all-or-nothing multi-name commands,
       unguarded tagging as a content edit, no `updated_at` bump on
       attachment, the `usage_count` and `detached` output shapes, the
       `tags` array as the contract's final field, and the human rendering
       into `plans/COMMANDS.md` and `plans/OVERVIEW.md`.
-- [ ] **Schema convergence audit**: dump the dev database schema and diff
+- [x] **Schema convergence audit**: dump the dev database schema and diff
       against `SCHEMA.md`'s DDL — tables, checks, indexes, and views must
       be byte-comparable. Fix any difference or record it in
       `plans/DIVERGENCES.md` and reconcile it before Config begins.
-- [ ] Reconcile tests around stable observable contracts and codify lasting
+- [x] Reconcile tests around stable observable contracts and codify lasting
       review findings in `AGENTS.md`, lint/build configuration, or the
       owning tests.
-- [ ] Run the automated Milestone 5 subprocess workflow through
+- [x] Run the automated Milestone 5 subprocess workflow through
       `make check`.
-- [ ] Drive the real built binary through the agent-verified workflow below
+- [x] Drive the real built binary through the agent-verified workflow below
       and retain a clean transcript.
 - [ ] Have Javier run `/review-foundation` in a Fable session against the
       milestone branch and resolve the accepted findings.
@@ -461,32 +461,32 @@ After every chunk is reviewed and squash-merged into the milestone branch:
 Use the real built binary, a fresh temporary database under `.sandbox/`, and
 JSON output except where human rendering is explicitly inspected.
 
-- [ ] Create tags `errands` and `home`; create a task, a project, and an
+- [x] Create tags `errands` and `home`; create a task, a project, and an
       area; attach `errands` to all three. Assert each echo carries the
       `tags` array and `gsd tags list` shows `errands` with `usage_count`
       3 and `home` with 0.
-- [ ] Unknown-name matrix: `gsd tag`, `gsd untag`, `gsd project tag`,
+- [x] Unknown-name matrix: `gsd tag`, `gsd untag`, `gsd project tag`,
       `gsd area tag`, `gsd add --tag`, and `gsd list --tag` with an unknown
       name all fail `not_found` with exit 1; assert the multi-name command
       `gsd tag N errands ghost` attaches nothing.
-- [ ] Case-insensitivity: `gsd tags add Errands` fails `conflict` naming
+- [x] Case-insensitivity: `gsd tags add Errands` fails `conflict` naming
       `errands`; `gsd tag N ERRANDS` attaches the existing tag; assert the
       entity's `tags` array shows the stored spelling.
-- [ ] Duplicate attach: re-tag an already-tagged entity; assert success and
+- [x] Duplicate attach: re-tag an already-tagged entity; assert success and
       `usage_count` unchanged. Untag a not-attached existing tag; assert
       success and counts unchanged.
-- [ ] `gsd tags rename errands out-and-about`: assert the `tags` arrays on
+- [x] `gsd tags rename errands out-and-about`: assert the `tags` arrays on
       the task, project, and area all show the new name.
-- [ ] `gsd tags delete out-and-about`: assert the `detached` count, then
+- [x] `gsd tags delete out-and-about`: assert the `detached` count, then
       `show` on all three entities has the tag gone with entities intact.
-- [ ] Delete a tagged task: assert its join rows go with it, verified by
+- [x] Delete a tagged task: assert its join rows go with it, verified by
       `gsd tags list` usage counts dropping.
-- [ ] Assert tagging is unguarded: tag a task governed by an archived area
+- [x] Assert tagging is unguarded: tag a task governed by an archived area
       and a task in a resolved project; both succeed.
-- [ ] Assert bare `gsd tags` is a usage error with exit code 2 and no
+- [x] Assert bare `gsd tags` is a usage error with exit code 2 and no
       database side effect.
-- [ ] Inspect human output for the tags name/count table, one `Tags` row on
+- [x] Inspect human output for the tags name/count table, one `Tags` row on
       `show`, one `Tagged:` mutation line, and the deletion line with its
       detached count (no ANSI styling).
-- [ ] Run `make check` and report the command transcript and final clean
+- [x] Run `make check` and report the command transcript and final clean
       result.

@@ -180,9 +180,10 @@ display alphabetically).
 One join table per taggable entity rather than one polymorphic table: three
 identical small tables keep real foreign keys on both sides, where a
 `tagging(entity_type, entity_id)` table could hold orphans. The composite
-primary key is the identity (duplicate tagging = constraint violation) and
-`WITHOUT ROWID` clusters the table by it. Join rows are bookkeeping, not
-entities: both sides `CASCADE`, so deleting a tag detaches it from
+primary key is the storage identity, so a duplicate direct insert is a
+constraint violation; the application treats that duplicate as an idempotent
+no-op. `WITHOUT ROWID` clusters the table by the key. Join rows are bookkeeping, not entities: both sides `CASCADE`, so
+deleting a tag detaches it from
 everything it was on — the one hard delete that doesn't RESTRICT on use,
 because untagging is the point. The `idx_*_tags_tag` indexes serve the
 reverse lookup ("everything tagged errands"); the PK serves the forward one.

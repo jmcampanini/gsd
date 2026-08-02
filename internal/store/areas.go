@@ -126,6 +126,12 @@ func (s *Areas) Archive(
 	id int64,
 	timestamp string,
 ) (area.Area, error) {
+	if s.database != nil {
+		return runInTransaction(ctx, s.WithinTransaction, func(transaction area.Store) (area.Area, error) {
+			return transaction.Archive(ctx, id, timestamp)
+		})
+	}
+
 	archived, err := scanArea(s.executor.QueryRowContext(ctx, `
 UPDATE areas
 SET archived_at = ?, updated_at = ?
@@ -153,6 +159,12 @@ func (s *Areas) Unarchive(
 	id int64,
 	timestamp string,
 ) (area.Area, error) {
+	if s.database != nil {
+		return runInTransaction(ctx, s.WithinTransaction, func(transaction area.Store) (area.Area, error) {
+			return transaction.Unarchive(ctx, id, timestamp)
+		})
+	}
+
 	unarchived, err := scanArea(s.executor.QueryRowContext(ctx, `
 UPDATE areas
 SET archived_at = NULL, updated_at = ?
@@ -176,6 +188,12 @@ RETURNING `+areaColumnsWithTags("areas.id"), timestamp, id))
 }
 
 func (s *Areas) Delete(ctx context.Context, id int64) (area.Area, error) {
+	if s.database != nil {
+		return runInTransaction(ctx, s.WithinTransaction, func(transaction area.Store) (area.Area, error) {
+			return transaction.Delete(ctx, id)
+		})
+	}
+
 	deleted, err := scanArea(s.executor.QueryRowContext(ctx, `
 WITH snapshot AS MATERIALIZED (
     SELECT `+areaColumnsWithTags("areas.id")+`
