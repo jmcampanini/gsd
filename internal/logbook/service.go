@@ -1,6 +1,10 @@
 package logbook
 
-import "context"
+import (
+	"context"
+
+	"github.com/jmcampanini/gsd/internal/domain"
+)
 
 type Service struct {
 	store Store
@@ -11,13 +15,5 @@ func NewService(store Store) *Service {
 }
 
 func (s *Service) List(ctx context.Context) ([]Entry, error) {
-	entries, err := s.store.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if entries == nil {
-		return []Entry{}, nil
-	}
-
-	return entries, nil
+	return domain.NormalizeSliceResult(s.store.List(ctx))
 }

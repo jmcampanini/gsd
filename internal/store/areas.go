@@ -11,6 +11,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
+	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -24,6 +25,7 @@ type Areas struct {
 type areaExecutor interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }
 
 func NewAreas(database *DB) *Areas {
@@ -39,7 +41,7 @@ func (s *Areas) Add(
 INSERT INTO areas (title, note, position, created_at, updated_at)
 SELECT ?, ?, COALESCE(MAX(position), -1) + 1, ?, ?
 FROM areas
-RETURNING `+areaColumns, fields.Title, fields.Note, timestamp, timestamp))
+RETURNING `+areaColumnsWithTags("areas.id"), fields.Title, fields.Note, timestamp, timestamp))
 	if err != nil {
 		return area.Area{}, fmt.Errorf("insert area: %w", err)
 	}
@@ -50,7 +52,7 @@ RETURNING `+areaColumns, fields.Title, fields.Note, timestamp, timestamp))
 func (s *Areas) Find(ctx context.Context, id int64) (area.Area, error) {
 	found, err := scanArea(s.executor.QueryRowContext(
 		ctx,
-		"SELECT "+areaColumns+" FROM areas WHERE id = ?",
+		"SELECT "+areaColumnsWithTags("areas.id")+" FROM areas WHERE id = ?",
 		id,
 	))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -64,7 +66,7 @@ func (s *Areas) Find(ctx context.Context, id int64) (area.Area, error) {
 }
 
 func (s *Areas) List(ctx context.Context, options area.ListOptions) ([]area.Area, error) {
-	query := "SELECT " + areaColumns + " FROM areas"
+	query := "SELECT " + areaColumnsWithTags("areas.id") + " FROM areas"
 	switch options.Slice {
 	case area.ListSliceActive:
 		query += " WHERE archived_at IS NULL"
@@ -107,7 +109,7 @@ func (s *Areas) Edit(
 	assignments = append(assignments, "updated_at = ?")
 	arguments = append(arguments, timestamp, id)
 	query := "UPDATE areas SET " + strings.Join(assignments, ", ") +
-		" WHERE id = ? RETURNING " + areaColumns
+		" WHERE id = ? RETURNING " + areaColumnsWithTags("areas.id")
 	edited, err := scanArea(s.executor.QueryRowContext(ctx, query, arguments...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return area.Area{}, apperr.New(apperr.NotFound, fmt.Sprintf("no area %d", id), err)
@@ -128,7 +130,7 @@ func (s *Areas) Archive(
 UPDATE areas
 SET archived_at = ?, updated_at = ?
 WHERE id = ? AND archived_at IS NULL
-RETURNING `+areaColumns, timestamp, timestamp, id))
+RETURNING `+areaColumnsWithTags("areas.id"), timestamp, timestamp, id))
 	if err == nil {
 		return archived, nil
 	}
@@ -155,7 +157,7 @@ func (s *Areas) Unarchive(
 UPDATE areas
 SET archived_at = NULL, updated_at = ?
 WHERE id = ? AND archived_at IS NOT NULL
-RETURNING `+areaColumns, timestamp, id))
+RETURNING `+areaColumnsWithTags("areas.id"), timestamp, id))
 	if err == nil {
 		return unarchived, nil
 	}
@@ -175,11 +177,18 @@ RETURNING `+areaColumns, timestamp, id))
 
 func (s *Areas) Delete(ctx context.Context, id int64) (area.Area, error) {
 	deleted, err := scanArea(s.executor.QueryRowContext(ctx, `
+WITH snapshot AS MATERIALIZED (
+    SELECT `+areaColumnsWithTags("areas.id")+`
+    FROM areas
+    WHERE id = ?
+)
 DELETE FROM areas
-WHERE id = ?
+WHERE id IN (SELECT id FROM snapshot)
   AND NOT EXISTS (SELECT 1 FROM projects WHERE area_id = areas.id)
   AND NOT EXISTS (SELECT 1 FROM tasks WHERE area_id = areas.id)
-RETURNING `+areaColumns, id))
+RETURNING `+areaColumns+`,
+          (SELECT tags FROM snapshot WHERE snapshot.id = areas.id)
+`, id))
 	if err == nil {
 		return deleted, nil
 	}
@@ -201,11 +210,17 @@ func (s *Areas) DeleteProjects(
 	ctx context.Context,
 	areaID int64,
 ) ([]project.Project, error) {
-	rows, err := s.executor.QueryContext(
-		ctx,
-		"DELETE FROM projects WHERE area_id = ? RETURNING "+projectColumns,
-		areaID,
-	)
+	rows, err := s.executor.QueryContext(ctx, `
+WITH snapshot AS MATERIALIZED (
+    SELECT `+projectColumnsWithTags("projects.id")+`
+    FROM projects
+    WHERE area_id = ?
+)
+DELETE FROM projects
+WHERE id IN (SELECT id FROM snapshot)
+RETURNING `+projectColumns+`,
+          (SELECT tags FROM snapshot WHERE snapshot.id = projects.id)
+`, areaID)
 	if err != nil {
 		return nil, fmt.Errorf("delete area projects: %w", err)
 	}
@@ -229,17 +244,26 @@ func (s *Areas) DeleteTasks(
 	areaID int64,
 	scope area.TaskDeletionScope,
 ) ([]task.Task, error) {
-	var query string
+	var condition string
 	switch scope {
 	case area.TaskDeletionScopeProject:
-		query = `DELETE FROM tasks
-WHERE project_id IN (SELECT id FROM projects WHERE area_id = ?)
-RETURNING ` + taskColumns
+		condition = "project_id IN (SELECT id FROM projects WHERE area_id = ?)"
 	case area.TaskDeletionScopeLoose:
-		query = "DELETE FROM tasks WHERE area_id = ? RETURNING " + taskColumns
+		condition = "area_id = ?"
 	default:
 		return nil, fmt.Errorf("invalid area task deletion scope %q", scope)
 	}
+	query := `
+WITH snapshot AS MATERIALIZED (
+    SELECT ` + taskColumnsWithTags("tasks.id") + `
+    FROM tasks
+    WHERE ` + condition + `
+)
+DELETE FROM tasks
+WHERE id IN (SELECT id FROM snapshot)
+RETURNING ` + taskColumns + `,
+          (SELECT tags FROM snapshot WHERE snapshot.id = tasks.id)
+`
 
 	rows, err := s.executor.QueryContext(ctx, query, areaID)
 	if err != nil {
@@ -265,6 +289,18 @@ func (s *Areas) WithinTransaction(
 	return withinImmediateTransaction(ctx, s.database, "area", func(connection *sql.Conn) error {
 		return apply(&Areas{executor: connection})
 	})
+}
+
+func (s *Areas) ResolveTags(ctx context.Context, names []string) ([]tag.Tag, error) {
+	return resolveStoredTags(ctx, s.executor, names)
+}
+
+func (s *Areas) AttachTags(ctx context.Context, areaID int64, tags []tag.Tag) error {
+	return attachEntityTags(ctx, s.executor, areaTagSpec, areaID, tags)
+}
+
+func (s *Areas) DetachTags(ctx context.Context, areaID int64, tags []tag.Tag) error {
+	return detachEntityTags(ctx, s.executor, areaTagSpec, areaID, tags)
 }
 
 func collectAreas(rows *sql.Rows) ([]area.Area, error) {
@@ -297,7 +333,12 @@ func scanArea(scanner rowScanner) (area.Area, error) {
 		&value.Position,
 		&value.CreatedAt,
 		&value.UpdatedAt,
+		scanTagTitles(&value.Tags),
 	)
 
 	return value, err
+}
+
+func areaColumnsWithTags(entityReference string) string {
+	return areaColumns + ", " + tagJSONExpression(areaTagSpec, entityReference) + " AS tags"
 }

@@ -14,6 +14,14 @@ type ListedTag struct {
 	UsageCount int64 `json:"usage_count"`
 }
 
+func Titles(tags []Tag) []string {
+	titles := make([]string, len(tags))
+	for index := range tags {
+		titles[index] = tags[index].Title
+	}
+	return titles
+}
+
 type Renaming struct {
 	PreviousTitle string
 	Tag           Tag

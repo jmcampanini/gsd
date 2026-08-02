@@ -10,12 +10,13 @@ import (
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
+	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
 const taskColumns = `id, project_id, area_id, title, note, defer_until, due_on, done_at, cancelled_at, status, position, created_at, updated_at`
 
-const taskViewColumns = taskColumns + `, project_title, governing_area_id, governing_area_title`
+const taskViewColumns = taskColumns + `, project_title, governing_area_id, governing_area_title, tags`
 
 type Tasks struct {
 	database *DB
@@ -25,6 +26,7 @@ type Tasks struct {
 type taskExecutor interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }
 
 type taskContainerKind uint8
@@ -89,7 +91,7 @@ VALUES (
     ),
     ?, ?
 )
-RETURNING `+taskColumns,
+RETURNING `+taskColumnsWithTags("tasks.id"),
 		projectID,
 		areaID,
 		fields.Title,
@@ -127,7 +129,11 @@ func (s *Tasks) Available(ctx context.Context) ([]task.ViewTask, error) {
 }
 
 func (s *Tasks) Find(ctx context.Context, id int64) (task.Task, error) {
-	row := s.executor.QueryRowContext(ctx, "SELECT "+taskColumns+" FROM tasks WHERE id = ?", id)
+	row := s.executor.QueryRowContext(
+		ctx,
+		"SELECT "+taskColumnsWithTags("tasks.id")+" FROM tasks WHERE id = ?",
+		id,
+	)
 	found, err := scanTask(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return task.Task{}, apperr.New(apperr.NotFound, fmt.Sprintf("no task %d", id), err)
@@ -167,26 +173,46 @@ func (s *Tasks) List(ctx context.Context, options task.ListOptions) ([]task.Task
 		return nil, fmt.Errorf("invalid date selector %q", options.Date)
 	}
 
-	if options.ProjectID != nil || options.AreaID != nil {
-		if s.database != nil {
-			var listed []task.Task
-			err := withinDeferredTransaction(ctx, s.database, "task", func(connection *sql.Conn) error {
-				var operationErr error
-				listed, operationErr = (&Tasks{executor: connection}).List(ctx, options)
-				return operationErr
-			})
-			if err != nil {
-				return nil, err
-			}
-			return listed, nil
+	if s.database != nil &&
+		(options.ProjectID != nil || options.AreaID != nil || options.Tag != nil) {
+		var listed []task.Task
+		err := withinDeferredTransaction(ctx, s.database, "task", func(connection *sql.Conn) error {
+			var operationErr error
+			listed, operationErr = (&Tasks{executor: connection}).List(ctx, options)
+			return operationErr
+		})
+		if err != nil {
+			return nil, err
 		}
-		if options.ProjectID != nil {
-			return s.listContained(ctx, taskContainerProject, *options.ProjectID, conditions, arguments)
-		}
-		return s.listContained(ctx, taskContainerArea, *options.AreaID, conditions, arguments)
+		return listed, nil
 	}
 
-	query := "SELECT " + taskColumns + " FROM tasks"
+	if options.ProjectID != nil {
+		return s.listContained(
+			ctx,
+			taskContainerProject,
+			*options.ProjectID,
+			conditions,
+			arguments,
+			options.Tag,
+		)
+	}
+	if options.AreaID != nil {
+		return s.listContained(
+			ctx,
+			taskContainerArea,
+			*options.AreaID,
+			conditions,
+			arguments,
+			options.Tag,
+		)
+	}
+
+	conditions, arguments, err := s.appendTagFilter(ctx, conditions, arguments, options.Tag)
+	if err != nil {
+		return nil, err
+	}
+	query := "SELECT " + taskColumnsWithTags("tasks.id") + " FROM tasks"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -206,6 +232,7 @@ func (s *Tasks) listContained(
 	containerID int64,
 	conditions []string,
 	arguments []any,
+	tagName *string,
 ) ([]task.Task, error) {
 	var column string
 	var noun string
@@ -226,7 +253,12 @@ func (s *Tasks) listContained(
 		return nil, fmt.Errorf("invalid task container kind %d", kind)
 	}
 
-	query := "SELECT " + taskColumns + " FROM tasks WHERE " + column + " = ?"
+	var err error
+	conditions, arguments, err = s.appendTagFilter(ctx, conditions, arguments, tagName)
+	if err != nil {
+		return nil, err
+	}
+	query := "SELECT " + taskColumnsWithTags("tasks.id") + " FROM tasks WHERE " + column + " = ?"
 	if len(conditions) > 0 {
 		query += " AND " + strings.Join(conditions, " AND ")
 	}
@@ -241,6 +273,28 @@ func (s *Tasks) listContained(
 	}
 
 	return collectTasks(rows, "scan listed "+noun+" task", "iterate listed "+noun+" tasks")
+}
+
+func (s *Tasks) appendTagFilter(
+	ctx context.Context,
+	conditions []string,
+	arguments []any,
+	name *string,
+) ([]string, []any, error) {
+	if name == nil {
+		return conditions, arguments, nil
+	}
+
+	resolved, err := s.ResolveTags(ctx, []string{*name})
+	if err != nil {
+		return nil, nil, err
+	}
+	conditions = append(conditions, `EXISTS (
+    SELECT 1 FROM task_tags
+    WHERE task_id = tasks.id AND tag_id = ?
+)`)
+	arguments = append(arguments, resolved[0].ID)
+	return conditions, arguments, nil
 }
 
 func (s *Tasks) Edit(
@@ -350,7 +404,8 @@ func (s *Tasks) Edit(
 
 	edited, err := scanTask(s.executor.QueryRowContext(
 		ctx,
-		"UPDATE tasks SET "+strings.Join(assignments, ", ")+" WHERE id = ? RETURNING "+taskColumns,
+		"UPDATE tasks SET "+strings.Join(assignments, ", ")+" WHERE id = ? RETURNING "+
+			taskColumnsWithTags("tasks.id"),
 		arguments...,
 	))
 	if err != nil {
@@ -417,15 +472,18 @@ func (s *Tasks) applyTransition(
 	switch action {
 	case "complete":
 		valid = current.DoneAt == nil && current.CancelledAt == nil
-		query = "UPDATE tasks SET done_at = ?, updated_at = ? WHERE id = ? RETURNING " + taskColumns
+		query = "UPDATE tasks SET done_at = ?, updated_at = ? WHERE id = ? RETURNING " +
+			taskColumnsWithTags("tasks.id")
 		arguments = []any{timestamp, timestamp, id}
 	case "cancel":
 		valid = current.DoneAt == nil && current.CancelledAt == nil
-		query = "UPDATE tasks SET cancelled_at = ?, updated_at = ? WHERE id = ? RETURNING " + taskColumns
+		query = "UPDATE tasks SET cancelled_at = ?, updated_at = ? WHERE id = ? RETURNING " +
+			taskColumnsWithTags("tasks.id")
 		arguments = []any{timestamp, timestamp, id}
 	case "reopen":
 		valid = current.DoneAt != nil || current.CancelledAt != nil
-		query = "UPDATE tasks SET done_at = NULL, cancelled_at = NULL, updated_at = ? WHERE id = ? RETURNING " + taskColumns
+		query = "UPDATE tasks SET done_at = NULL, cancelled_at = NULL, updated_at = ? WHERE id = ? RETURNING " +
+			taskColumnsWithTags("tasks.id")
 		arguments = []any{timestamp, id}
 	default:
 		return task.Task{}, fmt.Errorf("invalid task transition %q", action)
@@ -446,7 +504,17 @@ func (s *Tasks) applyTransition(
 }
 
 func (s *Tasks) Delete(ctx context.Context, id int64) (task.Task, error) {
-	row := s.executor.QueryRowContext(ctx, "DELETE FROM tasks WHERE id = ? RETURNING "+taskColumns, id)
+	row := s.executor.QueryRowContext(ctx, `
+WITH snapshot AS MATERIALIZED (
+    SELECT `+taskColumnsWithTags("tasks.id")+`
+    FROM tasks
+    WHERE id = ?
+)
+DELETE FROM tasks
+WHERE id IN (SELECT id FROM snapshot)
+RETURNING `+taskColumns+`,
+          (SELECT tags FROM snapshot WHERE snapshot.id = tasks.id)
+`, id)
 	deleted, err := scanTask(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return task.Task{}, apperr.New(apperr.NotFound, fmt.Sprintf("no task %d", id), err)
@@ -456,6 +524,22 @@ func (s *Tasks) Delete(ctx context.Context, id int64) (task.Task, error) {
 	}
 
 	return deleted, nil
+}
+
+func taskColumnsWithTags(entityReference string) string {
+	return taskColumns + ", " + tagJSONExpression(taskTagSpec, entityReference) + " AS tags"
+}
+
+func (s *Tasks) ResolveTags(ctx context.Context, names []string) ([]tag.Tag, error) {
+	return resolveStoredTags(ctx, s.executor, names)
+}
+
+func (s *Tasks) AttachTags(ctx context.Context, taskID int64, tags []tag.Tag) error {
+	return attachEntityTags(ctx, s.executor, taskTagSpec, taskID, tags)
+}
+
+func (s *Tasks) DetachTags(ctx context.Context, taskID int64, tags []tag.Tag) error {
+	return detachEntityTags(ctx, s.executor, taskTagSpec, taskID, tags)
 }
 
 func (s *Tasks) WithinTransaction(
@@ -624,7 +708,8 @@ func collectViewTasks(rows *sql.Rows, scanAction, iterateAction string) ([]task.
 
 func scanTask(scanner rowScanner) (task.Task, error) {
 	var value task.Task
-	err := scanner.Scan(taskScanTargets(&value)...)
+	targets := append(taskBaseScanTargets(&value), scanTagTitles(&value.Tags))
+	err := scanner.Scan(targets...)
 
 	return value, err
 }
@@ -632,17 +717,18 @@ func scanTask(scanner rowScanner) (task.Task, error) {
 func scanViewTask(scanner rowScanner) (task.ViewTask, error) {
 	var value task.ViewTask
 	targets := append(
-		taskScanTargets(&value.Task),
+		taskBaseScanTargets(&value.Task),
 		&value.ProjectTitle,
 		&value.GoverningAreaID,
 		&value.GoverningAreaTitle,
+		scanTagTitles(&value.Tags),
 	)
 	err := scanner.Scan(targets...)
 
 	return value, err
 }
 
-func taskScanTargets(value *task.Task) []any {
+func taskBaseScanTargets(value *task.Task) []any {
 	return []any{
 		&value.ID,
 		&value.ProjectID,

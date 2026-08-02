@@ -37,18 +37,26 @@ type fakeApplication struct {
 	reopenError     error
 	deleteResult    task.Task
 	deleteError     error
+	tagResult       task.Tagging
+	tagError        error
+	untagResult     task.Tagging
+	untagError      error
 	addTitle        string
 	addNote         string
 	addProjectID    *int64
 	addAreaID       *int64
 	addDueOn        *string
 	addDeferUntil   *string
+	addTags         []string
 	listOptions     task.ListOptions
 	showID          int64
 	editID          int64
 	editFields      task.EditFields
 	mutation        string
 	mutationID      int64
+	taggingMutation string
+	taggingID       int64
+	taggingNames    []string
 }
 
 func (f *fakeApplication) Add(_ context.Context, fields task.AddFields) (task.Task, error) {
@@ -58,6 +66,7 @@ func (f *fakeApplication) Add(_ context.Context, fields task.AddFields) (task.Ta
 	f.addAreaID = fields.AreaID
 	f.addDueOn = fields.DueOn
 	f.addDeferUntil = fields.DeferUntil
+	f.addTags = fields.Tags
 	return f.addResult, f.addError
 }
 
@@ -105,6 +114,20 @@ func (f *fakeApplication) Reopen(_ context.Context, id int64) (task.Task, error)
 	f.mutation = "reopen"
 	f.mutationID = id
 	return f.reopenResult, f.reopenError
+}
+
+func (f *fakeApplication) Tag(_ context.Context, id int64, names []string) (task.Tagging, error) {
+	f.taggingMutation = "tag"
+	f.taggingID = id
+	f.taggingNames = names
+	return f.tagResult, f.tagError
+}
+
+func (f *fakeApplication) Untag(_ context.Context, id int64, names []string) (task.Tagging, error) {
+	f.taggingMutation = "untag"
+	f.taggingID = id
+	f.taggingNames = names
+	return f.untagResult, f.untagError
 }
 
 func (f *fakeApplication) Delete(_ context.Context, id int64) (task.Task, error) {
@@ -373,13 +396,14 @@ func TestJSONCommandOutput(t *testing.T) {
 		"position",
 		"created_at",
 		"updated_at",
+		"tags",
 	} {
 		if _, ok := fields[field]; !ok {
 			t.Errorf("JSON fields = %v, missing %q", fields, field)
 		}
 	}
-	if len(fields) != 13 {
-		t.Errorf("JSON field count = %d, want 13", len(fields))
+	if len(fields) != 14 {
+		t.Errorf("JSON field count = %d, want 14", len(fields))
 	}
 	if string(fields["project_id"]) != "null" || string(fields["area_id"]) != "null" ||
 		string(fields["done_at"]) != "null" || string(fields["cancelled_at"]) != "null" {
@@ -404,6 +428,30 @@ func TestJSONCommandOutput(t *testing.T) {
 	}
 	if result.openPath != "chosen.db" || result.opens != 1 || result.closes != 1 {
 		t.Errorf("factory lifecycle = %#v, want chosen path and one open/close", result)
+	}
+}
+
+func TestAddAccumulatesTagFlagsWithoutSplittingCommas(t *testing.T) {
+	t.Parallel()
+
+	application := &fakeApplication{addResult: task.Task{ID: 7, Title: "capture"}}
+	result := runCommand(
+		t,
+		application,
+		"add",
+		"capture",
+		"--tag",
+		"Errands,Home",
+		"--tag",
+		"  Next  ",
+		"--json",
+	)
+	if result.exitCode != 0 || result.stderr != "" {
+		t.Fatalf("result = %#v, want success", result)
+	}
+	want := []string{"Errands,Home", "  Next  "}
+	if !reflect.DeepEqual(application.addTags, want) {
+		t.Errorf("Add() tags = %#v, want exact accumulated values %#v", application.addTags, want)
 	}
 }
 
@@ -666,7 +714,7 @@ func TestInboxJSONIncludesExactViewTaskEnrichment(t *testing.T) {
 	projectTitle := "Kitchen"
 	areaTitle := "Home"
 	view := task.ViewTask{
-		Task:               task.Task{ID: 1, ProjectID: &projectID, Title: "Get quotes", Status: "open"},
+		Task:               task.Task{ID: 1, ProjectID: &projectID, Title: "Get quotes", Status: "open", Tags: []string{}},
 		ProjectTitle:       &projectTitle,
 		GoverningAreaID:    &areaID,
 		GoverningAreaTitle: &areaTitle,
@@ -681,7 +729,7 @@ func TestInboxJSONIncludesExactViewTaskEnrichment(t *testing.T) {
 	}
 	want := []string{
 		"id", "project_id", "area_id", "title", "note", "defer_until", "due_on", "done_at",
-		"cancelled_at", "status", "position", "created_at", "updated_at", "project_title",
+		"cancelled_at", "status", "position", "created_at", "updated_at", "tags", "project_title",
 		"governing_area_id", "governing_area_title",
 	}
 	if len(fields) != 1 || len(fields[0]) != len(want) {
@@ -715,7 +763,7 @@ func TestListAdaptsStatusAndOutputMode(t *testing.T) {
 	if err := json.Unmarshal([]byte(jsonResult.stdout), &decoded); err != nil {
 		t.Fatalf("decode list JSON: %v", err)
 	}
-	if len(decoded) != len(tasks) || decoded[0] != tasks[0] || decoded[1] != tasks[1] {
+	if !reflect.DeepEqual(decoded, tasks) {
 		t.Errorf("list JSON = %#v, want %#v", decoded, tasks)
 	}
 	if jsonApplication.listOptions != (task.ListOptions{Status: task.ListStatusAll}) {
@@ -740,6 +788,28 @@ func TestListAdaptsStatusAndOutputMode(t *testing.T) {
 	emptyResult := runCommand(t, &fakeApplication{listResult: []task.Task{}}, "list")
 	if emptyResult.exitCode != 0 || emptyResult.stdout != "" || emptyResult.stderr != "" {
 		t.Errorf("empty human list = %#v, want no output", emptyResult)
+	}
+}
+
+func TestListAdaptsOptionalTagFilterOnlyWhenChanged(t *testing.T) {
+	t.Parallel()
+
+	withoutTag := &fakeApplication{listResult: []task.Task{}}
+	withoutResult := runCommand(t, withoutTag, "list", "--json")
+	if withoutResult.exitCode != 0 || withoutResult.stderr != "" {
+		t.Fatalf("list without tag result = %#v, want success", withoutResult)
+	}
+	if withoutTag.listOptions.Tag != nil {
+		t.Errorf("list tag = %#v, want omitted", withoutTag.listOptions.Tag)
+	}
+
+	withTag := &fakeApplication{listResult: []task.Task{}}
+	withResult := runCommand(t, withTag, "list", "--tag", "  Errands  ", "--json")
+	if withResult.exitCode != 0 || withResult.stderr != "" {
+		t.Fatalf("list with tag result = %#v, want success", withResult)
+	}
+	if withTag.listOptions.Tag == nil || *withTag.listOptions.Tag != "  Errands  " {
+		t.Errorf("list tag = %#v, want pointer to exact flag value", withTag.listOptions.Tag)
 	}
 }
 
@@ -850,8 +920,113 @@ func TestLifecycleJSONReturnsAffectedTask(t *testing.T) {
 	if err := json.Unmarshal([]byte(result.stdout), &decoded); err != nil {
 		t.Fatalf("decode deleted task: %v", err)
 	}
-	if decoded != deleted {
+	if !reflect.DeepEqual(decoded, deleted) {
 		t.Errorf("deleted task = %#v, want %#v", decoded, deleted)
+	}
+}
+
+func TestTaskTaggingAdaptsExactNamesAndOutputModes(t *testing.T) {
+	t.Parallel()
+
+	taggedTask := task.Task{ID: 7, Title: "capture", Status: "open", Tags: []string{"Errands", "Home"}}
+	tagApplication := &fakeApplication{tagResult: task.Tagging{
+		Task:      taggedTask,
+		TagTitles: []string{"Errands", "Home"},
+	}}
+	tagResult := runCommand(t, tagApplication, "tag", "7", "Errands,Home", "  Next  ", "--json")
+	if tagResult.exitCode != 0 || tagResult.stderr != "" {
+		t.Fatalf("JSON tag result = %#v, want success", tagResult)
+	}
+	var decoded task.Task
+	if err := json.Unmarshal([]byte(tagResult.stdout), &decoded); err != nil {
+		t.Fatalf("decode tagged task: %v", err)
+	}
+	if !reflect.DeepEqual(decoded, taggedTask) {
+		t.Errorf("tag JSON = %#v, want only task %#v", decoded, taggedTask)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(tagResult.stdout), &fields); err != nil {
+		t.Fatalf("decode tag JSON shape: %v", err)
+	}
+	if _, ok := fields["task"]; ok {
+		t.Errorf("tag JSON fields = %v, want unwrapped task", fields)
+	}
+	if _, ok := fields["tag_titles"]; ok {
+		t.Errorf("tag JSON fields = %v, want no attachment metadata", fields)
+	}
+	wantNames := []string{"Errands,Home", "  Next  "}
+	if tagApplication.taggingMutation != "tag" || tagApplication.taggingID != 7 ||
+		!reflect.DeepEqual(tagApplication.taggingNames, wantNames) {
+		t.Errorf(
+			"Tag() call = (%q, %d, %#v), want (tag, 7, %#v)",
+			tagApplication.taggingMutation,
+			tagApplication.taggingID,
+			tagApplication.taggingNames,
+			wantNames,
+		)
+	}
+
+	humanTagApplication := &fakeApplication{tagResult: task.Tagging{
+		Task:      task.Task{ID: 7, Title: "capture", Status: "open"},
+		TagTitles: []string{"Errands"},
+	}}
+	humanTagResult := runCommand(t, humanTagApplication, "tag", "7", "errands")
+	if humanTagResult.exitCode != 0 || humanTagResult.stderr != "" {
+		t.Fatalf("human tag result = %#v, want success", humanTagResult)
+	}
+	if humanTagResult.stdout != "Tagged: task 7  Errands\n" {
+		t.Errorf("human tag output = %q, want stored tag spelling", humanTagResult.stdout)
+	}
+
+	untagApplication := &fakeApplication{untagResult: task.Tagging{
+		Task:      task.Task{ID: 7, Title: "capture", Status: "open"},
+		TagTitles: []string{"Errands"},
+	}}
+	untagResult := runCommand(t, untagApplication, "untag", "7", "errands")
+	if untagResult.exitCode != 0 || untagResult.stderr != "" {
+		t.Fatalf("human untag result = %#v, want success", untagResult)
+	}
+	if untagResult.stdout != "Untagged: task 7  Errands\n" {
+		t.Errorf("human untag output = %q, want stored tag spelling", untagResult.stdout)
+	}
+	if untagApplication.taggingMutation != "untag" || untagApplication.taggingID != 7 ||
+		!reflect.DeepEqual(untagApplication.taggingNames, []string{"errands"}) {
+		t.Errorf(
+			"Untag() call = (%q, %d, %#v), want (untag, 7, [errands])",
+			untagApplication.taggingMutation,
+			untagApplication.taggingID,
+			untagApplication.taggingNames,
+		)
+	}
+}
+
+func TestTaskTaggingArityAndIDsFailWithoutOpeningDatabase(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		args     []string
+		wantExit int
+	}{
+		{name: "bare tag", args: []string{"tag"}, wantExit: 2},
+		{name: "tag ID only", args: []string{"tag", "7"}, wantExit: 2},
+		{name: "bare untag", args: []string{"untag"}, wantExit: 2},
+		{name: "untag ID only", args: []string{"untag", "7"}, wantExit: 2},
+		{name: "invalid tag ID", args: []string{"tag", "0", "Errands", "--json"}, wantExit: 1},
+		{name: "invalid untag ID", args: []string{"untag", "nope", "Errands", "--json"}, wantExit: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := runCommand(t, &fakeApplication{}, test.args...)
+			if result.exitCode != test.wantExit || result.opens != 0 || result.stdout != "" {
+				t.Errorf("result = %#v, want exit %d without database open", result, test.wantExit)
+			}
+			if result.stderr == "" {
+				t.Errorf("stderr = %q, want validation diagnostic", result.stderr)
+			}
+		})
 	}
 }
 
@@ -932,6 +1107,7 @@ func TestHumanShowUsesPlainFieldValueTableForMultilineNotes(t *testing.T) {
 		Position:   2,
 		CreatedAt:  "2026-07-27T12:00:00.000Z",
 		UpdatedAt:  "2026-07-27T13:00:00.000Z",
+		Tags:       []string{"Errands", "Home"},
 	}}, "show", "7")
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)
@@ -945,6 +1121,7 @@ func TestHumanShowUsesPlainFieldValueTableForMultilineNotes(t *testing.T) {
 		"Status",
 		"Created at",
 		"Updated at",
+		"Tags",
 	} {
 		if !strings.Contains(result.stdout, value) {
 			t.Errorf("stdout = %q, want %q", result.stdout, value)
@@ -954,7 +1131,11 @@ func TestHumanShowUsesPlainFieldValueTableForMultilineNotes(t *testing.T) {
 	for _, line := range strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n") {
 		normalizedRows[strings.Join(strings.Fields(line), " ")] = true
 	}
-	for _, row := range []string{"Due on 2026-07-28", "Defer until 2026-07-29"} {
+	for _, row := range []string{
+		"Due on 2026-07-28",
+		"Defer until 2026-07-29",
+		"Tags Errands, Home",
+	} {
 		if !normalizedRows[row] {
 			t.Errorf("stdout = %q, want associated row %q", result.stdout, row)
 		}

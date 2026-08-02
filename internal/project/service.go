@@ -7,6 +7,7 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/domain"
+	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -30,7 +31,39 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Project, error) {
 		return Project{}, err
 	}
 
-	return s.store.Add(ctx, fields, domain.FormatTimestamp(s.now()))
+	normalizedTags, err := domain.NormalizeTagNames(fields.Tags)
+	if err != nil {
+		return Project{}, err
+	}
+	fields.Tags = normalizedTags
+	timestamp := domain.FormatTimestamp(s.now())
+	if len(fields.Tags) == 0 {
+		return s.store.Add(ctx, fields, timestamp)
+	}
+
+	var created Project
+	err = s.store.WithinTransaction(ctx, func(store Store) error {
+		created, err = store.Add(ctx, fields, timestamp)
+		if err != nil {
+			return err
+		}
+
+		resolvedTags, resolveErr := store.ResolveTags(ctx, fields.Tags)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		if err = store.AttachTags(ctx, created.ID, resolvedTags); err != nil {
+			return err
+		}
+
+		created, err = store.Find(ctx, created.ID)
+		return err
+	})
+	if err != nil {
+		return Project{}, err
+	}
+
+	return created, nil
 }
 
 func (s *Service) List(ctx context.Context, options ListOptions) ([]Project, error) {
@@ -133,6 +166,68 @@ func (s *Service) Reopen(ctx context.Context, id int64) (Project, error) {
 	}
 
 	return s.store.Reopen(ctx, id, domain.FormatTimestamp(s.now()))
+}
+
+func (s *Service) Tag(ctx context.Context, id int64, names []string) (Tagging, error) {
+	return s.changeTags(ctx, id, names, true)
+}
+
+func (s *Service) Untag(ctx context.Context, id int64, names []string) (Tagging, error) {
+	return s.changeTags(ctx, id, names, false)
+}
+
+func (s *Service) changeTags(
+	ctx context.Context,
+	id int64,
+	names []string,
+	attach bool,
+) (Tagging, error) {
+	if err := validateID(id); err != nil {
+		return Tagging{}, err
+	}
+	if len(names) == 0 {
+		return Tagging{}, apperr.New(
+			apperr.InvalidArgument,
+			"project tagging requires at least one tag",
+			nil,
+		)
+	}
+
+	normalizedNames, normalizeErr := domain.NormalizeTagNames(names)
+	if normalizeErr != nil {
+		return Tagging{}, normalizeErr
+	}
+
+	var tagging Tagging
+	transactionErr := s.store.WithinTransaction(ctx, func(store Store) error {
+		if _, err := store.Find(ctx, id); err != nil {
+			return err
+		}
+
+		resolvedTags, err := store.ResolveTags(ctx, normalizedNames)
+		if err != nil {
+			return err
+		}
+		if attach {
+			if err := store.AttachTags(ctx, id, resolvedTags); err != nil {
+				return err
+			}
+		} else if err := store.DetachTags(ctx, id, resolvedTags); err != nil {
+			return err
+		}
+
+		refreshed, err := store.Find(ctx, id)
+		if err != nil {
+			return err
+		}
+		tagging = Tagging{Project: refreshed, TagTitles: tag.Titles(resolvedTags)}
+		return nil
+	})
+	if transactionErr != nil {
+		return Tagging{}, transactionErr
+	}
+
+	return tagging, nil
 }
 
 func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletion, error) {

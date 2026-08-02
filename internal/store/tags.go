@@ -57,19 +57,7 @@ RETURNING `+tagColumns, name, timestamp, timestamp, name))
 }
 
 func (s *Tags) Find(ctx context.Context, name string) (tag.Tag, error) {
-	found, err := scanTag(s.executor.QueryRowContext(
-		ctx,
-		"SELECT "+tagColumns+" FROM tags WHERE title = ? COLLATE NOCASE",
-		name,
-	))
-	if errors.Is(err, sql.ErrNoRows) {
-		return tag.Tag{}, apperr.New(apperr.NotFound, fmt.Sprintf("no tag %s", name), err)
-	}
-	if err != nil {
-		return tag.Tag{}, fmt.Errorf("find tag: %w", err)
-	}
-
-	return found, nil
+	return findStoredTag(ctx, s.executor, name)
 }
 
 func (s *Tags) List(ctx context.Context) ([]tag.ListedTag, error) {

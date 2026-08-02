@@ -309,7 +309,7 @@ func assertContainmentLogbookShape(t *testing.T, result processResult) {
 	t.Helper()
 	fields := []string{
 		"kind", "id", "title", "status", "resolved_at", "project_title",
-		"governing_area_id", "governing_area_title",
+		"governing_area_id", "governing_area_title", "tags",
 	}
 	var rows []map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(result.stdout), &rows); err != nil {

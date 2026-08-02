@@ -66,6 +66,7 @@ func TestLogbookJSONPreservesEntriesAndFactoryLifecycle(t *testing.T) {
 			Status:       "done",
 			ResolvedAt:   "2026-07-28T01:30:00.000Z",
 			ProjectTitle: nil,
+			Tags:         []string{},
 		},
 		{
 			Kind:               "task",
@@ -76,6 +77,7 @@ func TestLogbookJSONPreservesEntriesAndFactoryLifecycle(t *testing.T) {
 			ProjectTitle:       &projectTitle,
 			GoverningAreaID:    &areaID,
 			GoverningAreaTitle: &areaTitle,
+			Tags:               []string{"release"},
 		},
 	}
 	application := &fakeLogbookApplication{result: entries}
@@ -107,12 +109,12 @@ func TestLogbookJSONPreservesEntriesAndFactoryLifecycle(t *testing.T) {
 		t.Fatalf("decode logbook JSON fields: %v", err)
 	}
 	for index, object := range objects {
-		if len(object) != 8 {
-			t.Errorf("entry %d field count = %d, want 8", index, len(object))
+		if len(object) != 9 {
+			t.Errorf("entry %d field count = %d, want 9", index, len(object))
 		}
 		for _, field := range []string{
 			"kind", "id", "title", "status", "resolved_at", "project_title",
-			"governing_area_id", "governing_area_title",
+			"governing_area_id", "governing_area_title", "tags",
 		} {
 			if _, ok := object[field]; !ok {
 				t.Errorf("entry %d fields = %v, missing %q", index, object, field)
