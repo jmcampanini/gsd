@@ -10,22 +10,34 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/project"
+	"github.com/jmcampanini/gsd/internal/task"
 )
 
 type fakeAreaApplication struct {
-	addResult   area.Area
-	addError    error
-	listResult  []area.Area
-	listError   error
-	showResult  area.Area
-	showError   error
-	editResult  area.Area
-	editError   error
-	addFields   area.AddFields
-	listOptions area.ListOptions
-	showID      int64
-	editID      int64
-	editFields  area.EditFields
+	addResult       area.Area
+	addError        error
+	listResult      []area.Area
+	listError       error
+	showResult      area.Area
+	showError       error
+	editResult      area.Area
+	editError       error
+	archiveResult   area.Area
+	archiveError    error
+	unarchiveResult area.Area
+	unarchiveError  error
+	deleteResult    area.Deletion
+	deleteError     error
+	addFields       area.AddFields
+	listOptions     area.ListOptions
+	showID          int64
+	editID          int64
+	editFields      area.EditFields
+	archiveID       int64
+	unarchiveID     int64
+	deleteID        int64
+	deleteRecursive bool
 }
 
 func (f *fakeAreaApplication) Add(
@@ -57,6 +69,26 @@ func (f *fakeAreaApplication) Edit(
 	f.editID = id
 	f.editFields = fields
 	return f.editResult, f.editError
+}
+
+func (f *fakeAreaApplication) Archive(_ context.Context, id int64) (area.Area, error) {
+	f.archiveID = id
+	return f.archiveResult, f.archiveError
+}
+
+func (f *fakeAreaApplication) Unarchive(_ context.Context, id int64) (area.Area, error) {
+	f.unarchiveID = id
+	return f.unarchiveResult, f.unarchiveError
+}
+
+func (f *fakeAreaApplication) Delete(
+	_ context.Context,
+	id int64,
+	recursive bool,
+) (area.Deletion, error) {
+	f.deleteID = id
+	f.deleteRecursive = recursive
+	return f.deleteResult, f.deleteError
 }
 
 func runAreaCommand(t *testing.T, application area.Application, args ...string) commandResult {
@@ -174,6 +206,43 @@ func TestAreaListUsesActiveSliceAndHumanArchiveMarker(t *testing.T) {
 	}
 }
 
+func TestAreaListFlagsMapDirectlyToSlicesAndConflictBeforeOpen(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name  string
+		flag  string
+		slice area.ListSlice
+	}{
+		{name: "archived", flag: "--archived", slice: area.ListSliceArchived},
+		{name: "all", flag: "--all", slice: area.ListSliceAll},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			application := &fakeAreaApplication{listResult: []area.Area{}}
+			result := runAreaCommand(t, application, "areas", "list", test.flag, "--json")
+			if result.exitCode != 0 || result.stdout != "[]\n" || result.stderr != "" {
+				t.Fatalf("result = %#v, want empty JSON success", result)
+			}
+			if application.listOptions.Slice != test.slice {
+				t.Errorf("List() slice = %q, want %q", application.listOptions.Slice, test.slice)
+			}
+		})
+	}
+
+	conflict := runAreaCommand(
+		t,
+		&fakeAreaApplication{},
+		"areas", "list", "--archived", "--all", "--json",
+	)
+	if conflict.exitCode != 2 || conflict.opens != 0 || conflict.stdout != "" || conflict.stderr == "" {
+		t.Errorf("conflict = %#v, want stderr-only usage error without open", conflict)
+	}
+	if strings.HasPrefix(conflict.stderr, "{") {
+		t.Errorf("stderr = %q, want human-readable Cobra diagnostic", conflict.stderr)
+	}
+}
+
 func TestAreaShowUsesSchemaOrderFieldValueTable(t *testing.T) {
 	t.Parallel()
 
@@ -228,6 +297,127 @@ func TestAreaEditAdaptsOnlyChangedFieldsAndWritesHumanOutput(t *testing.T) {
 	}
 }
 
+func TestAreaArchiveAndUnarchiveAdaptLifecycleAndOutput(t *testing.T) {
+	t.Parallel()
+
+	archivedAt := "2026-07-28T12:00:00.000Z"
+	archived := area.Area{ID: 7, Title: "Home\x1b", ArchivedAt: &archivedAt, Position: 2}
+	archiveApplication := &fakeAreaApplication{archiveResult: archived}
+	archive := runAreaCommand(t, archiveApplication, "area", "archive", "007")
+	if archive.exitCode != 0 || archive.stderr != "" || archive.stdout != "Archived: area 7  Home\\x1b\n" {
+		t.Fatalf("archive = %#v, want escaped mutation narration", archive)
+	}
+	if archiveApplication.archiveID != 7 || archive.opens != 1 || archive.closes != 1 {
+		t.Errorf("archive call/lifecycle = %d/%#v, want ID 7 and one open/close", archiveApplication.archiveID, archive)
+	}
+
+	unarchived := area.Area{ID: 7, Title: "Home", Position: 2}
+	unarchiveApplication := &fakeAreaApplication{unarchiveResult: unarchived}
+	unarchive := runAreaCommand(t, unarchiveApplication, "area", "unarchive", "7", "--json")
+	if unarchive.exitCode != 0 || unarchive.stderr != "" || unarchiveApplication.unarchiveID != 7 {
+		t.Fatalf("unarchive = %#v, want JSON success for ID 7", unarchive)
+	}
+	if got := decodeAreaJSON[area.Area](t, unarchive.stdout); !reflect.DeepEqual(got, unarchived) {
+		t.Errorf("unarchive JSON = %#v, want full row %#v", got, unarchived)
+	}
+}
+
+func TestAreaDeleteSelectsJSONShapeAndAdaptsRecursive(t *testing.T) {
+	t.Parallel()
+
+	deletion := area.Deletion{
+		Area:            area.Area{ID: 7, Title: "Home", Position: 2},
+		DeletedProjects: []project.Project{{ID: 3, Title: "Kitchen", Position: 1}},
+		DeletedTasks:    []task.Task{{ID: 5, Title: "Quotes", Position: 0}},
+	}
+
+	nonrecursiveApplication := &fakeAreaApplication{deleteResult: deletion}
+	nonrecursive := runAreaCommand(t, nonrecursiveApplication, "area", "delete", "7", "--json")
+	if nonrecursive.exitCode != 0 || nonrecursive.stderr != "" {
+		t.Fatalf("nonrecursive = %#v, want JSON success", nonrecursive)
+	}
+	if got := decodeAreaJSON[area.Area](t, nonrecursive.stdout); !reflect.DeepEqual(got, deletion.Area) {
+		t.Errorf("nonrecursive JSON = %#v, want area row %#v", got, deletion.Area)
+	}
+	if nonrecursiveApplication.deleteID != 7 || nonrecursiveApplication.deleteRecursive {
+		t.Errorf("Delete() input = (%d, %t), want (7, false)", nonrecursiveApplication.deleteID, nonrecursiveApplication.deleteRecursive)
+	}
+
+	recursiveApplication := &fakeAreaApplication{deleteResult: deletion}
+	recursive := runAreaCommand(t, recursiveApplication, "area", "delete", "7", "--recursive", "--json")
+	if recursive.exitCode != 0 || recursive.stderr != "" {
+		t.Fatalf("recursive = %#v, want JSON success", recursive)
+	}
+	if got := decodeAreaJSON[area.Deletion](t, recursive.stdout); !reflect.DeepEqual(got, deletion) {
+		t.Errorf("recursive JSON = %#v, want envelope %#v", got, deletion)
+	}
+	if recursiveApplication.deleteID != 7 || !recursiveApplication.deleteRecursive {
+		t.Errorf("Delete() input = (%d, %t), want (7, true)", recursiveApplication.deleteID, recursiveApplication.deleteRecursive)
+	}
+}
+
+func TestAreaDeleteHumanNarrationIncludesOnlyNonemptySections(t *testing.T) {
+	t.Parallel()
+
+	deletion := area.Deletion{
+		Area: area.Area{ID: 7, Title: "Home"},
+		DeletedProjects: []project.Project{
+			{ID: 2, Title: "Kitchen\x1b"},
+			{ID: 3, Title: "Garden"},
+		},
+		DeletedTasks: []task.Task{{ID: 4, Title: "Quotes\rforged"}},
+	}
+	result := runAreaCommand(
+		t,
+		&fakeAreaApplication{deleteResult: deletion},
+		"area", "delete", "7", "--recursive",
+	)
+	if result.exitCode != 0 || result.stderr != "" {
+		t.Fatalf("result = %#v, want success", result)
+	}
+	for _, text := range []string{
+		"Deleted: area 7  Home\n",
+		"Deleted 2 projects:\n",
+		"Deleted 1 task:\n",
+		"Kitchen\\x1b",
+		"Quotes\\rforged",
+	} {
+		if !strings.Contains(result.stdout, text) {
+			t.Errorf("stdout = %q, want %q", result.stdout, text)
+		}
+	}
+	if strings.ContainsAny(result.stdout, "\x1b\r") {
+		t.Errorf("stdout = %q, want terminal controls escaped", result.stdout)
+	}
+
+	empty := runAreaCommand(
+		t,
+		&fakeAreaApplication{deleteResult: area.Deletion{Area: area.Area{ID: 8, Title: "Empty"}}},
+		"area", "delete", "8", "--recursive",
+	)
+	if empty.exitCode != 0 || empty.stderr != "" || empty.stdout != "Deleted: area 8  Empty\n" {
+		t.Errorf("empty recursive deletion = %#v, want mutation line without empty sections", empty)
+	}
+}
+
+func TestAreaDeleteConflictAddsRecursiveRecovery(t *testing.T) {
+	t.Parallel()
+
+	application := &fakeAreaApplication{deleteError: apperr.New(
+		apperr.Conflict,
+		"cannot delete area 7 while it contains projects or tasks",
+		nil,
+	)}
+	result := runAreaCommand(t, application, "area", "delete", "7", "--json")
+	got := decodeAreaCommandError(t, result)
+	if got.Code != apperr.Conflict || got.Message != "cannot delete area 7 while it contains projects or tasks; use --recursive to delete the area and its contents" {
+		t.Errorf("error = %#v, want recursive recovery guidance", got)
+	}
+	if application.deleteID != 7 || application.deleteRecursive || result.opens != 1 || result.closes != 1 {
+		t.Errorf("call/lifecycle = (%d, %t)/%#v, want nonrecursive call and one open/close", application.deleteID, application.deleteRecursive, result)
+	}
+}
+
 func TestAreaValidationFailsBeforeFactoryOpen(t *testing.T) {
 	t.Parallel()
 
@@ -238,6 +428,9 @@ func TestAreaValidationFailsBeforeFactoryOpen(t *testing.T) {
 		{name: "edit without fields", args: []string{"area", "edit", "7", "--json"}},
 		{name: "invalid show ID", args: []string{"area", "show", "0", "--json"}},
 		{name: "invalid edit ID", args: []string{"area", "edit", "nope", "--title", "x", "--json"}},
+		{name: "invalid archive ID", args: []string{"area", "archive", "0", "--json"}},
+		{name: "invalid unarchive ID", args: []string{"area", "unarchive", "nope", "--json"}},
+		{name: "invalid delete ID", args: []string{"area", "delete", "+1", "--json"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

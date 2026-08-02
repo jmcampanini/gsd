@@ -73,13 +73,53 @@ func writeAddedArea(writer io.Writer, created area.Area) error {
 }
 
 func writeEditedArea(writer io.Writer, edited area.Area) error {
+	return writeAreaMutation(writer, "Edited", edited)
+}
+
+func writeAreaMutation(writer io.Writer, action string, current area.Area) error {
 	_, err := fmt.Fprintf(
 		writer,
-		"Edited: area %d  %s\n",
-		edited.ID,
-		humanText(edited.Title, false),
+		"%s: area %d  %s\n",
+		action,
+		current.ID,
+		humanText(current.Title, false),
 	)
 	return err
+}
+
+func writeAreaDeletion(writer io.Writer, deletion area.Deletion) error {
+	if err := writeAreaMutation(writer, "Deleted", deletion.Area); err != nil {
+		return err
+	}
+	if err := writeNarratedProjects(writer, deletion.DeletedProjects); err != nil {
+		return err
+	}
+
+	return writeNarratedTasks(writer, "Deleted", "task", deletion.DeletedTasks)
+}
+
+func writeNarratedProjects(writer io.Writer, projects []project.Project) error {
+	if len(projects) == 0 {
+		return nil
+	}
+
+	plural := ""
+	if len(projects) != 1 {
+		plural = "s"
+	}
+	if _, err := fmt.Fprintf(writer, "Deleted %d project%s:\n", len(projects), plural); err != nil {
+		return err
+	}
+
+	rows := make([][]string, 0, len(projects))
+	for _, current := range projects {
+		rows = append(rows, []string{
+			strconv.FormatInt(current.ID, 10),
+			humanText(current.Title, false),
+		})
+	}
+
+	return writeTable(writer, rows)
 }
 
 func writeOpenTaskList(writer io.Writer, tasks []task.ViewTask) error {

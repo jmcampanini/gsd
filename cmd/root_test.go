@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -223,6 +224,47 @@ func TestExitCodeForError(t *testing.T) {
 				t.Fatalf("exitCodeForError() = %d, want %d", got, test.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeApplicationErrorAddsTypedUnarchiveGuidanceDeterministically(t *testing.T) {
+	t.Parallel()
+
+	cause := &area.ArchivedAreasError{IDs: []int64{9, 2, 9, 4}}
+	original := apperr.New(apperr.Conflict, "archived areas block this operation", cause)
+	normalized := normalizeApplicationError(original)
+	code, ok := apperr.CodeOf(normalized)
+	if !ok || code != apperr.Conflict {
+		t.Fatalf("normalized code = %q/%t, want conflict", code, ok)
+	}
+	want := "archived areas block this operation; unarchive first: gsd area unarchive 2; gsd area unarchive 4; gsd area unarchive 9"
+	if normalized.Error() != want {
+		t.Errorf("normalized error = %q, want %q", normalized, want)
+	}
+	if !errors.Is(normalized, original) || !errors.Is(normalized, cause) {
+		t.Errorf("normalized error = %v, want original typed cause preserved", normalized)
+	}
+}
+
+func TestTypedArchivedAreaErrorWritesJSONGuidanceToStderr(t *testing.T) {
+	t.Parallel()
+
+	application := &fakeApplication{doneError: apperr.New(
+		apperr.Conflict,
+		"cannot complete task 7 while its governing area is archived",
+		&area.ArchivedAreasError{IDs: []int64{3}},
+	)}
+	result := runCommand(t, application, "done", "7", "--json")
+	if result.exitCode != 1 || result.stdout != "" || result.opens != 1 || result.closes != 1 {
+		t.Fatalf("result = %#v, want stderr-only conflict and one open/close", result)
+	}
+	var envelope errorEnvelope
+	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
+		t.Fatalf("decode stderr: %v", err)
+	}
+	want := "cannot complete task 7 while its governing area is archived; unarchive first: gsd area unarchive 3"
+	if envelope.Error.Code != apperr.Conflict || envelope.Error.Message != want {
+		t.Errorf("error = %#v, want typed unarchive guidance", envelope.Error)
 	}
 }
 

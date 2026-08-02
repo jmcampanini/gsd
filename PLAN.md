@@ -23,7 +23,7 @@ below are complete:
 - [x] **Chunk 2 — Containment** — a human can place projects and loose tasks
       in areas, re-parent across containers, filter by area, and see the
       schema-enforced mutual exclusion and governing-area output.
-- [ ] **Chunk 3 — Archive and delete** — a human can archive and unarchive an
+- [x] **Chunk 3 — Archive and delete** — a human can archive and unarchive an
       area, watch `available` respect the governing area, list the archived
       partition, and delete areas with RESTRICT protection and an explicit
       recursive opt-in guarded by retired-history semantics.
@@ -39,8 +39,9 @@ Expected review size, including tests:
   application, commands, and view tests.
 - Chunk 2: approximately 900–1,200 changed lines across task and project
   containment, scoped positions, enrichment output, and commands.
-- Chunk 3: approximately 1,000–1,300 changed lines for archive semantics,
-  the archived-area guard, listing partition, and recursive deletion.
+- Chunk 3: approximately 2,400–2,700 changed lines for archive semantics,
+  the archived-area guard matrices, listing partition, recursive deletion,
+  rollback proof, and the complete binary workflow.
 
 These are review-size guides, not targets. If a chunk grows enough to obscure
 its outcome, revise this plan before splitting it.
@@ -375,33 +376,33 @@ narrated recursive opt-in.
 
 ### Implementation
 
-- [ ] Extend `area.Store` with `Archive`, `Unarchive`, `Delete`,
+- [x] Extend `area.Store` with `Archive`, `Unarchive`, `Delete`,
       `DeleteProjects`, `DeleteTasks`, and `WithinTransaction`; have the
       area service build the `Deletion` envelope while owning the
       recursive-delete transaction scope and sequence. Implement the
       boundary in `store.Areas` with guard-and-classify conflicts,
       `position, id` ordering, and rollback proof.
-- [ ] Add the archived-area guard to task and project mutation predicates
+- [x] Add the archived-area guard to task and project mutation predicates
       through the governing area: creation into, re-parenting into or out
       of, and `done`/`cancel`/`reopen` under an archived governing area →
       `conflict`; multi-blocker moves gather resolved-project and
       archived-area blockers into one conflict; content edits and deletes
       stay allowed.
-- [ ] Classify archive/unarchive: archiving an archived area and
+- [x] Classify archive/unarchive: archiving an archived area and
       unarchiving an active one → `conflict`.
-- [ ] Add `area archive N`, `area unarchive N`, and
+- [x] Add `area archive N`, `area unarchive N`, and
       `area delete N [--recursive]`; add mutually exclusive `--archived`/
       `--all` to `areas list` with the partition semantics and the
       `archived` marker cell in human rows.
-- [ ] Resolve `area.ParseListSlice`: use it in the Chunk 3 production flag
+- [x] Resolve `area.ParseListSlice`: use it in the Chunk 3 production flag
       path or delete it and its tests if the boolean flags map directly to
       listing-slice constants.
-- [ ] Compose unarchive-first recovery guidance at the command adapter;
+- [x] Compose unarchive-first recovery guidance at the command adapter;
       render the deletion narration and JSON envelope.
-- [ ] Extend the subprocess workflow to the complete milestone workflow:
+- [x] Extend the subprocess workflow to the complete milestone workflow:
       archive visibility by inheritance, the guard, the partition,
       unarchive restoration, RESTRICT, and recursive deletion.
-- [ ] Run `make check` and build the real binary before opening the chunk
+- [x] Run `make check` and build the real binary before opening the chunk
       pull request.
 
 ### Human proof
@@ -409,22 +410,22 @@ narrated recursive opt-in.
 Against a fresh database with the real built binary, captured as the chunk
 demo (`.sandbox/demos/4-chunk-3.html`):
 
-- [ ] Build Home with a loose task and a project holding two tasks, plus one
+- [x] Build Home with a loose task and a project holding two tasks, plus one
       inbox task; `gsd available` shows all four tasks.
-- [ ] `gsd area archive 1` prints `Archived: area 1  Home`; `gsd available`
+- [x] `gsd area archive 1` prints `Archived: area 1  Home`; `gsd available`
       shows only the inbox task; `gsd list --area 1` still sees the loose
       task; `gsd area show 1` still renders.
-- [ ] `gsd areas list` prints nothing but the active areas; `gsd areas list
+- [x] `gsd areas list` prints nothing but the active areas; `gsd areas list
       --archived` shows only Home; `gsd areas list --all` shows every area
       with the archived marker on Home.
-- [ ] `gsd add "Late idea" --area 1` fails `conflict` with unarchive-first
+- [x] `gsd add "Late idea" --area 1` fails `conflict` with unarchive-first
       guidance; `gsd done` on the project's task fails `conflict`;
       `gsd edit` on that task's title succeeds.
-- [ ] `gsd area unarchive 1` restores all four tasks to `available` in their
+- [x] `gsd area unarchive 1` restores all four tasks to `available` in their
       original order; `gsd area unarchive 1` again fails `conflict`.
-- [ ] `gsd area delete 1` fails `conflict` (not empty); `gsd area delete 1
+- [x] `gsd area delete 1` fails `conflict` (not empty); `gsd area delete 1
       --recursive` narrates the deleted project and every deleted task.
-- [ ] `gsd areas add "Empty"` then `gsd area delete 2` succeeds without
+- [x] `gsd areas add "Empty"` then `gsd area delete 2` succeeds without
       `--recursive`.
 
 ## Consolidation and exit

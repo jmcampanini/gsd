@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -40,7 +41,9 @@ INSERT INTO projects (area_id, title, note, position, created_at, updated_at)
 SELECT ?, ?, ?,
        COALESCE((SELECT MAX(position) FROM projects WHERE area_id IS ?), -1) + 1,
        ?, ?
-WHERE ? IS NULL OR EXISTS (SELECT 1 FROM areas WHERE id = ?)
+WHERE ? IS NULL OR EXISTS (
+    SELECT 1 FROM areas WHERE id = ? AND archived_at IS NULL
+)
 RETURNING `+projectColumns,
 		areaID,
 		fields.Title,
@@ -55,7 +58,15 @@ RETURNING `+projectColumns,
 		return created, nil
 	}
 	if errors.Is(err, sql.ErrNoRows) && fields.AreaID != nil {
-		return project.Project{}, missingAreaError(*fields.AreaID, err)
+		found, findErr := s.findArea(ctx, *fields.AreaID)
+		if findErr != nil {
+			return project.Project{}, findErr
+		}
+		if found.ArchivedAt != nil {
+			message := fmt.Sprintf("cannot add project to area %d while it is archived", *fields.AreaID)
+			return project.Project{}, archivedAreasConflict(message, []int64{*fields.AreaID}, err)
+		}
+		return project.Project{}, fmt.Errorf("classify active area %d: %w", *fields.AreaID, err)
 	}
 
 	return project.Project{}, fmt.Errorf("insert project: %w", err)
@@ -189,9 +200,29 @@ END`,
 
 	query := "UPDATE projects SET " + strings.Join(assignments, ", ") + " WHERE id = ?"
 	arguments = append(arguments, id)
-	if fields.Area.Set != nil {
-		query += " AND EXISTS (SELECT 1 FROM areas WHERE id = ?)"
-		arguments = append(arguments, *fields.Area.Set)
+	if membershipRequested {
+		query += ` AND (
+    projects.area_id IS ?
+    OR (
+        (
+            projects.area_id IS NULL
+            OR EXISTS (
+                SELECT 1 FROM areas AS source_area
+                WHERE source_area.id = projects.area_id
+                  AND source_area.archived_at IS NULL
+            )
+        )
+        AND (
+            ? IS NULL
+            OR EXISTS (
+                SELECT 1 FROM areas AS destination_area
+                WHERE destination_area.id = ?
+                  AND destination_area.archived_at IS NULL
+            )
+        )
+    )
+)`
+		arguments = append(arguments, destination, destination, destination)
 	}
 	query += " RETURNING " + projectColumns
 
@@ -202,11 +233,45 @@ END`,
 	if !errors.Is(err, sql.ErrNoRows) {
 		return project.Project{}, fmt.Errorf("edit project: %w", err)
 	}
-	if _, findErr := s.Find(ctx, id); findErr != nil {
+	current, findErr := s.Find(ctx, id)
+	if findErr != nil {
 		return project.Project{}, findErr
 	}
+
+	archivedAreaIDs := make([]int64, 0, 2)
 	if fields.Area.Set != nil {
-		return project.Project{}, missingAreaError(*fields.Area.Set, err)
+		destinationArea, destinationErr := s.findArea(ctx, *fields.Area.Set)
+		if destinationErr != nil {
+			return project.Project{}, destinationErr
+		}
+		if destinationArea.ArchivedAt != nil {
+			archivedAreaIDs = append(archivedAreaIDs, destinationArea.ID)
+		}
+	}
+	if current.AreaID != nil {
+		sourceArea, sourceErr := s.findArea(ctx, *current.AreaID)
+		if sourceErr != nil {
+			return project.Project{}, sourceErr
+		}
+		if sourceArea.ArchivedAt != nil {
+			archivedAreaIDs = append(archivedAreaIDs, sourceArea.ID)
+		}
+	}
+	if len(archivedAreaIDs) > 0 {
+		archivedAreaIDs = sortedUniqueIDs(archivedAreaIDs)
+		message := fmt.Sprintf(
+			"cannot move project %d while areas %s are archived",
+			id,
+			formatIDs(archivedAreaIDs),
+		)
+		if len(archivedAreaIDs) == 1 {
+			message = fmt.Sprintf(
+				"cannot move project %d while area %d is archived",
+				id,
+				archivedAreaIDs[0],
+			)
+		}
+		return project.Project{}, archivedAreasConflict(message, archivedAreaIDs, err)
 	}
 
 	return project.Project{}, fmt.Errorf("edit project: %w", err)
@@ -232,7 +297,17 @@ func (s *Projects) Resolve(
 	}
 
 	query := "UPDATE projects SET " + column + " = ?, updated_at = ? " +
-		"WHERE id = ? AND done_at IS NULL AND cancelled_at IS NULL RETURNING " + projectColumns
+		`WHERE id = ?
+  AND done_at IS NULL
+  AND cancelled_at IS NULL
+  AND (
+      area_id IS NULL
+      OR EXISTS (
+          SELECT 1 FROM areas
+          WHERE areas.id = projects.area_id AND areas.archived_at IS NULL
+      )
+  )
+RETURNING ` + projectColumns
 	resolved, err := scanProject(s.executor.QueryRowContext(ctx, query, timestamp, timestamp, id))
 	if err == nil {
 		return resolved, nil
@@ -240,8 +315,27 @@ func (s *Projects) Resolve(
 	if !errors.Is(err, sql.ErrNoRows) {
 		return project.Project{}, fmt.Errorf("%s project: %w", action, err)
 	}
-	if _, findErr := s.Find(ctx, id); findErr != nil {
+	current, findErr := s.Find(ctx, id)
+	if findErr != nil {
 		return project.Project{}, findErr
+	}
+	if current.AreaID != nil {
+		governingArea, areaErr := s.findArea(ctx, *current.AreaID)
+		if areaErr != nil {
+			return project.Project{}, areaErr
+		}
+		if governingArea.ArchivedAt != nil {
+			return project.Project{}, archivedAreasConflict(
+				fmt.Sprintf(
+					"cannot %s project %d while area %d is archived",
+					action,
+					id,
+					governingArea.ID,
+				),
+				[]int64{governingArea.ID},
+				err,
+			)
+		}
 	}
 
 	return project.Project{}, apperr.New(
@@ -282,7 +376,15 @@ func (s *Projects) Reopen(
 	reopened, err := scanProject(s.executor.QueryRowContext(ctx, `
 UPDATE projects
 SET done_at = NULL, cancelled_at = NULL, updated_at = ?
-WHERE id = ? AND (done_at IS NOT NULL OR cancelled_at IS NOT NULL)
+WHERE id = ?
+  AND (done_at IS NOT NULL OR cancelled_at IS NOT NULL)
+  AND (
+      area_id IS NULL
+      OR EXISTS (
+          SELECT 1 FROM areas
+          WHERE areas.id = projects.area_id AND areas.archived_at IS NULL
+      )
+  )
 RETURNING `+projectColumns, timestamp, id))
 	if err == nil {
 		return reopened, nil
@@ -290,8 +392,22 @@ RETURNING `+projectColumns, timestamp, id))
 	if !errors.Is(err, sql.ErrNoRows) {
 		return project.Project{}, fmt.Errorf("reopen project: %w", err)
 	}
-	if _, findErr := s.Find(ctx, id); findErr != nil {
+	current, findErr := s.Find(ctx, id)
+	if findErr != nil {
 		return project.Project{}, findErr
+	}
+	if current.AreaID != nil {
+		governingArea, areaErr := s.findArea(ctx, *current.AreaID)
+		if areaErr != nil {
+			return project.Project{}, areaErr
+		}
+		if governingArea.ArchivedAt != nil {
+			return project.Project{}, archivedAreasConflict(
+				fmt.Sprintf("cannot reopen project %d while area %d is archived", id, governingArea.ID),
+				[]int64{governingArea.ID},
+				err,
+			)
+		}
 	}
 
 	return project.Project{}, apperr.New(
@@ -351,45 +467,9 @@ func (s *Projects) WithinTransaction(
 		return errors.New("nested project transactions are not supported")
 	}
 
-	connection, err := s.database.database.Conn(ctx)
-	if err != nil {
-		return fmt.Errorf("reserve project transaction connection: %w", err)
-	}
-	defer func() {
-		_ = connection.Close()
-	}()
-
-	if _, err := connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return fmt.Errorf("begin project transaction: %w", err)
-	}
-	transactionOpen := true
-	defer func() {
-		if transactionOpen {
-			_, _ = connection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
-		}
-	}()
-
-	transaction := &Projects{executor: connection}
-	if err := apply(transaction); err != nil {
-		if _, rollbackErr := connection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK"); rollbackErr != nil {
-			return errors.Join(err, fmt.Errorf("rollback project transaction: %w", rollbackErr))
-		}
-		transactionOpen = false
-		return err
-	}
-	if _, err := connection.ExecContext(ctx, "COMMIT"); err != nil {
-		if _, rollbackErr := connection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK"); rollbackErr != nil {
-			return errors.Join(
-				fmt.Errorf("commit project transaction: %w", err),
-				fmt.Errorf("rollback project transaction: %w", rollbackErr),
-			)
-		}
-		transactionOpen = false
-		return fmt.Errorf("commit project transaction: %w", err)
-	}
-	transactionOpen = false
-
-	return nil
+	return withinImmediateTransaction(ctx, s.database, "project", func(connection *sql.Conn) error {
+		return apply(&Projects{executor: connection})
+	})
 }
 
 func sortTasks(tasks []task.Task) {
@@ -465,6 +545,10 @@ func scanProject(scanner rowScanner) (project.Project, error) {
 	)
 
 	return value, err
+}
+
+func (s *Projects) findArea(ctx context.Context, id int64) (area.Area, error) {
+	return (&Areas{executor: s.executor}).Find(ctx, id)
 }
 
 func missingAreaError(id int64, cause error) error {
