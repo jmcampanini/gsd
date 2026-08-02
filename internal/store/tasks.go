@@ -20,17 +20,18 @@ type Tasks struct {
 	db *DB
 }
 
-type taskContainer interface {
-	isTaskContainer()
+type taskContainerKind uint8
+
+const (
+	taskContainerInbox taskContainerKind = iota
+	taskContainerProject
+	taskContainerArea
+)
+
+type taskContainer struct {
+	kind taskContainerKind
+	id   int64
 }
-
-type inboxTaskContainer struct{}
-type projectTaskContainer struct{ id int64 }
-type areaTaskContainer struct{ id int64 }
-
-func (inboxTaskContainer) isTaskContainer()   {}
-func (projectTaskContainer) isTaskContainer() {}
-func (areaTaskContainer) isTaskContainer()    {}
 
 type taskDestinationExpression struct {
 	selectSQL string
@@ -569,22 +570,22 @@ func (s *Tasks) classifyMembershipEdit(
 	}
 
 	var destinationProject *project.Project
-	switch container := destination.(type) {
-	case projectTaskContainer:
-		found, findErr := NewProjects(s.db).Find(ctx, container.id)
+	switch destination.kind {
+	case taskContainerProject:
+		found, findErr := NewProjects(s.db).Find(ctx, destination.id)
 		if findErr != nil {
 			return findErr
 		}
 		destinationProject = &found
-	case areaTaskContainer:
-		if _, findErr := NewAreas(s.db).Find(ctx, container.id); findErr != nil {
+	case taskContainerArea:
+		if _, findErr := NewAreas(s.db).Find(ctx, destination.id); findErr != nil {
 			return findErr
 		}
 	}
 
 	var sourceProject *project.Project
-	if container, ok := source.(projectTaskContainer); ok {
-		found, findErr := NewProjects(s.db).Find(ctx, container.id)
+	if source.kind == taskContainerProject {
+		found, findErr := NewProjects(s.db).Find(ctx, source.id)
 		if findErr != nil {
 			return findErr
 		}
@@ -633,35 +634,27 @@ func (s *Tasks) classifyMembershipEdit(
 func taskContainerOf(current task.Task) taskContainer {
 	switch {
 	case current.ProjectID != nil:
-		return projectTaskContainer{id: *current.ProjectID}
+		return taskContainer{kind: taskContainerProject, id: *current.ProjectID}
 	case current.AreaID != nil:
-		return areaTaskContainer{id: *current.AreaID}
+		return taskContainer{kind: taskContainerArea, id: *current.AreaID}
 	default:
-		return inboxTaskContainer{}
+		return taskContainer{kind: taskContainerInbox}
 	}
 }
 
 func taskContainerAfterChange(current taskContainer, fields task.EditFields) taskContainer {
-	switch {
-	case fields.Project.Set != nil:
-		return projectTaskContainer{id: *fields.Project.Set}
-	case fields.Area.Set != nil:
-		return areaTaskContainer{id: *fields.Area.Set}
-	case fields.Project.Clear && fields.Area.Clear:
-		return inboxTaskContainer{}
-	case fields.Project.Clear:
-		if container, ok := current.(areaTaskContainer); ok {
-			return container
-		}
-		return inboxTaskContainer{}
-	case fields.Area.Clear:
-		if container, ok := current.(projectTaskContainer); ok {
-			return container
-		}
-		return inboxTaskContainer{}
-	default:
-		return current
+	if fields.Project.Set != nil {
+		return taskContainer{kind: taskContainerProject, id: *fields.Project.Set}
 	}
+	if fields.Area.Set != nil {
+		return taskContainer{kind: taskContainerArea, id: *fields.Area.Set}
+	}
+	if fields.Project.Clear && current.kind == taskContainerProject ||
+		fields.Area.Clear && current.kind == taskContainerArea {
+		return taskContainer{kind: taskContainerInbox}
+	}
+
+	return current
 }
 
 func (s *Tasks) classifyOpenProject(
