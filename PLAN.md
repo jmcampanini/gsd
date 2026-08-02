@@ -24,7 +24,7 @@ complete:
       executor seam, the duplicated classification stanzas and the
       sentinel-row listings are retired, and the triplicated service helpers
       extract to `internal/domain`. No behavior changes.
-- [ ] **Chunk 1 — Tag administration** — a human can create, list, rename,
+- [x] **Chunk 1 — Tag administration** — a human can create, list, rename,
       and delete tags in one case-insensitive namespace, with the complete
       revision-`9005` schema landed and the view `tags` enrichment proven by
       store tests.
@@ -47,7 +47,7 @@ Expected review size, including tests:
 - Chunk 0: approximately 1,600–2,200 changed lines across the task and
   project stores, the transaction seam, the shared helper extraction, and
   the retired sentinel listings.
-- Chunk 1: approximately 900–1,200 changed lines across the schema, the new
+- Chunk 1: approximately 1,700–2,000 changed lines across the schema, the new
   tag application, commands, and view tests.
 - Chunk 2: approximately 1,500–2,000 changed lines across the three entity
   applications and stores, attachment commands and flags, JSON and view
@@ -73,18 +73,21 @@ classification pass: task `add`, `edit`, `done`, `cancel`, `reopen` and
 project `add`, `edit`, `resolve` (done/cancel), `reopen`. Project `delete`
 keeps its guarded statement, but runs missing-versus-contained classification
 inside the same `BEGIN IMMEDIATE` transaction so that result is authoritative.
-Operations proven complete by one guarded atomic statement with a single
-self-classifying predicate — task delete, tag rename, area
-archive/unarchive/delete — keep that shape per `AGENTS.md`.
+Operations whose mutation is proven complete by one guarded atomic statement
+with a single self-classifying predicate — task delete, tag rename, area
+archive/unarchive/delete — keep that mutation shape per `AGENTS.md`. When
+failure classification needs follow-up reads, the store holds the statement
+and those reads in one immediate transaction so the classification is
+authoritative.
 
 ### Tag identity and namespace
 
 Tags are addressed by name, never ID; the name is the identity everywhere a
 tag appears on the command line. Names follow title validation: valid UTF-8,
 nonblank after surrounding-space inspection, stored unchanged. Uniqueness is
-case-insensitive (`UNIQUE COLLATE NOCASE`): creating `Errands` when
-`errands` exists is `conflict`, and the conflict message names the stored
-spelling. The first-created spelling is what displays; attach, detach,
+case-insensitive through SQLite `NOCASE`, which folds ASCII only: creating
+`Errands` when `errands` exists is `conflict`, while non-ASCII case variants
+remain distinct. The conflict message names the stored spelling. The first-created spelling is what displays; attach, detach,
 filter, rename-source, and delete-target matching are all case-insensitive.
 Renaming a tag to a different casing of itself succeeds; renaming onto a
 different existing tag is `conflict`. Tags must pre-exist: `tag`, `untag`,
@@ -126,10 +129,10 @@ JSON remains one compact, newline-terminated value. Every task, project, and
 area JSON row — mutations, `show`, lists, and view output — gains `tags`, an
 array of tag names and the output contract's final field. Entity `tags`
 arrays are produced by the same correlated `json_group_array` subquery the
-`SCHEMA.md` views use, so direct output and view output agree; array order
-is tag-creation order. Tag rows are their table row (`id`, `title`,
-`created_at`, `updated_at`); `tags list` rows additionally carry
-`usage_count`, the total attachment count across all three entity kinds.
+`SCHEMA.md` views use, so direct output and view output agree; aggregate input
+is explicitly ordered by tag ID, making array order tag-creation order. Tag rows are their table row (`id`, `title`, `created_at`, `updated_at`);
+`tags list` rows additionally carry `usage_count`, the total attachment count
+across all three entity kinds.
 Envelopes: `tag`/`untag` and the three `add` commands echo the affected
 entity row (with `tags`); `tags add` and `tags rename` echo the tag row;
 `tags delete` returns `{"tag":{...},"detached":N}`.
@@ -138,8 +141,10 @@ Human output: `tags list` is a headerless aligned table of name and usage
 count, ordered alphabetically case-insensitively — no IDs, because tags are
 never addressed by ID. Task, project, and area `show` gain a `Tags` row with
 comma-separated names, blank when untagged; human collection rows gain no
-tags column. Mutation lines stay concise and action-prefixed:
-`Added tag errands`, `Renamed tag errands to out-and-about`,
+tags column. Tag mutation lines use stored spelling after case-insensitive
+resolution; rename renders both the stored previous title and the stored new
+title rather than echoing command arguments. Mutation lines stay concise and
+action-prefixed: `Added tag errands`, `Renamed tag errands to out-and-about`,
 `Deleted tag out-and-about (detached from 3 items)`,
 `Tagged: task 7  errands`, `Untagged: task 7  errands`. Bare `gsd tags` is a
 usage error with exit code 2 and must not open the database; bare `gsd tag`
@@ -183,10 +188,13 @@ New `internal/tag` package following the entity package shape: a `Tag` value
 `tag.Store` interface: `Add`, `Find` (by name, case-insensitive), `List`
 (with usage counts), `Rename`, `CountUsage`, `Delete`, plus
 `WithinTransaction(context.Context, func(Store) error) error`. The service
-owns name validation through `internal/domain`, timestamping, and the
-delete-with-count transaction (find → count usage → delete). `Add` and
-`Rename` are single guarded statements with simple find-based conflict
-classification naming the stored spelling.
+owns name validation through `internal/domain`, timestamping, the rename
+transaction (find stored source → rename), and the delete-with-count
+transaction (find → count usage → delete). `Add` and `Rename` each keep one
+guarded mutation statement; immediate transactions make their simple
+find-based conflict classification authoritative. The rename result carries
+the stored previous title for human output while JSON remains the updated tag
+row.
 
 ### Entity applications
 
@@ -222,8 +230,9 @@ established pattern. `store.Tags` joins the per-entity stores sharing
 `store.DB` and the seam. Attachment uses `INSERT OR IGNORE` for idempotent
 join rows and plain `DELETE` for detach; name resolution is one shared
 case-insensitive lookup written once in the store package. Entity queries
-gain the correlated `json_group_array` subquery and scan the JSON text into
-`[]string` (empty array when untagged). `list --tag` resolves the tag
+gain the correlated `json_group_array` subquery with aggregate input explicitly
+ordered by tag ID and scan the JSON text into `[]string` (empty array when
+untagged). `list --tag` resolves the tag
 in-transaction (`not_found` on a miss) and filters through the join table.
 
 ### Command and output adapters
@@ -317,24 +326,24 @@ complete revision-`9005` schema live and byte-matching `SCHEMA.md`.
 
 ### Implementation
 
-- [ ] Land the complete revision-`9005` schema: `tags`, the three join
+- [x] Land the complete revision-`9005` schema: `tags`, the three join
       tables with composite PKs / `WITHOUT ROWID` / CASCADE, the three
       reverse-lookup indexes, the rebuilt views with the `tags` column, and
       the version bump. Prove bootstrap, constraints, CASCADE both
       directions, view enrichment, and usage counts with real SQLite and
       raw-SQL join-row fixtures ahead of the CLI surface.
-- [ ] Add `internal/tag` (values, `Store` interface, service validation
+- [x] Add `internal/tag` (values, `Store` interface, service validation
       through `internal/domain`, the delete-with-count transaction) and
       `store.Tags` with case-insensitive resolution written once.
-- [ ] Add `gsd tags add NAME`, `gsd tags list`, `gsd tags rename OLD NEW`,
+- [x] Add `gsd tags add NAME`, `gsd tags list`, `gsd tags rename OLD NEW`,
       and `gsd tags delete NAME`; bare `gsd tags` is a usage error, exit 2,
       without opening the database.
-- [ ] Render tag output: JSON tag rows, `usage_count` list rows, the
+- [x] Render tag output: JSON tag rows, `usage_count` list rows, the
       `detached` envelope; human name/count table and the mutation lines,
       with conflicts naming the stored spelling.
-- [ ] Introduce the Milestone 5 subprocess workflow: tag administration
+- [x] Introduce the Milestone 5 subprocess workflow: tag administration
       persistence across invocations.
-- [ ] Run `make check` and build the real binary before opening the chunk
+- [x] Run `make check` and build the real binary before opening the chunk
       pull request.
 
 ### Human proof
@@ -342,19 +351,19 @@ complete revision-`9005` schema live and byte-matching `SCHEMA.md`.
 Against a fresh database with the real built binary, captured as the chunk
 demo (`.sandbox/demos/5-chunk-1.html`):
 
-- [ ] `gsd tags add errands`, `gsd tags add home`; `gsd tags list` shows
+- [x] `gsd tags add errands`, `gsd tags add home`; `gsd tags list` shows
       both alphabetically with count 0.
-- [ ] `gsd tags add Errands` fails `conflict` with exit 1, naming the
+- [x] `gsd tags add Errands` fails `conflict` with exit 1, naming the
       stored spelling `errands`.
-- [ ] `gsd tags rename errands out-and-about` prints the mutation line;
+- [x] `gsd tags rename errands out-and-about` prints the mutation line;
       `gsd tags list` reflects it. `gsd tags rename home HOME` succeeds
       (case-only rename).
-- [ ] `gsd tags delete out-and-about` prints
+- [x] `gsd tags delete out-and-about` prints
       `Deleted tag out-and-about (detached from 0 items)`.
-- [ ] `gsd tags rename ghost x` and `gsd tags delete ghost` fail
+- [x] `gsd tags rename ghost x` and `gsd tags delete ghost` fail
       `not_found` with exit 1; `gsd tags add ""` fails `invalid_argument`
       with exit 1.
-- [ ] Bare `gsd tags` is a usage error with exit code 2.
+- [x] Bare `gsd tags` is a usage error with exit code 2.
 
 ## Chunk 2 — Attachment everywhere
 

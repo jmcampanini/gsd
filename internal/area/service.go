@@ -108,14 +108,14 @@ func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletio
 
 		return Deletion{
 			Area:            deletedArea,
-			DeletedProjects: domain.NormalizeSlice[project.Project](nil),
-			DeletedTasks:    domain.NormalizeSlice[task.Task](nil),
+			DeletedProjects: []project.Project{},
+			DeletedTasks:    []task.Task{},
 		}, nil
 	}
 
 	var deletedArea Area
-	deletedProjects := domain.NormalizeSlice[project.Project](nil)
-	deletedTasks := domain.NormalizeSlice[task.Task](nil)
+	deletedProjects := []project.Project{}
+	deletedTasks := []task.Task{}
 	err := s.store.WithinTransaction(ctx, func(store Store) error {
 		projectTasks, err := domain.NormalizeSliceResult(
 			store.DeleteTasks(ctx, id, TaskDeletionScopeProject),

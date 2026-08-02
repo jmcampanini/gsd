@@ -41,8 +41,11 @@ gsd list [--tag NAME] ...
 - Tags are addressed by name, never ID; names are the identity.
 - Tags must pre-exist: `tag`/`untag`/`--tag` with an unknown name is an
   error (`not_found`) — `gsd tags add` is the only creation path.
-- Case-insensitive uniqueness: `Errands` vs `errands` is a `conflict`;
-  attach/detach/filter match case-insensitively.
+- Case-insensitive uniqueness uses SQLite `NOCASE`, which folds ASCII only:
+  `Errands` vs `errands` is a `conflict`, while non-ASCII case variants remain
+  distinct. Attach/detach/filter use the same matching. Successful human
+  mutation lines use stored spelling after that resolution, including both
+  names in a rename.
 - Deleting a tag detaches it everywhere (join-row CASCADE), reported by
   count. Entity JSON now includes `tags` as an array of names — the
   output contract's final field.

@@ -68,23 +68,20 @@ func withinTransaction(
 			_, _ = connection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
 		}
 	}()
+	rollback := func(operationErr error) error {
+		_, err := connection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+		if err != nil {
+			return errors.Join(operationErr, fmt.Errorf("rollback %s transaction: %w", noun, err))
+		}
+		transactionOpen = false
+		return operationErr
+	}
 
 	if err := apply(connection); err != nil {
-		if _, rollbackErr := connection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK"); rollbackErr != nil {
-			return errors.Join(err, fmt.Errorf("rollback %s transaction: %w", noun, rollbackErr))
-		}
-		transactionOpen = false
-		return err
+		return rollback(err)
 	}
 	if _, err := connection.ExecContext(ctx, "COMMIT"); err != nil {
-		if _, rollbackErr := connection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK"); rollbackErr != nil {
-			return errors.Join(
-				fmt.Errorf("commit %s transaction: %w", noun, err),
-				fmt.Errorf("rollback %s transaction: %w", noun, rollbackErr),
-			)
-		}
-		transactionOpen = false
-		return fmt.Errorf("commit %s transaction: %w", noun, err)
+		return rollback(fmt.Errorf("commit %s transaction: %w", noun, err))
 	}
 	transactionOpen = false
 

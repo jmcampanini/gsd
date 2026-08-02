@@ -104,7 +104,7 @@ func (s *Service) Resolve(ctx context.Context, id int64, exit Exit) (Resolution,
 	}
 
 	timestamp := domain.FormatTimestamp(s.now())
-	resolution := Resolution{CancelledTasks: domain.NormalizeSlice[task.Task](nil)}
+	resolution := Resolution{CancelledTasks: []task.Task{}}
 	err := s.store.WithinTransaction(ctx, func(store Store) error {
 		project, err := store.Resolve(ctx, id, exit, timestamp)
 		if err != nil {
@@ -148,11 +148,11 @@ func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletio
 
 		return Deletion{
 			Project:      project,
-			DeletedTasks: domain.NormalizeSlice[task.Task](nil),
+			DeletedTasks: []task.Task{},
 		}, nil
 	}
 
-	deletion := Deletion{DeletedTasks: domain.NormalizeSlice[task.Task](nil)}
+	deletion := Deletion{DeletedTasks: []task.Task{}}
 	err := s.store.WithinTransaction(ctx, func(store Store) error {
 		deletedTasks, err := domain.NormalizeSliceResult(store.DeleteTasks(ctx, id))
 		if err != nil {

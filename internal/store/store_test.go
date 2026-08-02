@@ -16,7 +16,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-func TestOpenBootstrapsMilestoneFourSchemaAndConfiguresConnections(t *testing.T) {
+func TestOpenBootstrapsMilestoneFiveSchemaAndConfiguresConnections(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -33,11 +33,13 @@ func TestOpenBootstrapsMilestoneFourSchemaAndConfiguresConnections(t *testing.T)
 	if err := storage.database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("read user_version: %v", err)
 	}
-	if version != 9004 {
-		t.Errorf("user_version = %d, want 9004", version)
+	if version != 9005 {
+		t.Errorf("user_version = %d, want 9005", version)
 	}
 
-	for _, tableName := range []string{"areas", "projects", "tasks"} {
+	for _, tableName := range []string{
+		"areas", "projects", "tasks", "tags", "task_tags", "project_tags", "area_tags",
+	} {
 		var strict int
 		if err := storage.database.QueryRowContext(
 			ctx,
@@ -49,29 +51,6 @@ func TestOpenBootstrapsMilestoneFourSchemaAndConfiguresConnections(t *testing.T)
 		if strict != 1 {
 			t.Errorf("%s strict = %d, want 1", tableName, strict)
 		}
-	}
-
-	var availableSQL string
-	if err := storage.database.QueryRowContext(
-		ctx,
-		"SELECT sql FROM sqlite_schema WHERE type = 'view' AND name = 'available'",
-	).Scan(&availableSQL); err != nil {
-		t.Fatalf("read available view: %v", err)
-	}
-	wantAvailableSQL := `CREATE VIEW available AS
-SELECT t.*,
-       p.title                        AS project_title,
-       COALESCE(t.area_id, p.area_id) AS governing_area_id,
-       a.title                        AS governing_area_title
-FROM tasks t
-LEFT JOIN projects p ON p.id = t.project_id
-LEFT JOIN areas    a ON a.id = COALESCE(t.area_id, p.area_id)
-WHERE t.status = 'open'
-  AND (t.project_id IS NULL OR p.status = 'open')
-  AND a.archived_at IS NULL
-  AND (t.defer_until IS NULL OR t.defer_until <= date('now', 'localtime'))`
-	if strings.Join(strings.Fields(availableSQL), " ") != strings.Join(strings.Fields(wantAvailableSQL), " ") {
-		t.Errorf("available view = %q, want governing-area-aware definition", availableSQL)
 	}
 
 	storage.database.SetMaxOpenConns(2)
@@ -371,7 +350,7 @@ func TestOpenRejectsUnsafeBootstrapStates(t *testing.T) {
 		name  string
 		setup string
 	}{
-		{name: "previous development revision", setup: "PRAGMA user_version = 9003"},
+		{name: "previous development revision", setup: "PRAGMA user_version = 9004"},
 		{name: "wrong revision", setup: "PRAGMA user_version = 42"},
 		{name: "nonempty version zero", setup: "CREATE TABLE existing (id INTEGER)"},
 	}

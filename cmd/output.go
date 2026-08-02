@@ -13,6 +13,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
+	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -69,6 +70,36 @@ func writeAddedProject(writer io.Writer, created project.Project) error {
 
 func writeAddedArea(writer io.Writer, created area.Area) error {
 	_, err := fmt.Fprintf(writer, "Added area %d: %s\n", created.ID, humanText(created.Title, false))
+	return err
+}
+
+func writeAddedTag(writer io.Writer, created tag.Tag) error {
+	_, err := fmt.Fprintf(writer, "Added tag %s\n", humanText(created.Title, false))
+	return err
+}
+
+func writeRenamedTag(writer io.Writer, oldName, newName string) error {
+	_, err := fmt.Fprintf(
+		writer,
+		"Renamed tag %s to %s\n",
+		humanText(oldName, false),
+		humanText(newName, false),
+	)
+	return err
+}
+
+func writeTagDeletion(writer io.Writer, deletion tag.Deletion) error {
+	plural := ""
+	if deletion.Detached != 1 {
+		plural = "s"
+	}
+	_, err := fmt.Fprintf(
+		writer,
+		"Deleted tag %s (detached from %d item%s)\n",
+		humanText(deletion.Tag.Title, false),
+		deletion.Detached,
+		plural,
+	)
 	return err
 }
 
@@ -230,6 +261,22 @@ func writeProjectList(writer io.Writer, projects []project.Project) error {
 			strconv.FormatInt(current.ID, 10),
 			humanText(current.Title, false),
 			humanText(current.Status, false),
+		})
+	}
+
+	return writeTable(writer, rows)
+}
+
+func writeTagList(writer io.Writer, tags []tag.ListedTag) error {
+	if len(tags) == 0 {
+		return nil
+	}
+
+	rows := make([][]string, 0, len(tags))
+	for _, current := range tags {
+		rows = append(rows, []string{
+			humanText(current.Title, false),
+			strconv.FormatInt(current.UsageCount, 10),
 		})
 	}
 
