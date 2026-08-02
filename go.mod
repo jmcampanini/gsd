@@ -3,9 +3,9 @@ module github.com/jmcampanini/gsd
 go 1.26.5
 
 require (
-	charm.land/lipgloss/v2 v2.0.3
+	charm.land/lipgloss/v2 v2.0.5
 	github.com/spf13/cobra v1.10.2
-	modernc.org/sqlite v1.54.0
+	modernc.org/sqlite v1.55.0
 )
 
 require (
