@@ -444,6 +444,10 @@ After every chunk is reviewed and squash-merged into the milestone branch:
 - [ ] Reconcile tests around stable observable contracts and codify lasting
       review findings in `AGENTS.md`, lint/build configuration, or the
       owning tests.
+- [ ] Decide whether reopen-first guidance should move from store-composed
+      text to typed resolved-project metadata composed by the command
+      adapter; preserve the current behavior unless consolidation accepts
+      the architectural change.
 - [ ] Run the automated Milestone 4 subprocess workflow through
       `make check`.
 - [ ] Build the real binary and retain a clean transcript of the workflow
