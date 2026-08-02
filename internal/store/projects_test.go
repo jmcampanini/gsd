@@ -446,6 +446,66 @@ func assertArchivedAreaConflict(t *testing.T, err error, wantIDs ...int64) {
 	}
 }
 
+func TestProjectTransactionUsesAmbientAreaStateAndRollsBack(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	areas := NewAreas(storage)
+	projects := NewProjects(storage)
+	destination := addStoredArea(t, areas, area.AddFields{Title: "destination"})
+	moving := addStoredProject(t, projects, project.AddFields{Title: "moving"})
+
+	var added project.Project
+	err := projects.WithinTransaction(ctx, func(transaction project.Store) error {
+		var operationErr error
+		added, operationErr = transaction.Add(
+			ctx,
+			project.AddFields{Title: "must roll back"},
+			"2026-01-02T00:00:00.000Z",
+		)
+		if operationErr != nil {
+			return operationErr
+		}
+
+		bound := transaction.(*Projects)
+		var areaID int64
+		if operationErr = bound.executor.QueryRowContext(ctx, `
+UPDATE areas
+SET archived_at = ?, updated_at = ?
+WHERE id = ?
+RETURNING id
+`, "2026-01-03T00:00:00.000Z", "2026-01-03T00:00:00.000Z", destination.ID).Scan(&areaID); operationErr != nil {
+			return operationErr
+		}
+		_, operationErr = transaction.Edit(
+			ctx,
+			moving.ID,
+			project.EditFields{Area: project.AreaChange{Set: &destination.ID}},
+			"2026-01-04T00:00:00.000Z",
+		)
+		return operationErr
+	})
+	assertArchivedAreaConflict(t, err, destination.ID)
+
+	if _, findErr := projects.Find(ctx, added.ID); errorCode(findErr) != apperr.NotFound {
+		t.Errorf("Find(rolled-back project) error = %v, want not_found", findErr)
+	}
+	persistedArea, findErr := areas.Find(ctx, destination.ID)
+	if findErr != nil {
+		t.Fatalf("Find(area after rollback) error = %v", findErr)
+	}
+	if !reflect.DeepEqual(persistedArea, destination) {
+		t.Errorf("area after rollback = %#v, want original %#v", persistedArea, destination)
+	}
+	persistedProject, findErr := projects.Find(ctx, moving.ID)
+	if findErr != nil {
+		t.Fatalf("Find(project after rollback) error = %v", findErr)
+	}
+	if !reflect.DeepEqual(persistedProject, moving) {
+		t.Errorf("project after rollback = %#v, want original %#v", persistedProject, moving)
+	}
+}
+
 func TestProjectLifecycleTransactionSharesTimestampAndOrdersCancelledTasks(t *testing.T) {
 	t.Parallel()
 

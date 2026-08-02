@@ -7,10 +7,29 @@ import (
 	"fmt"
 )
 
+func withinDeferredTransaction(
+	ctx context.Context,
+	database *DB,
+	noun string,
+	apply func(*sql.Conn) error,
+) error {
+	return withinTransaction(ctx, database, noun, "BEGIN", apply)
+}
+
 func withinImmediateTransaction(
 	ctx context.Context,
 	database *DB,
 	noun string,
+	apply func(*sql.Conn) error,
+) error {
+	return withinTransaction(ctx, database, noun, "BEGIN IMMEDIATE", apply)
+}
+
+func withinTransaction(
+	ctx context.Context,
+	database *DB,
+	noun string,
+	beginStatement string,
 	apply func(*sql.Conn) error,
 ) error {
 	connection, err := database.database.Conn(ctx)
@@ -21,7 +40,7 @@ func withinImmediateTransaction(
 		_ = connection.Close()
 	}()
 
-	if _, err := connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+	if _, err := connection.ExecContext(ctx, beginStatement); err != nil {
 		return fmt.Errorf("begin %s transaction: %w", noun, err)
 	}
 	transactionOpen := true

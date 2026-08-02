@@ -70,10 +70,12 @@ lock across read, validation, and write, so the read is authoritative.
 
 This applies to every mutation that carries container guards and a
 classification pass: task `add`, `edit`, `done`, `cancel`, `reopen` and
-project `add`, `edit`, `resolve` (done/cancel), `reopen`. Operations proven
-complete by one guarded atomic statement with a single self-classifying
-predicate — task delete, tag rename, area archive/unarchive/delete — keep
-that shape per `AGENTS.md`.
+project `add`, `edit`, `resolve` (done/cancel), `reopen`. Project `delete`
+keeps its guarded statement, but runs missing-versus-contained classification
+inside the same `BEGIN IMMEDIATE` transaction so that result is authoritative.
+Operations proven complete by one guarded atomic statement with a single
+self-classifying predicate — task delete, tag rename, area
+archive/unarchive/delete — keep that shape per `AGENTS.md`.
 
 ### Tag identity and namespace
 
@@ -161,7 +163,7 @@ and `gsd untag` without arguments are usage errors likewise.
   message, dissolve into the shared in-transaction validation.
 - The sentinel-row idiom in `Tasks.listContained` and the area-scoped
   project listing retires: each contained listing becomes a container `Find`
-  followed by the list query inside one transaction — same
+  followed by the list query inside one deferred read transaction — same
   missing-versus-empty semantics with snapshot consistency and no fabricated
   all-zero row.
 - The triplicated service helpers — title/note validation, positive-ID
@@ -290,10 +292,12 @@ review-only chunk when it is not consecutive with another. No chunk demo.
       the forensic classification pass they duplicated.
 - [x] Convert project `add`, `edit`, `resolve`, and `reopen` likewise,
       dissolving the duplicated classification stanzas and `Edit`'s
-      re-implemented blocker message into shared in-transaction validation.
+      re-implemented blocker message into shared in-transaction validation;
+      run project `delete` classification in the guarded statement's
+      transaction as well.
 - [x] Retire the sentinel-row idiom: contained task and project listings
-      become container `Find` plus list query inside one transaction with
-      identical missing-versus-empty semantics.
+      become container `Find` plus list query inside one deferred transaction
+      with identical missing-versus-empty semantics.
 - [x] Extract the triplicated service helpers into `internal/domain`,
       parameterized by entity noun with byte-identical messages, and point
       the task, project, and area services at it.

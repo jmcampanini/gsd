@@ -108,9 +108,9 @@ func (s *Projects) List(ctx context.Context, options project.ListOptions) ([]pro
 	if options.AreaID != nil {
 		if s.database != nil {
 			var listed []project.Project
-			err := s.WithinTransaction(ctx, func(transaction project.Store) error {
+			err := withinDeferredTransaction(ctx, s.database, "project", func(connection *sql.Conn) error {
 				var err error
-				listed, err = transaction.List(ctx, options)
+				listed, err = (&Projects{executor: connection}).List(ctx, options)
 				return err
 			})
 			if err != nil {
@@ -364,6 +364,19 @@ RETURNING `+projectColumns, timestamp, id))
 }
 
 func (s *Projects) Delete(ctx context.Context, id int64) (project.Project, error) {
+	if s.database != nil {
+		var deleted project.Project
+		err := s.WithinTransaction(ctx, func(transaction project.Store) error {
+			var operationErr error
+			deleted, operationErr = transaction.Delete(ctx, id)
+			return operationErr
+		})
+		if err != nil {
+			return project.Project{}, err
+		}
+		return deleted, nil
+	}
+
 	deleted, err := scanProject(s.executor.QueryRowContext(ctx, `
 DELETE FROM projects
 WHERE id = ?

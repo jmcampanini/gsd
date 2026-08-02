@@ -177,9 +177,9 @@ func (s *Tasks) List(ctx context.Context, options task.ListOptions) ([]task.Task
 	if options.ProjectID != nil || options.AreaID != nil {
 		if s.database != nil {
 			var listed []task.Task
-			err := s.WithinTransaction(ctx, func(transaction task.Store) error {
+			err := withinDeferredTransaction(ctx, s.database, "task", func(connection *sql.Conn) error {
 				var operationErr error
-				listed, operationErr = transaction.List(ctx, options)
+				listed, operationErr = (&Tasks{executor: connection}).List(ctx, options)
 				return operationErr
 			})
 			if err != nil {
