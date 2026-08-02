@@ -210,28 +210,18 @@ func (s *Service) Reopen(ctx context.Context, id int64) (Task, error) {
 }
 
 func (s *Service) Tag(ctx context.Context, id int64, names []string) (Tagging, error) {
-	return s.updateTags(ctx, id, names, func(
-		store Store,
-		resolved []tag.Tag,
-	) error {
-		return store.AttachTags(ctx, id, resolved)
-	})
+	return s.changeTags(ctx, id, names, true)
 }
 
 func (s *Service) Untag(ctx context.Context, id int64, names []string) (Tagging, error) {
-	return s.updateTags(ctx, id, names, func(
-		store Store,
-		resolved []tag.Tag,
-	) error {
-		return store.DetachTags(ctx, id, resolved)
-	})
+	return s.changeTags(ctx, id, names, false)
 }
 
-func (s *Service) updateTags(
+func (s *Service) changeTags(
 	ctx context.Context,
 	id int64,
 	names []string,
-	mutate func(Store, []tag.Tag) error,
+	attach bool,
 ) (Tagging, error) {
 	if err := validateID(id); err != nil {
 		return Tagging{}, err
@@ -259,7 +249,12 @@ func (s *Service) updateTags(
 		if err != nil {
 			return err
 		}
-		if err := mutate(store, resolved); err != nil {
+		if attach {
+			err = store.AttachTags(ctx, id, resolved)
+		} else {
+			err = store.DetachTags(ctx, id, resolved)
+		}
+		if err != nil {
 			return err
 		}
 
