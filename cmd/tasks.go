@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/spf13/cobra"
@@ -16,6 +17,7 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 	var dueOn string
 	var deferUntil string
 	var projectIDValue string
+	var areaIDValue string
 	command := &cobra.Command{
 		Use:   "add TITLE",
 		Short: "Add a task",
@@ -25,12 +27,16 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 			if err != nil {
 				return err
 			}
+			areaID, err := parseAreaIDFlag(command, areaIDValue)
+			if err != nil {
+				return err
+			}
 			resolvedNote, err := resolveNote(command, note)
 			if err != nil {
 				return err
 			}
 
-			fields := task.AddFields{ProjectID: projectID, Title: args[0], Note: resolvedNote}
+			fields := task.AddFields{ProjectID: projectID, AreaID: areaID, Title: args[0], Note: resolvedNote}
 			if command.Flags().Changed("due") {
 				fields.DueOn = &dueOn
 			}
@@ -49,6 +55,7 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 	}
 	command.Flags().StringVar(&note, "note", "", "task note or - to read stdin")
 	command.Flags().StringVar(&projectIDValue, "project", "", "project ID")
+	command.Flags().StringVar(&areaIDValue, "area", "", "area ID")
 	command.Flags().StringVar(&dueOn, "due", "", "task due date")
 	command.Flags().StringVar(&deferUntil, "defer", "", "task defer date")
 
@@ -120,6 +127,8 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 	var noDefer bool
 	var projectIDValue string
 	var noProject bool
+	var areaIDValue string
+	var noArea bool
 	command := &cobra.Command{
 		Use:   "edit ID",
 		Short: "Edit a task",
@@ -134,13 +143,18 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 				return err
 			}
 
+			areaID, err := parseAreaIDFlag(command, areaIDValue)
+			if err != nil {
+				return err
+			}
+
 			if !anyFlagChanged(
 				command,
-				"title", "note", "due", "no-due", "defer", "no-defer", "project", "no-project",
+				"title", "note", "due", "no-due", "defer", "no-defer", "project", "no-project", "area", "no-area",
 			) {
 				return apperr.New(
 					apperr.InvalidArgument,
-					"edit requires --title, --note, --due, --no-due, --defer, --no-defer, --project, or --no-project",
+					"edit requires --title, --note, --due, --no-due, --defer, --no-defer, --project, --no-project, --area, or --no-area",
 					nil,
 				)
 			}
@@ -148,6 +162,8 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 			fields := task.EditFields{}
 			fields.Project.Set = projectID
 			fields.Project.Clear = noProject
+			fields.Area.Set = areaID
+			fields.Area.Clear = noArea
 			if command.Flags().Changed("title") {
 				fields.Title = &title
 			}
@@ -184,6 +200,8 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 	command.Flags().StringVar(&note, "note", "", "task note or - to read stdin")
 	command.Flags().StringVar(&projectIDValue, "project", "", "project ID")
 	command.Flags().BoolVar(&noProject, "no-project", false, "remove the task from its project")
+	command.Flags().StringVar(&areaIDValue, "area", "", "area ID")
+	command.Flags().BoolVar(&noArea, "no-area", false, "remove the task from its area")
 	command.Flags().StringVar(&dueOn, "due", "", "task due date")
 	command.Flags().BoolVar(&noDue, "no-due", false, "clear the task due date")
 	command.Flags().StringVar(&deferUntil, "defer", "", "task defer date")
@@ -191,6 +209,7 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 	command.MarkFlagsMutuallyExclusive("due", "no-due")
 	command.MarkFlagsMutuallyExclusive("defer", "no-defer")
 	command.MarkFlagsMutuallyExclusive("project", "no-project")
+	command.MarkFlagsMutuallyExclusive("area", "no-area")
 
 	return command
 }
@@ -201,6 +220,7 @@ func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 	var overdue bool
 	var deferred bool
 	var projectIDValue string
+	var areaIDValue string
 	command := &cobra.Command{
 		Use:   "list",
 		Short: "List tasks",
@@ -215,6 +235,11 @@ func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 				return err
 			}
 
+			areaID, err := parseAreaIDFlag(command, areaIDValue)
+			if err != nil {
+				return err
+			}
+
 			selector := task.DateSelectorNone
 			if due {
 				selector = task.DateSelectorDue
@@ -225,7 +250,7 @@ func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 			if deferred {
 				selector = task.DateSelectorDeferred
 			}
-			listOptions := task.ListOptions{Status: status, Date: selector, ProjectID: projectID}
+			listOptions := task.ListOptions{Status: status, Date: selector, ProjectID: projectID, AreaID: areaID}
 
 			return withTaskApplication(command, options, factory, func(application task.Application) error {
 				tasks, err := application.List(command.Context(), listOptions)
@@ -238,6 +263,7 @@ func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 	}
 	command.Flags().StringVar(&statusValue, "status", statusValue, "filter by status: open, done, cancelled, or all")
 	command.Flags().StringVar(&projectIDValue, "project", "", "filter by project ID")
+	command.Flags().StringVar(&areaIDValue, "area", "", "filter by area ID")
 	command.Flags().BoolVar(&due, "due", false, "list tasks with due dates")
 	command.Flags().BoolVar(&overdue, "overdue", false, "list overdue open tasks")
 	command.Flags().BoolVar(&deferred, "deferred", false, "list tasks deferred beyond today")
@@ -314,6 +340,19 @@ func parseProjectIDFlag(command *cobra.Command, value string) (*int64, error) {
 	}
 
 	id, err := project.ParseID(value)
+	if err != nil {
+		return nil, err
+	}
+
+	return &id, nil
+}
+
+func parseAreaIDFlag(command *cobra.Command, value string) (*int64, error) {
+	if !command.Flags().Changed("area") {
+		return nil, nil
+	}
+
+	id, err := area.ParseID(value)
 	if err != nil {
 		return nil, err
 	}

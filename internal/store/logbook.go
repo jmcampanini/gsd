@@ -18,7 +18,8 @@ func NewLogbook(database *DB) *Logbook {
 
 func (s *Logbook) List(ctx context.Context) ([]logbook.Entry, error) {
 	rows, err := s.db.database.QueryContext(ctx, `
-SELECT kind, id, title, status, resolved_at, project_title
+SELECT kind, id, title, status, resolved_at, project_title,
+       governing_area_id, governing_area_title
 FROM logbook
 ORDER BY resolved_at DESC,
          CASE kind WHEN 'project' THEN 0 ELSE 1 END,
@@ -46,6 +47,8 @@ func collectLogbookEntries(rows *sql.Rows) ([]logbook.Entry, error) {
 			&entry.Status,
 			&entry.ResolvedAt,
 			&entry.ProjectTitle,
+			&entry.GoverningAreaID,
+			&entry.GoverningAreaTitle,
 		); err != nil {
 			return nil, fmt.Errorf("scan logbook entry: %w", err)
 		}

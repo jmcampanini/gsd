@@ -12,10 +12,29 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-const taskColumns = `id, project_id, title, note, defer_until, due_on, done_at, cancelled_at, status, position, created_at, updated_at`
+const taskColumns = `id, project_id, area_id, title, note, defer_until, due_on, done_at, cancelled_at, status, position, created_at, updated_at`
+
+const taskViewColumns = taskColumns + `, project_title, governing_area_id, governing_area_title`
 
 type Tasks struct {
 	db *DB
+}
+
+type taskContainer interface {
+	isTaskContainer()
+}
+
+type inboxTaskContainer struct{}
+type projectTaskContainer struct{ id int64 }
+type areaTaskContainer struct{ id int64 }
+
+func (inboxTaskContainer) isTaskContainer()   {}
+func (projectTaskContainer) isTaskContainer() {}
+func (areaTaskContainer) isTaskContainer()    {}
+
+type taskDestinationExpression struct {
+	selectSQL string
+	arguments []any
 }
 
 func NewTasks(database *DB) *Tasks {
@@ -23,69 +42,92 @@ func NewTasks(database *DB) *Tasks {
 }
 
 func (s *Tasks) Add(ctx context.Context, fields task.AddFields, timestamp string) (task.Task, error) {
+	if fields.ProjectID != nil && fields.AreaID != nil {
+		return task.Task{}, errors.New("task cannot have both project and area")
+	}
+
 	projectID := nullableID(fields.ProjectID)
+	areaID := nullableID(fields.AreaID)
 	query := `
 INSERT INTO tasks (
-    project_id, title, note, defer_until, due_on, position, created_at, updated_at
+    project_id, area_id, title, note, defer_until, due_on, position, created_at, updated_at
 )
-SELECT ?, ?, ?, ?, ?,
-       COALESCE((SELECT MAX(position) FROM tasks WHERE project_id IS ?), -1) + 1,
+SELECT ?, ?, ?, ?, ?, ?,
+       (
+           SELECT COALESCE(MAX(position), -1) + 1
+           FROM tasks
+           WHERE project_id IS ? AND area_id IS ?
+       ),
        ?, ?
-WHERE ? IS NULL
-   OR EXISTS (
-       SELECT 1 FROM projects WHERE id = ? AND status = 'open'
-   )
+WHERE (
+        ? IS NULL
+        OR EXISTS (
+            SELECT 1 FROM projects WHERE id = ? AND status = 'open'
+        )
+      )
+  AND (? IS NULL OR EXISTS (SELECT 1 FROM areas WHERE id = ?))
 RETURNING ` + taskColumns
 
 	row := s.db.database.QueryRowContext(
 		ctx,
 		query,
 		projectID,
+		areaID,
 		fields.Title,
 		fields.Note,
 		fields.DeferUntil,
 		fields.DueOn,
 		projectID,
+		areaID,
 		timestamp,
 		timestamp,
 		projectID,
 		projectID,
+		areaID,
+		areaID,
 	)
 	created, err := scanTask(row)
 	if err == nil {
 		return created, nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) || fields.ProjectID == nil {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return task.Task{}, fmt.Errorf("insert task: %w", err)
 	}
-	if classification := s.classifyOpenProject(
-		ctx,
-		*fields.ProjectID,
-		fmt.Sprintf("add task to project %d", *fields.ProjectID),
-		err,
-	); classification != nil {
-		return task.Task{}, classification
+	if fields.AreaID != nil {
+		if _, findErr := NewAreas(s.db).Find(ctx, *fields.AreaID); findErr != nil {
+			return task.Task{}, findErr
+		}
+	}
+	if fields.ProjectID != nil {
+		if classification := s.classifyOpenProject(
+			ctx,
+			*fields.ProjectID,
+			fmt.Sprintf("add task to project %d", *fields.ProjectID),
+			err,
+		); classification != nil {
+			return task.Task{}, classification
+		}
 	}
 
 	return task.Task{}, fmt.Errorf("insert task: %w", err)
 }
 
-func (s *Tasks) Inbox(ctx context.Context) ([]task.Task, error) {
-	rows, err := s.db.database.QueryContext(ctx, "SELECT "+taskColumns+" FROM inbox ORDER BY position, id")
+func (s *Tasks) Inbox(ctx context.Context) ([]task.ViewTask, error) {
+	rows, err := s.db.database.QueryContext(ctx, "SELECT "+taskViewColumns+" FROM inbox ORDER BY position, id")
 	if err != nil {
 		return nil, fmt.Errorf("query inbox: %w", err)
 	}
 
-	return collectTasks(rows, "scan inbox task", "iterate inbox")
+	return collectViewTasks(rows, "scan inbox task", "iterate inbox")
 }
 
-func (s *Tasks) Available(ctx context.Context) ([]task.Task, error) {
-	rows, err := s.db.database.QueryContext(ctx, "SELECT "+taskColumns+" FROM available ORDER BY position, id")
+func (s *Tasks) Available(ctx context.Context) ([]task.ViewTask, error) {
+	rows, err := s.db.database.QueryContext(ctx, "SELECT "+taskViewColumns+" FROM available ORDER BY position, id")
 	if err != nil {
 		return nil, fmt.Errorf("query available tasks: %w", err)
 	}
 
-	return collectTasks(rows, "scan available task", "iterate available tasks")
+	return collectViewTasks(rows, "scan available task", "iterate available tasks")
 }
 
 func (s *Tasks) Find(ctx context.Context, id int64) (task.Task, error) {
@@ -102,6 +144,10 @@ func (s *Tasks) Find(ctx context.Context, id int64) (task.Task, error) {
 }
 
 func (s *Tasks) List(ctx context.Context, options task.ListOptions) ([]task.Task, error) {
+	if options.ProjectID != nil && options.AreaID != nil {
+		return nil, errors.New("task list cannot filter by both project and area")
+	}
+
 	conditions := make([]string, 0, 2)
 	arguments := make([]any, 0, 1)
 	switch options.Status {
@@ -129,32 +175,26 @@ func (s *Tasks) List(ctx context.Context, options task.ListOptions) ([]task.Task
 	}
 
 	if options.ProjectID != nil {
-		query := "WITH listed_tasks AS (SELECT " + taskColumns +
-			" FROM tasks WHERE project_id = ?"
-		if len(conditions) > 0 {
-			query += " AND " + strings.Join(conditions, " AND ")
-		}
-		query += `
-), requested_project AS (
-    SELECT 1 FROM projects WHERE id = ?
-)
-SELECT * FROM listed_tasks
-UNION ALL
-SELECT 0, NULL, '', '', NULL, NULL, NULL, NULL, '', 0, '', ''
-FROM requested_project
-WHERE NOT EXISTS (SELECT 1 FROM listed_tasks)
-ORDER BY position, id`
-		scopedArguments := make([]any, 0, len(arguments)+2)
-		scopedArguments = append(scopedArguments, *options.ProjectID)
-		scopedArguments = append(scopedArguments, arguments...)
-		scopedArguments = append(scopedArguments, *options.ProjectID)
-
-		rows, err := s.db.database.QueryContext(ctx, query, scopedArguments...)
-		if err != nil {
-			return nil, fmt.Errorf("list project tasks: %w", err)
-		}
-
-		return collectProjectTasks(rows, *options.ProjectID)
+		return s.listContained(
+			ctx,
+			"project_id",
+			"projects",
+			"project",
+			*options.ProjectID,
+			conditions,
+			arguments,
+		)
+	}
+	if options.AreaID != nil {
+		return s.listContained(
+			ctx,
+			"area_id",
+			"areas",
+			"area",
+			*options.AreaID,
+			conditions,
+			arguments,
+		)
 	}
 
 	query := "SELECT " + taskColumns + " FROM tasks"
@@ -171,6 +211,44 @@ ORDER BY position, id`
 	return collectTasks(rows, "scan listed task", "iterate listed tasks")
 }
 
+func (s *Tasks) listContained(
+	ctx context.Context,
+	column string,
+	table string,
+	noun string,
+	containerID int64,
+	conditions []string,
+	arguments []any,
+) ([]task.Task, error) {
+	query := "WITH listed_tasks AS (SELECT " + taskColumns +
+		" FROM tasks WHERE " + column + " = ?"
+	if len(conditions) > 0 {
+		query += " AND " + strings.Join(conditions, " AND ")
+	}
+	query += `
+), requested_container AS (
+    SELECT 1 FROM ` + table + ` WHERE id = ?
+)
+SELECT * FROM listed_tasks
+UNION ALL
+SELECT 0, NULL, NULL, '', '', NULL, NULL, NULL, NULL, '', 0, '', ''
+FROM requested_container
+WHERE NOT EXISTS (SELECT 1 FROM listed_tasks)
+ORDER BY position, id`
+
+	scopedArguments := make([]any, 0, len(arguments)+2)
+	scopedArguments = append(scopedArguments, containerID)
+	scopedArguments = append(scopedArguments, arguments...)
+	scopedArguments = append(scopedArguments, containerID)
+
+	rows, err := s.db.database.QueryContext(ctx, query, scopedArguments...)
+	if err != nil {
+		return nil, fmt.Errorf("list %s tasks: %w", noun, err)
+	}
+
+	return collectContainedTasks(rows, noun, containerID)
+}
+
 func (s *Tasks) Edit(
 	ctx context.Context,
 	id int64,
@@ -180,9 +258,15 @@ func (s *Tasks) Edit(
 	if fields.Project.Set != nil && fields.Project.Clear {
 		return task.Task{}, errors.New("project cannot be set and cleared")
 	}
+	if fields.Area.Set != nil && fields.Area.Clear {
+		return task.Task{}, errors.New("area cannot be set and cleared")
+	}
+	if fields.Project.Set != nil && fields.Area.Set != nil {
+		return task.Task{}, errors.New("task cannot have both project and area")
+	}
 
-	assignments := make([]string, 0, 9)
-	arguments := make([]any, 0, 16)
+	assignments := make([]string, 0, 10)
+	arguments := make([]any, 0, 5)
 	if fields.Title != nil {
 		assignments = append(assignments, "title = ?")
 		arguments = append(arguments, *fields.Title)
@@ -207,29 +291,34 @@ func (s *Tasks) Edit(
 	}
 
 	contentChanged := len(assignments) > 0
-	membershipRequested := fields.Project.Set != nil || fields.Project.Clear
+	membershipRequested := fields.Project.Set != nil || fields.Project.Clear ||
+		fields.Area.Set != nil || fields.Area.Clear
 	if !contentChanged && !membershipRequested {
 		return task.Task{}, errors.New("edit requires at least one field")
 	}
 
-	var destination any
-	if fields.Project.Set != nil {
-		destination = *fields.Project.Set
-	}
+	const (
+		destinationProject = "(SELECT project_id FROM task_destination)"
+		destinationArea    = "(SELECT area_id FROM task_destination)"
+	)
+
+	var destination taskDestinationExpression
 	if membershipRequested {
+		destination = taskDestinationFor(fields)
 		assignments = append(
 			assignments,
 			`position = CASE
-    WHEN tasks.project_id IS ? THEN tasks.position
+    WHEN tasks.project_id IS `+destinationProject+` AND tasks.area_id IS `+destinationArea+` THEN tasks.position
     ELSE COALESCE((
         SELECT MAX(sibling.position)
         FROM tasks AS sibling
-        WHERE sibling.project_id IS ?
+        WHERE sibling.project_id IS `+destinationProject+`
+          AND sibling.area_id IS `+destinationArea+`
     ), -1) + 1
 END`,
-			"project_id = ?",
+			"project_id = "+destinationProject,
+			"area_id = "+destinationArea,
 		)
-		arguments = append(arguments, destination, destination, destination)
 	}
 
 	if contentChanged {
@@ -238,16 +327,30 @@ END`,
 	} else {
 		assignments = append(
 			assignments,
-			"updated_at = CASE WHEN tasks.project_id IS ? THEN tasks.updated_at ELSE ? END",
+			"updated_at = CASE WHEN tasks.project_id IS "+destinationProject+
+				" AND tasks.area_id IS "+destinationArea+" THEN tasks.updated_at ELSE ? END",
 		)
-		arguments = append(arguments, destination, timestamp)
+		arguments = append(arguments, timestamp)
 	}
 
-	query := "UPDATE tasks SET " + strings.Join(assignments, ", ") + " WHERE id = ?"
+	query := ""
+	if membershipRequested {
+		query = `WITH task_destination(project_id, area_id) AS MATERIALIZED (
+    SELECT ` + destination.selectSQL + `
+    FROM tasks
+    WHERE id = ?
+)
+`
+		queryArguments := make([]any, 0, len(destination.arguments)+len(arguments)+2)
+		queryArguments = append(queryArguments, destination.arguments...)
+		queryArguments = append(queryArguments, id)
+		arguments = append(queryArguments, arguments...)
+	}
+	query += "UPDATE tasks SET " + strings.Join(assignments, ", ") + " WHERE id = ?"
 	arguments = append(arguments, id)
 	if membershipRequested {
 		query += ` AND (
-    tasks.project_id IS ?
+    (tasks.project_id IS ` + destinationProject + ` AND tasks.area_id IS ` + destinationArea + `)
     OR (
         (
             tasks.project_id IS NULL
@@ -259,17 +362,23 @@ END`,
             )
         )
         AND (
-            ? IS NULL
+            ` + destinationProject + ` IS NULL
             OR EXISTS (
                 SELECT 1
                 FROM projects AS destination_project
-                WHERE destination_project.id = ?
+                WHERE destination_project.id = ` + destinationProject + `
                   AND destination_project.status = 'open'
+            )
+        )
+        AND (
+            ` + destinationArea + ` IS NULL
+            OR EXISTS (
+                SELECT 1 FROM areas AS destination_area
+                WHERE destination_area.id = ` + destinationArea + `
             )
         )
     )
 )`
-		arguments = append(arguments, destination, destination, destination)
 	}
 	query += " RETURNING " + taskColumns
 
@@ -287,7 +396,30 @@ END`,
 		return task.Task{}, fmt.Errorf("edit task: %w", err)
 	}
 
-	return task.Task{}, s.classifyMembershipEdit(ctx, id, fields.Project.Set, err)
+	return task.Task{}, s.classifyMembershipEdit(ctx, id, fields, err)
+}
+
+func taskDestinationFor(fields task.EditFields) taskDestinationExpression {
+	switch {
+	case fields.Project.Set != nil:
+		return taskDestinationExpression{
+			selectSQL: "?, NULL",
+			arguments: []any{*fields.Project.Set},
+		}
+	case fields.Area.Set != nil:
+		return taskDestinationExpression{
+			selectSQL: "NULL, ?",
+			arguments: []any{*fields.Area.Set},
+		}
+	case fields.Project.Clear && fields.Area.Clear:
+		return taskDestinationExpression{selectSQL: "NULL, NULL"}
+	case fields.Project.Clear:
+		return taskDestinationExpression{selectSQL: "NULL, area_id"}
+	case fields.Area.Clear:
+		return taskDestinationExpression{selectSQL: "project_id, NULL"}
+	default:
+		panic("task destination requested without membership change")
+	}
 }
 
 func (s *Tasks) Done(ctx context.Context, id int64, timestamp string) (task.Task, error) {
@@ -422,30 +554,39 @@ func (s *Tasks) transition(
 func (s *Tasks) classifyMembershipEdit(
 	ctx context.Context,
 	taskID int64,
-	destination *int64,
+	fields task.EditFields,
 	cause error,
 ) error {
 	current, err := s.Find(ctx, taskID)
 	if err != nil {
 		return err
 	}
-	if sameNullableID(current.ProjectID, destination) {
+
+	source := taskContainerOf(current)
+	destination := taskContainerAfterChange(source, fields)
+	if source == destination {
 		return fmt.Errorf("edit task: %w", cause)
 	}
 
 	var destinationProject *project.Project
-	if destination != nil {
-		found, err := NewProjects(s.db).Find(ctx, *destination)
-		if err != nil {
-			return err
+	switch container := destination.(type) {
+	case projectTaskContainer:
+		found, findErr := NewProjects(s.db).Find(ctx, container.id)
+		if findErr != nil {
+			return findErr
 		}
 		destinationProject = &found
+	case areaTaskContainer:
+		if _, findErr := NewAreas(s.db).Find(ctx, container.id); findErr != nil {
+			return findErr
+		}
 	}
+
 	var sourceProject *project.Project
-	if current.ProjectID != nil {
-		found, err := NewProjects(s.db).Find(ctx, *current.ProjectID)
-		if err != nil {
-			return err
+	if container, ok := source.(projectTaskContainer); ok {
+		found, findErr := NewProjects(s.db).Find(ctx, container.id)
+		if findErr != nil {
+			return findErr
 		}
 		sourceProject = &found
 	}
@@ -489,6 +630,40 @@ func (s *Tasks) classifyMembershipEdit(
 	}
 }
 
+func taskContainerOf(current task.Task) taskContainer {
+	switch {
+	case current.ProjectID != nil:
+		return projectTaskContainer{id: *current.ProjectID}
+	case current.AreaID != nil:
+		return areaTaskContainer{id: *current.AreaID}
+	default:
+		return inboxTaskContainer{}
+	}
+}
+
+func taskContainerAfterChange(current taskContainer, fields task.EditFields) taskContainer {
+	switch {
+	case fields.Project.Set != nil:
+		return projectTaskContainer{id: *fields.Project.Set}
+	case fields.Area.Set != nil:
+		return areaTaskContainer{id: *fields.Area.Set}
+	case fields.Project.Clear && fields.Area.Clear:
+		return inboxTaskContainer{}
+	case fields.Project.Clear:
+		if container, ok := current.(areaTaskContainer); ok {
+			return container
+		}
+		return inboxTaskContainer{}
+	case fields.Area.Clear:
+		if container, ok := current.(projectTaskContainer); ok {
+			return container
+		}
+		return inboxTaskContainer{}
+	default:
+		return current
+	}
+}
+
 func (s *Tasks) classifyOpenProject(
 	ctx context.Context,
 	projectID int64,
@@ -514,30 +689,30 @@ type rowScanner interface {
 	Scan(...any) error
 }
 
-func collectProjectTasks(rows *sql.Rows, projectID int64) ([]task.Task, error) {
+func collectContainedTasks(rows *sql.Rows, noun string, containerID int64) ([]task.Task, error) {
 	defer func() {
 		_ = rows.Close()
 	}()
 
-	projectExists := false
+	containerExists := false
 	tasks := make([]task.Task, 0)
 	for rows.Next() {
 		current, err := scanTask(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan listed project task: %w", err)
+			return nil, fmt.Errorf("scan listed %s task: %w", noun, err)
 		}
-		projectExists = true
+		containerExists = true
 		if current.ID != 0 {
 			tasks = append(tasks, current)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate listed project tasks: %w", err)
+		return nil, fmt.Errorf("iterate listed %s tasks: %w", noun, err)
 	}
-	if !projectExists {
+	if !containerExists {
 		return nil, apperr.New(
 			apperr.NotFound,
-			fmt.Sprintf("no project %d", projectID),
+			fmt.Sprintf("no %s %d", noun, containerID),
 			sql.ErrNoRows,
 		)
 	}
@@ -565,11 +740,51 @@ func collectTasks(rows *sql.Rows, scanAction, iterateAction string) ([]task.Task
 	return tasks, nil
 }
 
+func collectViewTasks(rows *sql.Rows, scanAction, iterateAction string) ([]task.ViewTask, error) {
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	tasks := make([]task.ViewTask, 0)
+	for rows.Next() {
+		current, err := scanViewTask(rows)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", scanAction, err)
+		}
+		tasks = append(tasks, current)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s: %w", iterateAction, err)
+	}
+
+	return tasks, nil
+}
+
 func scanTask(scanner rowScanner) (task.Task, error) {
 	var value task.Task
-	err := scanner.Scan(
+	err := scanner.Scan(taskScanTargets(&value)...)
+
+	return value, err
+}
+
+func scanViewTask(scanner rowScanner) (task.ViewTask, error) {
+	var value task.ViewTask
+	targets := append(
+		taskScanTargets(&value.Task),
+		&value.ProjectTitle,
+		&value.GoverningAreaID,
+		&value.GoverningAreaTitle,
+	)
+	err := scanner.Scan(targets...)
+
+	return value, err
+}
+
+func taskScanTargets(value *task.Task) []any {
+	return []any{
 		&value.ID,
 		&value.ProjectID,
+		&value.AreaID,
 		&value.Title,
 		&value.Note,
 		&value.DeferUntil,
@@ -580,9 +795,7 @@ func scanTask(scanner rowScanner) (task.Task, error) {
 		&value.Position,
 		&value.CreatedAt,
 		&value.UpdatedAt,
-	)
-
-	return value, err
+	}
 }
 
 func nullableID(value *int64) any {
@@ -591,12 +804,4 @@ func nullableID(value *int64) any {
 	}
 
 	return *value
-}
-
-func sameNullableID(left, right *int64) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-
-	return *left == *right
 }

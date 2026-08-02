@@ -31,6 +31,12 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Task, error) {
 	if fields.ProjectID != nil && *fields.ProjectID <= 0 {
 		return Task{}, apperr.New(apperr.InvalidArgument, "project ID must be positive", nil)
 	}
+	if fields.AreaID != nil && *fields.AreaID <= 0 {
+		return Task{}, apperr.New(apperr.InvalidArgument, "area ID must be positive", nil)
+	}
+	if fields.ProjectID != nil && fields.AreaID != nil {
+		return Task{}, apperr.New(apperr.InvalidArgument, "task cannot belong to both a project and an area", nil)
+	}
 
 	reference := s.now()
 	var err error
@@ -46,12 +52,12 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Task, error) {
 	return s.store.Add(ctx, fields, formatTimestamp(reference))
 }
 
-func (s *Service) Inbox(ctx context.Context) ([]Task, error) {
-	return normalizeTasks(s.store.Inbox(ctx))
+func (s *Service) Inbox(ctx context.Context) ([]ViewTask, error) {
+	return normalizeViewTasks(s.store.Inbox(ctx))
 }
 
-func (s *Service) Available(ctx context.Context) ([]Task, error) {
-	return normalizeTasks(s.store.Available(ctx))
+func (s *Service) Available(ctx context.Context) ([]ViewTask, error) {
+	return normalizeViewTasks(s.store.Available(ctx))
 }
 
 func (s *Service) Show(ctx context.Context, id int64) (Task, error) {
@@ -71,6 +77,12 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Task, error)
 	}
 	if options.ProjectID != nil && *options.ProjectID <= 0 {
 		return nil, apperr.New(apperr.InvalidArgument, "project ID must be positive", nil)
+	}
+	if options.AreaID != nil && *options.AreaID <= 0 {
+		return nil, apperr.New(apperr.InvalidArgument, "area ID must be positive", nil)
+	}
+	if options.ProjectID != nil && options.AreaID != nil {
+		return nil, apperr.New(apperr.InvalidArgument, "cannot filter tasks by both project and area", nil)
 	}
 
 	return normalizeTasks(s.store.List(ctx, options))
@@ -92,10 +104,20 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, 
 	if fields.Project.Set != nil && *fields.Project.Set <= 0 {
 		return Task{}, apperr.New(apperr.InvalidArgument, "project ID must be positive", nil)
 	}
+	if fields.Area.Set != nil && fields.Area.Clear {
+		return Task{}, apperr.New(apperr.InvalidArgument, "area cannot be set and cleared", nil)
+	}
+	if fields.Area.Set != nil && *fields.Area.Set <= 0 {
+		return Task{}, apperr.New(apperr.InvalidArgument, "area ID must be positive", nil)
+	}
+	if fields.Project.Set != nil && fields.Area.Set != nil {
+		return Task{}, apperr.New(apperr.InvalidArgument, "task cannot be moved to both a project and an area", nil)
+	}
 	if fields.Title == nil && fields.Note == nil &&
 		fields.DueOn.Set == nil && !fields.DueOn.Clear &&
 		fields.DeferUntil.Set == nil && !fields.DeferUntil.Clear &&
-		fields.Project.Set == nil && !fields.Project.Clear {
+		fields.Project.Set == nil && !fields.Project.Clear &&
+		fields.Area.Set == nil && !fields.Area.Clear {
 		return Task{}, apperr.New(
 			apperr.InvalidArgument,
 			"task edit requires at least one field",
@@ -221,6 +243,17 @@ func normalizeTasks(tasks []Task, err error) ([]Task, error) {
 	}
 	if tasks == nil {
 		return []Task{}, nil
+	}
+
+	return tasks, nil
+}
+
+func normalizeViewTasks(tasks []ViewTask, err error) ([]ViewTask, error) {
+	if err != nil {
+		return nil, err
+	}
+	if tasks == nil {
+		return []ViewTask{}, nil
 	}
 
 	return tasks, nil

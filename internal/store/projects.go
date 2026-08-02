@@ -13,7 +13,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-const projectColumns = `id, title, note, done_at, cancelled_at, status, position, created_at, updated_at`
+const projectColumns = `id, area_id, title, note, done_at, cancelled_at, status, position, created_at, updated_at`
 
 type Projects struct {
 	database *DB
@@ -34,17 +34,31 @@ func (s *Projects) Add(
 	fields project.AddFields,
 	timestamp string,
 ) (project.Project, error) {
-	row := s.executor.QueryRowContext(ctx, `
-INSERT INTO projects (title, note, position, created_at, updated_at)
-SELECT ?, ?, COALESCE(MAX(position), -1) + 1, ?, ?
-FROM projects
-RETURNING `+projectColumns, fields.Title, fields.Note, timestamp, timestamp)
-	created, err := scanProject(row)
-	if err != nil {
-		return project.Project{}, fmt.Errorf("insert project: %w", err)
+	areaID := nullableID(fields.AreaID)
+	created, err := scanProject(s.executor.QueryRowContext(ctx, `
+INSERT INTO projects (area_id, title, note, position, created_at, updated_at)
+SELECT ?, ?, ?,
+       COALESCE((SELECT MAX(position) FROM projects WHERE area_id IS ?), -1) + 1,
+       ?, ?
+WHERE ? IS NULL OR EXISTS (SELECT 1 FROM areas WHERE id = ?)
+RETURNING `+projectColumns,
+		areaID,
+		fields.Title,
+		fields.Note,
+		areaID,
+		timestamp,
+		timestamp,
+		areaID,
+		areaID,
+	))
+	if err == nil {
+		return created, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) && fields.AreaID != nil {
+		return project.Project{}, missingAreaError(*fields.AreaID, err)
 	}
 
-	return created, nil
+	return project.Project{}, fmt.Errorf("insert project: %w", err)
 }
 
 func (s *Projects) Find(ctx context.Context, id int64) (project.Project, error) {
@@ -61,15 +75,49 @@ func (s *Projects) Find(ctx context.Context, id int64) (project.Project, error) 
 }
 
 func (s *Projects) List(ctx context.Context, options project.ListOptions) ([]project.Project, error) {
-	query := "SELECT " + projectColumns + " FROM projects"
+	conditions := make([]string, 0, 1)
 	arguments := make([]any, 0, 1)
 	switch options.Status {
 	case project.ListStatusOpen, project.ListStatusDone, project.ListStatusCancelled:
-		query += " WHERE status = ?"
+		conditions = append(conditions, "status = ?")
 		arguments = append(arguments, options.Status)
 	case project.ListStatusAll:
 	default:
 		return nil, fmt.Errorf("invalid project list status %q", options.Status)
+	}
+
+	if options.AreaID != nil {
+		query := "WITH listed_projects AS (SELECT " + projectColumns +
+			" FROM projects WHERE area_id = ?"
+		if len(conditions) > 0 {
+			query += " AND " + strings.Join(conditions, " AND ")
+		}
+		query += `
+), requested_area AS (
+    SELECT 1 FROM areas WHERE id = ?
+)
+SELECT * FROM listed_projects
+UNION ALL
+SELECT 0, NULL, '', '', NULL, NULL, '', 0, '', ''
+FROM requested_area
+WHERE NOT EXISTS (SELECT 1 FROM listed_projects)
+ORDER BY position, id`
+		scopedArguments := make([]any, 0, len(arguments)+2)
+		scopedArguments = append(scopedArguments, *options.AreaID)
+		scopedArguments = append(scopedArguments, arguments...)
+		scopedArguments = append(scopedArguments, *options.AreaID)
+
+		rows, err := s.executor.QueryContext(ctx, query, scopedArguments...)
+		if err != nil {
+			return nil, fmt.Errorf("list area projects: %w", err)
+		}
+
+		return collectAreaProjects(rows, *options.AreaID)
+	}
+
+	query := "SELECT " + projectColumns + " FROM projects"
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
 	query += " ORDER BY position, id"
 
@@ -87,8 +135,12 @@ func (s *Projects) Edit(
 	fields project.EditFields,
 	timestamp string,
 ) (project.Project, error) {
-	assignments := make([]string, 0, 3)
-	arguments := make([]any, 0, 4)
+	if fields.Area.Set != nil && fields.Area.Clear {
+		return project.Project{}, errors.New("area cannot be set and cleared")
+	}
+
+	assignments := make([]string, 0, 5)
+	arguments := make([]any, 0, 10)
 	if fields.Title != nil {
 		assignments = append(assignments, "title = ?")
 		arguments = append(arguments, *fields.Title)
@@ -97,23 +149,67 @@ func (s *Projects) Edit(
 		assignments = append(assignments, "note = ?")
 		arguments = append(arguments, *fields.Note)
 	}
-	if len(assignments) == 0 {
+
+	contentChanged := len(assignments) > 0
+	membershipRequested := fields.Area.Set != nil || fields.Area.Clear
+	if !contentChanged && !membershipRequested {
 		return project.Project{}, errors.New("edit requires at least one field")
 	}
 
-	assignments = append(assignments, "updated_at = ?")
-	arguments = append(arguments, timestamp, id)
-	query := "UPDATE projects SET " + strings.Join(assignments, ", ") +
-		" WHERE id = ? RETURNING " + projectColumns
-	edited, err := scanProject(s.executor.QueryRowContext(ctx, query, arguments...))
-	if errors.Is(err, sql.ErrNoRows) {
-		return project.Project{}, apperr.New(apperr.NotFound, fmt.Sprintf("no project %d", id), err)
+	var destination any
+	if fields.Area.Set != nil {
+		destination = *fields.Area.Set
 	}
-	if err != nil {
-		return project.Project{}, fmt.Errorf("edit project: %w", err)
+	if membershipRequested {
+		assignments = append(
+			assignments,
+			`position = CASE
+    WHEN projects.area_id IS ? THEN projects.position
+    ELSE COALESCE((
+        SELECT MAX(sibling.position)
+        FROM projects AS sibling
+        WHERE sibling.area_id IS ?
+    ), -1) + 1
+END`,
+			"area_id = ?",
+		)
+		arguments = append(arguments, destination, destination, destination)
 	}
 
-	return edited, nil
+	if contentChanged {
+		assignments = append(assignments, "updated_at = ?")
+		arguments = append(arguments, timestamp)
+	} else {
+		assignments = append(
+			assignments,
+			"updated_at = CASE WHEN projects.area_id IS ? THEN projects.updated_at ELSE ? END",
+		)
+		arguments = append(arguments, destination, timestamp)
+	}
+
+	query := "UPDATE projects SET " + strings.Join(assignments, ", ") + " WHERE id = ?"
+	arguments = append(arguments, id)
+	if fields.Area.Set != nil {
+		query += " AND EXISTS (SELECT 1 FROM areas WHERE id = ?)"
+		arguments = append(arguments, *fields.Area.Set)
+	}
+	query += " RETURNING " + projectColumns
+
+	edited, err := scanProject(s.executor.QueryRowContext(ctx, query, arguments...))
+	if err == nil {
+		return edited, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return project.Project{}, fmt.Errorf("edit project: %w", err)
+	}
+	if _, findErr := s.Find(ctx, id); findErr != nil {
+		return project.Project{}, findErr
+	}
+	if fields.Area.Set != nil {
+		return project.Project{}, missingAreaError(*fields.Area.Set, err)
+	}
+
+	return project.Project{}, fmt.Errorf("edit project: %w", err)
 }
 
 func (s *Projects) Resolve(
@@ -306,6 +402,33 @@ func sortTasks(tasks []task.Task) {
 	})
 }
 
+func collectAreaProjects(rows *sql.Rows, areaID int64) ([]project.Project, error) {
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	areaExists := false
+	projects := make([]project.Project, 0)
+	for rows.Next() {
+		current, err := scanProject(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan listed area project: %w", err)
+		}
+		areaExists = true
+		if current.ID != 0 {
+			projects = append(projects, current)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate listed area projects: %w", err)
+	}
+	if !areaExists {
+		return nil, missingAreaError(areaID, sql.ErrNoRows)
+	}
+
+	return projects, nil
+}
+
 func collectProjects(rows *sql.Rows) ([]project.Project, error) {
 	defer func() {
 		_ = rows.Close()
@@ -330,6 +453,7 @@ func scanProject(scanner rowScanner) (project.Project, error) {
 	var value project.Project
 	err := scanner.Scan(
 		&value.ID,
+		&value.AreaID,
 		&value.Title,
 		&value.Note,
 		&value.DoneAt,
@@ -341,4 +465,8 @@ func scanProject(scanner rowScanner) (project.Project, error) {
 	)
 
 	return value, err
+}
+
+func missingAreaError(id int64, cause error) error {
+	return apperr.New(apperr.NotFound, fmt.Sprintf("no area %d", id), cause)
 }
