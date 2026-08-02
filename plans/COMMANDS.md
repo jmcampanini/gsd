@@ -196,7 +196,8 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
 
 - `--json` is a global complete-output-mode flag. Successful entity output is
   its table row — the same column names and formats, including derived
-  `status` — plus `tags`, an array of stored tag names in tag-creation order.
+  `status` — plus `tags`, an array of stored tag names in alphabetical
+  (`NOCASE`) order, matching `tags list`.
   The complete v1 entity field sets are:
   - task: `id`, `project_id`, `area_id`, `title`, `note`, `defer_until`,
     `due_on`, `done_at`, `cancelled_at`, `status`, `position`, `created_at`,

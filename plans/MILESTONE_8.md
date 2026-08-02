@@ -1,73 +1,72 @@
-# Milestone 8 — Reorder
+# Milestone 8 — Search
 
-Data mode: live. Depends on: Milestone 7.
+Data mode: throwaway. Depends on: Milestone 7.
 
-Written lighter than the pre-go-live milestones on purpose: the Milestone 7
-consolidation and a week of real use may reorder 8–10 or reshape their
-scope. Re-review this file at its plan gate.
+Written light; re-review at plan gate (see note in `MILESTONE_7.md`).
 
 ## Capability
 
-Manual ordering — the thing a list tool is for. `position` has existed
-since the capture-loop baseline (append-only); this milestone makes it
-manipulable. Chosen as the first live-data milestone because it needs **no schema
-change**: zero migration risk while the migration muscle is fresh.
+Find the thing you half-remember: FTS5 full-text search over titles and
+notes of all three entity kinds, composing with the list filters. The
+FTS infrastructure lands while data is still throwaway — a
+`user_version` bump (`9008`) folded into the Go-live baseline, not a
+live migration.
 
-## Commands
+## Scope
+
+- FTS5 index over `title` + `note` of tasks, projects, areas, kept in
+  sync (triggers or equivalent — implementation detail). The index is
+  internal: not part of the `query` contract (COMMANDS.md § "Search and
+  query"), so its shape can change freely later.
+- Command:
 
 ```text
-gsd reorder N          (--after M | --before M | --first | --last)
-gsd project reorder N  (--after M | --before M | --first | --last)
-gsd area reorder N     (--after M | --before M | --first | --last)
+gsd search "EXPR" [--project N] [--area N] [--tag NAME] [--status ...]
 ```
 
-## Semantics (per COMMANDS.md)
-
-- Sibling-relative only: the reference entity must live in the same
-  container (same project/area/inbox for tasks; same area or standalone
-  group for projects; the global list for areas). Cross-container
-  reference is `invalid_argument`.
-- Reorder renumbers the container (cheap at this scale, per `SCHEMA.md`).
-- JSON echo: **proposed** — the reordered entity plus its container's new
-  ordering (`{"task": {...}, "container": [ids in order]}`), so agents
-  see the result without a second call.
+- `EXPR` passes through FTS5 match syntax: `plumb*`, `"exact phrase"`,
+  `a OR b`. Malformed FTS expressions are `invalid_argument`, not a
+  panic.
+- Mixed-kind output prints the kind next to the ID (like `logbook`).
+  Filters compose: kinds that a filter can't apply to are excluded when
+  that filter is present (**proposed**: `--project N` restricts results
+  to tasks in that project).
 
 ## Chunks
 
-1. **The whole verb** — grammar, all three nouns, renumbering, errors,
-   e2e. Single chunk; split only if review wants it.
+1. **Index schema** — FTS table + sync, `user_version` bump, backfill
+   verified against existing rows in a seeded dev db.
+2. **Search command** — expression passthrough, filter composition,
+   mixed-kind output.
 
 ## User stories
 
-### The important thing sits on top because you put it there
+### Half a memory is enough
 
 ```text
-$ gsd inbox
-  4  Call plumber
-  9  Renew passport
-$ gsd reorder 9 --first
-$ gsd inbox
-  9  Renew passport
-  4  Call plumber
+$ gsd search "plumb*"
+  task     4   Call plumber
+  project  11  Bathroom plumbing
+$ gsd search '"pick up" OR errand' --status open
 ```
 
-### Order is honest about its scope
+### Search narrows like list does
 
 ```text
-$ gsd reorder 9 --after 12     # 12 lives in some project
-{"error": {"code": "invalid_argument", "message": "task 12 is in a different container"}}
+$ gsd search tile --project 11 --status done
+  task  23  Pick tiles   done
 ```
 
 ## Agent-verified end-to-end workflow
 
-On a **copy** of the live database (never the live file):
+On a seeded dev database:
 
-1. Reorder matrix per noun: `--first`, `--last`, `--after`, `--before`;
-   assert full container ordering after each.
-2. Cross-container and self-reference errors.
-3. Mixed-operation stability: add, done, reorder, delete interleaved;
-   ordering stays consistent, no position collisions.
-4. On the real db, one reorder + `gsd inbox` visual check by Javier.
+1. Schema applies cleanly; FTS rows == entity rows (backfill check).
+2. Prefix, phrase, and OR queries return expected known-data hits across
+   kinds; malformed expression → `invalid_argument`.
+3. Edit a note, re-search: change reflected (sync works).
+4. Filter composition matrix with `--status`, `--tag`, `--project`,
+   `--area`.
 
 ## Exit criteria
 
@@ -75,4 +74,4 @@ Standard exit workflow (see [`PROCESS.md`](PROCESS.md)).
 
 ## Standards
 
-CLI-CMD-002/003.
+CLI-CMD-002/003, CLI-OUTPUT-003.
