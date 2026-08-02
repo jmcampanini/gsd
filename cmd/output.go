@@ -82,7 +82,7 @@ func writeEditedArea(writer io.Writer, edited area.Area) error {
 	return err
 }
 
-func writeOpenTaskList(writer io.Writer, tasks []task.Task) error {
+func writeOpenTaskList(writer io.Writer, tasks []task.ViewTask) error {
 	if len(tasks) == 0 {
 		return nil
 	}
@@ -92,7 +92,7 @@ func writeOpenTaskList(writer io.Writer, tasks []task.Task) error {
 		rows = append(rows, []string{
 			strconv.FormatInt(current.ID, 10),
 			humanText(current.Title, false),
-			taskDateTokens(current),
+			taskDateTokens(current.Task),
 		})
 	}
 
@@ -221,6 +221,7 @@ func writeTask(writer io.Writer, current task.Task) error {
 	rows := [][]string{
 		{"ID", strconv.FormatInt(current.ID, 10)},
 		{"Project", nullableInt64(current.ProjectID)},
+		{"Area", nullableInt64(current.AreaID)},
 		{"Title", humanText(current.Title, false)},
 		{"Note", humanText(current.Note, true)},
 		{"Due on", humanText(nullableString(current.DueOn), false)},
@@ -239,6 +240,7 @@ func writeTask(writer io.Writer, current task.Task) error {
 func writeProject(writer io.Writer, current project.Project) error {
 	rows := [][]string{
 		{"ID", strconv.FormatInt(current.ID, 10)},
+		{"Area", nullableInt64(current.AreaID)},
 		{"Title", humanText(current.Title, false)},
 		{"Note", humanText(current.Note, true)},
 		{"Done at", humanText(nullableString(current.DoneAt), false)},

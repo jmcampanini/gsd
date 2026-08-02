@@ -20,7 +20,7 @@ below are complete:
 - [x] **Chunk 1 — Areas exist** — a human can create, list, inspect, and edit
       areas, with the complete revision-`9004` schema landed and every new
       view predicate proven by store tests.
-- [ ] **Chunk 2 — Containment** — a human can place projects and loose tasks
+- [x] **Chunk 2 — Containment** — a human can place projects and loose tasks
       in areas, re-parent across containers, filter by area, and see the
       schema-enforced mutual exclusion and governing-area output.
 - [ ] **Chunk 3 — Archive and delete** — a human can archive and unarchive an
@@ -313,30 +313,30 @@ output.
 
 ### Implementation
 
-- [ ] Carry `area_id` through the task value, JSON, scanner, and store round
+- [x] Carry `area_id` through the task value, JSON, scanner, and store round
       trips; add `--area` to task `add` and `list`; add mutually exclusive
       `--area`/`--no-area` to task `edit` with cross-container re-parent
       (set clears the other column atomically), append-on-move, and
       same-container no-op semantics; scope task append positions by the
       full containment predicate.
-- [ ] Validate the set-and-set contradiction in the task service
+- [x] Validate the set-and-set contradiction in the task service
       (`invalid_argument` for `--project`/`--area` together on `add`,
       `edit`, and as `list` filters).
-- [ ] Carry `area_id` through the project value and store; add `--area` to
+- [x] Carry `area_id` through the project value and store; add `--area` to
       `projects add` and `projects list` and `--area`/`--no-area` to
       `project edit` with append-on-move into the destination sibling group
       and no-op re-statement; scope project append positions by area.
-- [ ] Enforce membership guards at the store: nonexistent area →
+- [x] Enforce membership guards at the store: nonexistent area →
       `not_found` on every path; moving a task out of or into a resolved
       project stays `conflict` and blocked moves name every blocker.
-- [ ] Emit the full view row from `available` and `inbox` (task columns
+- [x] Emit the full view row from `available` and `inbox` (task columns
       plus `project_title`, `governing_area_id`, `governing_area_title`)
       and add the governing columns to `logbook` output.
-- [ ] Add the `Area` row to human task and project `show`; keep collection
+- [x] Add the `Area` row to human task and project `show`; keep collection
       rows unchanged.
-- [ ] Extend the subprocess workflow: containment across invocations,
+- [x] Extend the subprocess workflow: containment across invocations,
       mutual exclusion, re-parent append, and governing-area columns.
-- [ ] Run `make check` and build the real binary before opening the chunk
+- [x] Run `make check` and build the real binary before opening the chunk
       pull request.
 
 ### Human proof
@@ -344,24 +344,24 @@ output.
 Against a fresh database with the real built binary, captured as the chunk
 demo (`.sandbox/demos/4-chunk-2.html`):
 
-- [ ] `gsd areas add "Home"`; `gsd projects add "Kitchen reno" --area 1`;
+- [x] `gsd areas add "Home"`; `gsd projects add "Kitchen reno" --area 1`;
       `gsd add "Change furnace filter" --area 1`; `gsd add "Get quotes"
       --project 1`; a loose `gsd add "Buy milk"`.
-- [ ] `gsd list --area 1` shows only the furnace filter (direct
+- [x] `gsd list --area 1` shows only the furnace filter (direct
       containment); `gsd projects list --area 1` shows Kitchen reno;
       `gsd inbox` shows only the loose task.
-- [ ] `gsd show 1` displays the `Area` row; `gsd project show 1` displays
+- [x] `gsd show 1` displays the `Area` row; `gsd project show 1` displays
       the `Area` row.
-- [ ] `gsd add "Impossible" --project 1 --area 1` fails `invalid_argument`
+- [x] `gsd add "Impossible" --project 1 --area 1` fails `invalid_argument`
       with exit 1; `gsd edit 3 --area 1 --no-area` is a usage error with
       exit 2.
-- [ ] `gsd edit 2 --area 1` moves the project task to the area's task list
+- [x] `gsd edit 2 --area 1` moves the project task to the area's task list
       end and clears its project; `gsd edit 2 --project 1` moves it back,
       appended last.
-- [ ] `gsd areas add "Work"`, `gsd project edit 1 --area 2` re-parents the
+- [x] `gsd areas add "Work"`, `gsd project edit 1 --area 2` re-parents the
       project; `gsd projects list --area 2` shows it appended;
       `gsd project edit 1 --no-area` returns it to the standalone group.
-- [ ] `gsd add "X" --area 99` fails `not_found` with exit 1.
+- [x] `gsd add "X" --area 99` fails `not_found` with exit 1.
 
 ## Chunk 3 — Archive and delete
 

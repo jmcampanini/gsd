@@ -24,6 +24,7 @@ const (
 
 type Project struct {
 	ID          int64   `json:"id"`
+	AreaID      *int64  `json:"area_id"`
 	Title       string  `json:"title"`
 	Note        string  `json:"note"`
 	DoneAt      *string `json:"done_at"`
@@ -35,17 +36,25 @@ type Project struct {
 }
 
 type AddFields struct {
-	Title string
-	Note  string
+	AreaID *int64
+	Title  string
+	Note   string
+}
+
+type AreaChange struct {
+	Set   *int64
+	Clear bool
 }
 
 type EditFields struct {
+	Area  AreaChange
 	Title *string
 	Note  *string
 }
 
 type ListOptions struct {
 	Status ListStatus
+	AreaID *int64
 }
 
 type Resolution struct {

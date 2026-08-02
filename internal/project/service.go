@@ -28,6 +28,9 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Project, error) {
 	if err := validateNote(fields.Note); err != nil {
 		return Project{}, err
 	}
+	if err := validateAreaID(fields.AreaID); err != nil {
+		return Project{}, err
+	}
 
 	return s.store.Add(ctx, fields, formatTimestamp(s.now()))
 }
@@ -39,6 +42,9 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Project, err
 			fmt.Sprintf("invalid project list status %q", options.Status),
 			nil,
 		)
+	}
+	if err := validateAreaID(options.AreaID); err != nil {
+		return nil, err
 	}
 
 	projects, err := s.store.List(ctx, options)
@@ -64,7 +70,17 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Projec
 	if err := validateID(id); err != nil {
 		return Project{}, err
 	}
-	if fields.Title == nil && fields.Note == nil {
+	if fields.Area.Set != nil && fields.Area.Clear {
+		return Project{}, apperr.New(
+			apperr.InvalidArgument,
+			"area cannot be set and cleared",
+			nil,
+		)
+	}
+	if err := validateAreaID(fields.Area.Set); err != nil {
+		return Project{}, err
+	}
+	if fields.Title == nil && fields.Note == nil && fields.Area.Set == nil && !fields.Area.Clear {
 		return Project{}, apperr.New(
 			apperr.InvalidArgument,
 			"project edit requires at least one field",
@@ -232,6 +248,14 @@ func validExit(exit Exit) bool {
 func validateID(id int64) error {
 	if id <= 0 {
 		return apperr.New(apperr.InvalidArgument, "project ID must be positive", nil)
+	}
+
+	return nil
+}
+
+func validateAreaID(id *int64) error {
+	if id != nil && *id <= 0 {
+		return apperr.New(apperr.InvalidArgument, "area ID must be positive", nil)
 	}
 
 	return nil

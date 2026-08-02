@@ -56,6 +56,8 @@ func TestLogbookJSONPreservesEntriesAndFactoryLifecycle(t *testing.T) {
 	t.Parallel()
 
 	projectTitle := "Release"
+	areaID := int64(4)
+	areaTitle := "Operations"
 	entries := []logbook.Entry{
 		{
 			Kind:         "project",
@@ -66,12 +68,14 @@ func TestLogbookJSONPreservesEntriesAndFactoryLifecycle(t *testing.T) {
 			ProjectTitle: nil,
 		},
 		{
-			Kind:         "task",
-			ID:           3,
-			Title:        "Publish notes",
-			Status:       "cancelled",
-			ResolvedAt:   "2026-07-27T23:00:00.000Z",
-			ProjectTitle: &projectTitle,
+			Kind:               "task",
+			ID:                 3,
+			Title:              "Publish notes",
+			Status:             "cancelled",
+			ResolvedAt:         "2026-07-27T23:00:00.000Z",
+			ProjectTitle:       &projectTitle,
+			GoverningAreaID:    &areaID,
+			GoverningAreaTitle: &areaTitle,
 		},
 	}
 	application := &fakeLogbookApplication{result: entries}
@@ -103,17 +107,22 @@ func TestLogbookJSONPreservesEntriesAndFactoryLifecycle(t *testing.T) {
 		t.Fatalf("decode logbook JSON fields: %v", err)
 	}
 	for index, object := range objects {
-		if len(object) != 6 {
-			t.Errorf("entry %d field count = %d, want 6", index, len(object))
+		if len(object) != 8 {
+			t.Errorf("entry %d field count = %d, want 8", index, len(object))
 		}
-		for _, field := range []string{"kind", "id", "title", "status", "resolved_at", "project_title"} {
+		for _, field := range []string{
+			"kind", "id", "title", "status", "resolved_at", "project_title",
+			"governing_area_id", "governing_area_title",
+		} {
 			if _, ok := object[field]; !ok {
 				t.Errorf("entry %d fields = %v, missing %q", index, object, field)
 			}
 		}
 	}
-	if string(objects[0]["project_title"]) != "null" {
-		t.Errorf("project project_title = %s, want null", objects[0]["project_title"])
+	for _, field := range []string{"project_title", "governing_area_id", "governing_area_title"} {
+		if string(objects[0][field]) != "null" {
+			t.Errorf("project %s = %s, want null", field, objects[0][field])
+		}
 	}
 	if application.calls != 1 || result.openPath != "chosen.db" || result.opens != 1 || result.closes != 1 {
 		t.Errorf("call/factory lifecycle = %d/%#v, want one call and chosen path with one open/close", application.calls, result)
@@ -124,6 +133,8 @@ func TestLogbookHumanOutputPreservesOrderAndUsesLocalCalendarDay(t *testing.T) {
 	t.Parallel()
 
 	location := time.FixedZone("UTC-08", -8*60*60)
+	areaID := int64(9)
+	areaTitle := "Ignored in human output"
 	entries := []logbook.Entry{
 		{
 			Kind:       "project",
@@ -133,11 +144,13 @@ func TestLogbookHumanOutputPreservesOrderAndUsesLocalCalendarDay(t *testing.T) {
 			ResolvedAt: "2026-07-28T01:30:00Z",
 		},
 		{
-			Kind:       "task",
-			ID:         3,
-			Title:      "Second",
-			Status:     "done",
-			ResolvedAt: "2026-07-28T09:30:00Z",
+			Kind:               "task",
+			ID:                 3,
+			Title:              "Second",
+			Status:             "done",
+			ResolvedAt:         "2026-07-28T09:30:00Z",
+			GoverningAreaID:    &areaID,
+			GoverningAreaTitle: &areaTitle,
 		},
 	}
 	result := runLogbookCommand(

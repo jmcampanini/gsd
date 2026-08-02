@@ -24,11 +24,13 @@ type ListOptions struct {
 	Status    ListStatus
 	Date      DateSelector
 	ProjectID *int64
+	AreaID    *int64
 }
 
 type Task struct {
 	ID          int64   `json:"id"`
 	ProjectID   *int64  `json:"project_id"`
+	AreaID      *int64  `json:"area_id"`
 	Title       string  `json:"title"`
 	Note        string  `json:"note"`
 	DeferUntil  *string `json:"defer_until"`
@@ -41,8 +43,16 @@ type Task struct {
 	UpdatedAt   string  `json:"updated_at"`
 }
 
+type ViewTask struct {
+	Task
+	ProjectTitle       *string `json:"project_title"`
+	GoverningAreaID    *int64  `json:"governing_area_id"`
+	GoverningAreaTitle *string `json:"governing_area_title"`
+}
+
 type AddFields struct {
 	ProjectID  *int64
+	AreaID     *int64
 	Title      string
 	Note       string
 	DeferUntil *string
@@ -59,8 +69,14 @@ type ProjectChange struct {
 	Clear bool
 }
 
+type AreaChange struct {
+	Set   *int64
+	Clear bool
+}
+
 type EditFields struct {
 	Project    ProjectChange
+	Area       AreaChange
 	Title      *string
 	Note       *string
 	DeferUntil DateChange
@@ -69,8 +85,8 @@ type EditFields struct {
 
 type Store interface {
 	Add(ctx context.Context, fields AddFields, timestamp string) (Task, error)
-	Inbox(ctx context.Context) ([]Task, error)
-	Available(ctx context.Context) ([]Task, error)
+	Inbox(ctx context.Context) ([]ViewTask, error)
+	Available(ctx context.Context) ([]ViewTask, error)
 	Find(ctx context.Context, id int64) (Task, error)
 	List(ctx context.Context, options ListOptions) ([]Task, error)
 	Edit(ctx context.Context, id int64, fields EditFields, timestamp string) (Task, error)
@@ -82,8 +98,8 @@ type Store interface {
 
 type Application interface {
 	Add(ctx context.Context, fields AddFields) (Task, error)
-	Inbox(ctx context.Context) ([]Task, error)
-	Available(ctx context.Context) ([]Task, error)
+	Inbox(ctx context.Context) ([]ViewTask, error)
+	Available(ctx context.Context) ([]ViewTask, error)
 	Show(ctx context.Context, id int64) (Task, error)
 	List(ctx context.Context, options ListOptions) ([]Task, error)
 	Edit(ctx context.Context, id int64, fields EditFields) (Task, error)

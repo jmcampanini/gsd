@@ -192,6 +192,75 @@ func TestTaskProjectFlagsAdaptContainmentIntent(t *testing.T) {
 	}
 }
 
+func TestTaskAreaFlagsAdaptContainmentIntent(t *testing.T) {
+	t.Parallel()
+
+	areaID := int64(8)
+	addApplication := &fakeApplication{addResult: task.Task{ID: 1, AreaID: &areaID, Title: "contained"}}
+	addResult := runCommand(t, addApplication, "add", "contained", "--area", "008", "--json")
+	if addResult.exitCode != 0 || addApplication.addAreaID == nil || *addApplication.addAreaID != areaID {
+		t.Fatalf("add result/input = %#v/%#v, want area 8 success", addResult, addApplication.addAreaID)
+	}
+
+	listApplication := &fakeApplication{listResult: []task.Task{}}
+	listResult := runCommand(t, listApplication, "list", "--area", "9", "--json")
+	if listResult.exitCode != 0 || listApplication.listOptions.AreaID == nil ||
+		*listApplication.listOptions.AreaID != 9 {
+		t.Fatalf("list result/options = %#v/%#v, want area 9", listResult, listApplication.listOptions)
+	}
+
+	setApplication := &fakeApplication{editResult: task.Task{ID: 3}}
+	setResult := runCommand(t, setApplication, "edit", "3", "--area", "10", "--no-project", "--json")
+	if setResult.exitCode != 0 || setApplication.editFields.Area.Set == nil ||
+		*setApplication.editFields.Area.Set != 10 || !setApplication.editFields.Project.Clear {
+		t.Fatalf("cross-clear edit = %#v/%#v, want area set and project clear", setResult, setApplication.editFields)
+	}
+
+	clearApplication := &fakeApplication{editResult: task.Task{ID: 3}}
+	clearResult := runCommand(t, clearApplication, "edit", "3", "--no-area", "--project", "11", "--json")
+	if clearResult.exitCode != 0 || !clearApplication.editFields.Area.Clear ||
+		clearApplication.editFields.Project.Set == nil || *clearApplication.editFields.Project.Set != 11 {
+		t.Fatalf("cross-clear edit = %#v/%#v, want area clear and project set", clearResult, clearApplication.editFields)
+	}
+}
+
+func TestTaskAreaGrammarAndValidationHappenBeforeApplicationOpen(t *testing.T) {
+	t.Parallel()
+
+	for _, args := range [][]string{
+		{"add", "capture", "--area", "0", "--json"},
+		{"list", "--area", "nope", "--json"},
+	} {
+		result := runCommand(t, &fakeApplication{}, args...)
+		if result.exitCode != 1 || result.opens != 0 || result.stdout != "" {
+			t.Errorf("result = %#v, want invalid_argument without open", result)
+		}
+	}
+
+	result := runCommand(t, &fakeApplication{}, "edit", "3", "--area", "7", "--no-area", "--json")
+	if result.exitCode != 2 || result.opens != 0 || result.stdout != "" {
+		t.Errorf("result = %#v, want usage error without open", result)
+	}
+}
+
+func TestTaskCrossContainerInputsReachServiceValidation(t *testing.T) {
+	t.Parallel()
+
+	application := &fakeApplication{addError: apperr.New(apperr.InvalidArgument, "task cannot belong to both a project and an area", nil)}
+	result := runCommand(t, application, "add", "capture", "--project", "7", "--area", "8", "--json")
+	if result.exitCode != 1 || result.opens != 1 || application.addProjectID == nil ||
+		*application.addProjectID != 7 || application.addAreaID == nil || *application.addAreaID != 8 {
+		t.Errorf("result/input = %#v/(%#v, %#v), want service invalid_argument", result, application.addProjectID, application.addAreaID)
+	}
+
+	listApplication := &fakeApplication{listError: apperr.New(apperr.InvalidArgument, "cannot filter by both project and area", nil)}
+	listResult := runCommand(t, listApplication, "list", "--project", "7", "--area", "8", "--json")
+	if listResult.exitCode != 1 || listResult.opens != 1 || listApplication.listOptions.ProjectID == nil ||
+		listApplication.listOptions.AreaID == nil {
+		t.Errorf("list result/options = %#v/%#v, want service invalid_argument", listResult, listApplication.listOptions)
+	}
+}
+
 func TestTaskProjectFlagRejectsNonDecimalIDAsApplicationErrorWithoutOpeningDatabase(t *testing.T) {
 	t.Parallel()
 
@@ -277,6 +346,7 @@ func TestProjectAddAndEditAdaptFieldsAndOutput(t *testing.T) {
 	}
 	for _, field := range []string{
 		"id",
+		"area_id",
 		"title",
 		"note",
 		"done_at",
@@ -290,7 +360,7 @@ func TestProjectAddAndEditAdaptFieldsAndOutput(t *testing.T) {
 			t.Errorf("JSON fields = %v, missing %q", fields, field)
 		}
 	}
-	if len(fields) != 9 || string(fields["done_at"]) != "null" || string(fields["cancelled_at"]) != "null" {
+	if len(fields) != 10 || string(fields["area_id"]) != "null" || string(fields["done_at"]) != "null" || string(fields["cancelled_at"]) != "null" {
 		t.Errorf("JSON fields = %v, want complete project row with null exits", fields)
 	}
 	if addResult.openPath != "chosen.db" || addResult.opens != 1 || addResult.closes != 1 {
@@ -335,6 +405,49 @@ func TestProjectAddAndEditAdaptFieldsAndOutput(t *testing.T) {
 	}
 }
 
+func TestProjectAreaFlagsAdaptContainmentIntent(t *testing.T) {
+	t.Parallel()
+
+	areaID := int64(4)
+	addApplication := &fakeProjectApplication{addResult: project.Project{ID: 1, AreaID: &areaID}}
+	addResult := runProjectCommand(t, addApplication, "projects", "add", "Kitchen", "--area", "004", "--json")
+	if addResult.exitCode != 0 || addApplication.addFields.AreaID == nil || *addApplication.addFields.AreaID != 4 {
+		t.Fatalf("add = %#v/%#v, want area 4", addResult, addApplication.addFields)
+	}
+
+	listApplication := &fakeProjectApplication{listResult: []project.Project{}}
+	listResult := runProjectCommand(t, listApplication, "projects", "list", "--area", "5", "--json")
+	if listResult.exitCode != 0 || listApplication.listOptions.AreaID == nil || *listApplication.listOptions.AreaID != 5 {
+		t.Fatalf("list = %#v/%#v, want area 5", listResult, listApplication.listOptions)
+	}
+
+	editApplication := &fakeProjectApplication{editResult: project.Project{ID: 1}}
+	editResult := runProjectCommand(t, editApplication, "project", "edit", "1", "--area", "6", "--json")
+	if editResult.exitCode != 0 || editApplication.editFields.Area.Set == nil ||
+		*editApplication.editFields.Area.Set != 6 || editApplication.editFields.Area.Clear {
+		t.Fatalf("edit = %#v/%#v, want set area 6", editResult, editApplication.editFields)
+	}
+
+	clearApplication := &fakeProjectApplication{editResult: project.Project{ID: 1}}
+	clearResult := runProjectCommand(t, clearApplication, "project", "edit", "1", "--no-area", "--json")
+	if clearResult.exitCode != 0 || !clearApplication.editFields.Area.Clear || clearApplication.editFields.Area.Set != nil {
+		t.Fatalf("edit = %#v/%#v, want clear area", clearResult, clearApplication.editFields)
+	}
+}
+
+func TestProjectAreaGrammarAndValidationHappenBeforeApplicationOpen(t *testing.T) {
+	t.Parallel()
+
+	invalid := runProjectCommand(t, &fakeProjectApplication{}, "projects", "add", "Kitchen", "--area", "0", "--json")
+	if invalid.exitCode != 1 || invalid.opens != 0 || invalid.stdout != "" {
+		t.Errorf("invalid result = %#v, want invalid_argument without open", invalid)
+	}
+	conflict := runProjectCommand(t, &fakeProjectApplication{}, "project", "edit", "1", "--area", "2", "--no-area", "--json")
+	if conflict.exitCode != 2 || conflict.opens != 0 || conflict.stdout != "" {
+		t.Errorf("conflict result = %#v, want usage error without open", conflict)
+	}
+}
+
 func TestProjectListAdaptsStatusAndHumanOutput(t *testing.T) {
 	t.Parallel()
 
@@ -371,8 +484,10 @@ func TestProjectShowUsesSchemaOrderFieldValueTable(t *testing.T) {
 	t.Parallel()
 
 	doneAt := "2026-07-28T12:00:00.000Z"
+	areaID := int64(3)
 	shown := project.Project{
 		ID:        7,
+		AreaID:    &areaID,
 		Title:     "Kitchen reno",
 		Note:      "Budget: 20k",
 		DoneAt:    &doneAt,
@@ -392,6 +507,7 @@ func TestProjectShowUsesSchemaOrderFieldValueTable(t *testing.T) {
 
 	wantLabels := []string{
 		"ID",
+		"Area",
 		"Title",
 		"Note",
 		"Done at",
@@ -659,13 +775,15 @@ func TestProjectLifecycleErrorUsesErrorStreamAndClosesApplication(t *testing.T) 
 	}
 }
 
-func TestTaskShowPlacesProjectAfterID(t *testing.T) {
+func TestTaskShowPlacesContainmentAfterID(t *testing.T) {
 	t.Parallel()
 
 	projectID := int64(4)
+	areaID := int64(5)
 	result := runCommand(t, &fakeApplication{showResult: task.Task{
 		ID:        7,
 		ProjectID: &projectID,
+		AreaID:    &areaID,
 		Title:     "Get quotes",
 		Status:    "open",
 	}}, "show", "7")
@@ -673,9 +791,10 @@ func TestTaskShowPlacesProjectAfterID(t *testing.T) {
 		t.Fatalf("result = %#v, want success", result)
 	}
 	lines := strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n")
-	if len(lines) < 2 || strings.Join(strings.Fields(lines[0]), " ") != "ID 7" ||
-		strings.Join(strings.Fields(lines[1]), " ") != "Project 4" {
-		t.Errorf("first rows = %q, want ID then Project", result.stdout)
+	if len(lines) < 3 || strings.Join(strings.Fields(lines[0]), " ") != "ID 7" ||
+		strings.Join(strings.Fields(lines[1]), " ") != "Project 4" ||
+		strings.Join(strings.Fields(lines[2]), " ") != "Area 5" {
+		t.Errorf("first rows = %q, want ID, Project, then Area", result.stdout)
 	}
 }
 
