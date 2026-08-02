@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -66,7 +67,62 @@ func writeAddedProject(writer io.Writer, created project.Project) error {
 	return err
 }
 
-func writeOpenTaskList(writer io.Writer, tasks []task.Task) error {
+func writeAddedArea(writer io.Writer, created area.Area) error {
+	_, err := fmt.Fprintf(writer, "Added area %d: %s\n", created.ID, humanText(created.Title, false))
+	return err
+}
+
+func writeEditedArea(writer io.Writer, edited area.Area) error {
+	return writeAreaMutation(writer, "Edited", edited)
+}
+
+func writeAreaMutation(writer io.Writer, action string, current area.Area) error {
+	_, err := fmt.Fprintf(
+		writer,
+		"%s: area %d  %s\n",
+		action,
+		current.ID,
+		humanText(current.Title, false),
+	)
+	return err
+}
+
+func writeAreaDeletion(writer io.Writer, deletion area.Deletion) error {
+	if err := writeAreaMutation(writer, "Deleted", deletion.Area); err != nil {
+		return err
+	}
+	if err := writeNarratedProjects(writer, deletion.DeletedProjects); err != nil {
+		return err
+	}
+
+	return writeNarratedTasks(writer, "Deleted", "task", deletion.DeletedTasks)
+}
+
+func writeNarratedProjects(writer io.Writer, projects []project.Project) error {
+	if len(projects) == 0 {
+		return nil
+	}
+
+	plural := ""
+	if len(projects) != 1 {
+		plural = "s"
+	}
+	if _, err := fmt.Fprintf(writer, "Deleted %d project%s:\n", len(projects), plural); err != nil {
+		return err
+	}
+
+	rows := make([][]string, 0, len(projects))
+	for _, current := range projects {
+		rows = append(rows, []string{
+			strconv.FormatInt(current.ID, 10),
+			humanText(current.Title, false),
+		})
+	}
+
+	return writeTable(writer, rows)
+}
+
+func writeOpenTaskList(writer io.Writer, tasks []task.ViewTask) error {
 	if len(tasks) == 0 {
 		return nil
 	}
@@ -76,7 +132,7 @@ func writeOpenTaskList(writer io.Writer, tasks []task.Task) error {
 		rows = append(rows, []string{
 			strconv.FormatInt(current.ID, 10),
 			humanText(current.Title, false),
-			taskDateTokens(current),
+			taskDateTokens(current.Task),
 		})
 	}
 
@@ -180,10 +236,32 @@ func writeProjectList(writer io.Writer, projects []project.Project) error {
 	return writeTable(writer, rows)
 }
 
+func writeAreaList(writer io.Writer, areas []area.Area) error {
+	if len(areas) == 0 {
+		return nil
+	}
+
+	rows := make([][]string, 0, len(areas))
+	for _, current := range areas {
+		archived := ""
+		if current.ArchivedAt != nil {
+			archived = "archived"
+		}
+		rows = append(rows, []string{
+			strconv.FormatInt(current.ID, 10),
+			humanText(current.Title, false),
+			archived,
+		})
+	}
+
+	return writeTable(writer, rows)
+}
+
 func writeTask(writer io.Writer, current task.Task) error {
 	rows := [][]string{
 		{"ID", strconv.FormatInt(current.ID, 10)},
 		{"Project", nullableInt64(current.ProjectID)},
+		{"Area", nullableInt64(current.AreaID)},
 		{"Title", humanText(current.Title, false)},
 		{"Note", humanText(current.Note, true)},
 		{"Due on", humanText(nullableString(current.DueOn), false)},
@@ -202,11 +280,26 @@ func writeTask(writer io.Writer, current task.Task) error {
 func writeProject(writer io.Writer, current project.Project) error {
 	rows := [][]string{
 		{"ID", strconv.FormatInt(current.ID, 10)},
+		{"Area", nullableInt64(current.AreaID)},
 		{"Title", humanText(current.Title, false)},
 		{"Note", humanText(current.Note, true)},
 		{"Done at", humanText(nullableString(current.DoneAt), false)},
 		{"Cancelled at", humanText(nullableString(current.CancelledAt), false)},
 		{"Status", humanText(current.Status, false)},
+		{"Position", strconv.FormatInt(current.Position, 10)},
+		{"Created at", humanText(current.CreatedAt, false)},
+		{"Updated at", humanText(current.UpdatedAt, false)},
+	}
+
+	return writeTable(writer, rows)
+}
+
+func writeArea(writer io.Writer, current area.Area) error {
+	rows := [][]string{
+		{"ID", strconv.FormatInt(current.ID, 10)},
+		{"Title", humanText(current.Title, false)},
+		{"Note", humanText(current.Note, true)},
+		{"Archived at", humanText(nullableString(current.ArchivedAt), false)},
 		{"Position", strconv.FormatInt(current.Position, 10)},
 		{"Created at", humanText(current.CreatedAt, false)},
 		{"Updated at", humanText(current.UpdatedAt, false)},

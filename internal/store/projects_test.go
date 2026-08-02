@@ -1,16 +1,15 @@
 package store
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -18,13 +17,8 @@ import (
 func TestProjectStoreRoundTripsEditsAndOrdersLists(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
-	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
+	ctx, storage := openTestStorage(t)
 	projects := NewProjects(storage)
-	t.Cleanup(func() { _ = storage.Close() })
 
 	first, err := projects.Add(
 		ctx,
@@ -98,17 +92,362 @@ func TestProjectStoreRoundTripsEditsAndOrdersLists(t *testing.T) {
 	}
 }
 
+func TestProjectAddAppendsWithinArea(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	projects := NewProjects(storage)
+	areas := NewAreas(storage)
+
+	firstArea := addStoredArea(t, areas, area.AddFields{Title: "first area"})
+	secondArea := addStoredArea(t, areas, area.AddFields{Title: "second area"})
+
+	fixtures := []struct {
+		title    string
+		areaID   *int64
+		position int64
+	}{
+		{title: "standalone first", position: 0},
+		{title: "first area first", areaID: &firstArea.ID, position: 0},
+		{title: "standalone second", position: 1},
+		{title: "second area first", areaID: &secondArea.ID, position: 0},
+		{title: "first area second", areaID: &firstArea.ID, position: 1},
+	}
+	for _, fixture := range fixtures {
+		created, err := projects.Add(
+			ctx,
+			project.AddFields{AreaID: fixture.areaID, Title: fixture.title},
+			"2026-01-02T00:00:00.000Z",
+		)
+		if err != nil {
+			t.Fatalf("Add(%s) error = %v", fixture.title, err)
+		}
+		if !reflect.DeepEqual(created.AreaID, fixture.areaID) || created.Position != fixture.position {
+			t.Errorf(
+				"Add(%s) = area %v, position %d; want area %v, position %d",
+				fixture.title,
+				created.AreaID,
+				created.Position,
+				fixture.areaID,
+				fixture.position,
+			)
+		}
+	}
+
+	missingAreaID := int64(999)
+	if _, err := projects.Add(
+		ctx,
+		project.AddFields{AreaID: &missingAreaID, Title: "orphan"},
+		"2026-01-03T00:00:00.000Z",
+	); errorCode(err) != apperr.NotFound || !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("Add(missing area) error = %v, want not_found wrapping sql.ErrNoRows", err)
+	}
+}
+
+func TestProjectListDistinguishesEmptyAndMissingAreas(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	projects := NewProjects(storage)
+	areas := NewAreas(storage)
+
+	requestedArea := addStoredArea(t, areas, area.AddFields{Title: "requested"})
+	otherArea := addStoredArea(t, areas, area.AddFields{Title: "other"})
+	resolved := addStoredProject(t, projects, project.AddFields{AreaID: &requestedArea.ID, Title: "resolved"})
+	if _, err := projects.Resolve(ctx, resolved.ID, project.ExitDone, "2026-01-03T00:00:00.000Z"); err != nil {
+		t.Fatalf("Resolve(project) error = %v", err)
+	}
+	addStoredProject(t, projects, project.AddFields{AreaID: &otherArea.ID, Title: "other project"})
+
+	open, err := projects.List(ctx, project.ListOptions{
+		Status: project.ListStatusOpen,
+		AreaID: &requestedArea.ID,
+	})
+	if err != nil {
+		t.Fatalf("List(existing filtered-empty area) error = %v", err)
+	}
+	if len(open) != 0 {
+		t.Errorf("List(existing filtered-empty area) = %#v, want empty", open)
+	}
+	missingAreaID := int64(999)
+	if _, err := projects.List(ctx, project.ListOptions{
+		Status: project.ListStatusAll,
+		AreaID: &missingAreaID,
+	}); errorCode(err) != apperr.NotFound || !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("List(missing area) error = %v, want not_found wrapping sql.ErrNoRows", err)
+	}
+}
+
+func TestProjectEditReparentsAtomicallyAndPreservesNoOpMembership(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	projects := NewProjects(storage)
+	areas := NewAreas(storage)
+
+	sourceArea := addStoredArea(t, areas, area.AddFields{Title: "source"})
+	destinationArea := addStoredArea(t, areas, area.AddFields{Title: "destination"})
+	addStoredProject(t, projects, project.AddFields{AreaID: &destinationArea.ID, Title: "destination sibling"})
+	addStoredProject(t, projects, project.AddFields{Title: "standalone sibling"})
+	created := addStoredProject(t, projects, project.AddFields{AreaID: &sourceArea.ID, Title: "moving"})
+	resolved, err := projects.Resolve(ctx, created.ID, project.ExitDone, "2026-01-03T00:00:00.000Z")
+	if err != nil {
+		t.Fatalf("Resolve(moving project) error = %v", err)
+	}
+
+	unchanged, err := projects.Edit(
+		ctx,
+		resolved.ID,
+		project.EditFields{Area: project.AreaChange{Set: &sourceArea.ID}},
+		"2026-01-04T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Edit(same area) error = %v", err)
+	}
+	if !reflect.DeepEqual(unchanged, resolved) {
+		t.Errorf("Edit(same area) = %#v, want unchanged %#v", unchanged, resolved)
+	}
+
+	moved, err := projects.Edit(
+		ctx,
+		resolved.ID,
+		project.EditFields{Area: project.AreaChange{Set: &destinationArea.ID}},
+		"2026-01-05T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Edit(move) error = %v", err)
+	}
+	if moved.AreaID == nil || *moved.AreaID != destinationArea.ID ||
+		moved.Position != 1 || moved.Status != "done" {
+		t.Errorf("Edit(move) = %#v, want resolved project appended to destination area", moved)
+	}
+
+	missingAreaID := int64(999)
+	uncommittedTitle := "must not persist"
+	if _, err := projects.Edit(
+		ctx,
+		moved.ID,
+		project.EditFields{
+			Area:  project.AreaChange{Set: &missingAreaID},
+			Title: &uncommittedTitle,
+		},
+		"2026-01-06T00:00:00.000Z",
+	); errorCode(err) != apperr.NotFound {
+		t.Errorf("Edit(missing destination) error = %v, want not_found", err)
+	}
+	persisted, err := projects.Find(ctx, moved.ID)
+	if err != nil {
+		t.Fatalf("Find(after failed move) error = %v", err)
+	}
+	if !reflect.DeepEqual(persisted, moved) {
+		t.Errorf("project after failed move = %#v, want unchanged %#v", persisted, moved)
+	}
+
+	cleared, err := projects.Edit(
+		ctx,
+		moved.ID,
+		project.EditFields{Area: project.AreaChange{Clear: true}},
+		"2026-01-07T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Edit(clear area) error = %v", err)
+	}
+	if cleared.AreaID != nil || cleared.Position != 1 {
+		t.Errorf("Edit(clear area) = %#v, want standalone append at position 1", cleared)
+	}
+
+	redundantClear, err := projects.Edit(
+		ctx,
+		moved.ID,
+		project.EditFields{Area: project.AreaChange{Clear: true}},
+		"2026-01-08T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Edit(redundant clear) error = %v", err)
+	}
+	if !reflect.DeepEqual(redundantClear, cleared) {
+		t.Errorf("Edit(redundant clear) = %#v, want no-op %#v", redundantClear, cleared)
+	}
+}
+
+func TestProjectArchivedAreaGuardsCreationAndMovement(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	areas := NewAreas(storage)
+	projects := NewProjects(storage)
+
+	sourceArea := addStoredArea(t, areas, area.AddFields{Title: "source"})
+	destinationArea := addStoredArea(t, areas, area.AddFields{Title: "destination"})
+	activeArea := addStoredArea(t, areas, area.AddFields{Title: "active"})
+	moving := addStoredProject(t, projects, project.AddFields{AreaID: &sourceArea.ID, Title: "moving"})
+	standalone := addStoredProject(t, projects, project.AddFields{Title: "standalone"})
+	addStoredProject(t, projects, project.AddFields{AreaID: &activeArea.ID, Title: "active anchor"})
+	if _, err := areas.Archive(ctx, sourceArea.ID, "2026-01-02T00:00:00.000Z"); err != nil {
+		t.Fatalf("Archive(source) error = %v", err)
+	}
+	if _, err := areas.Archive(ctx, destinationArea.ID, "2026-01-03T00:00:00.000Z"); err != nil {
+		t.Fatalf("Archive(destination) error = %v", err)
+	}
+
+	_, err := projects.Add(
+		ctx,
+		project.AddFields{AreaID: &sourceArea.ID, Title: "blocked"},
+		"2026-01-04T00:00:00.000Z",
+	)
+	assertArchivedAreaConflict(t, err, sourceArea.ID)
+
+	restated, err := projects.Edit(
+		ctx,
+		moving.ID,
+		project.EditFields{Area: project.AreaChange{Set: &sourceArea.ID}},
+		"2026-01-05T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Edit(restate archived area) error = %v", err)
+	}
+	if !reflect.DeepEqual(restated, moving) {
+		t.Errorf("Edit(restate archived area) = %#v, want no-op %#v", restated, moving)
+	}
+
+	revisedTitle := "content allowed"
+	contentEdited, err := projects.Edit(
+		ctx,
+		moving.ID,
+		project.EditFields{
+			Area:  project.AreaChange{Set: &sourceArea.ID},
+			Title: &revisedTitle,
+		},
+		"2026-01-06T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Edit(content with restated archived area) error = %v", err)
+	}
+	if contentEdited.Title != revisedTitle || contentEdited.Position != moving.Position ||
+		contentEdited.AreaID == nil || *contentEdited.AreaID != sourceArea.ID {
+		t.Errorf("Edit(content with restated archived area) = %#v, want content-only mutation", contentEdited)
+	}
+
+	blockedTitle := "must not persist"
+	_, err = projects.Edit(
+		ctx,
+		moving.ID,
+		project.EditFields{
+			Area:  project.AreaChange{Set: &activeArea.ID},
+			Title: &blockedTitle,
+		},
+		"2026-01-07T00:00:00.000Z",
+	)
+	assertArchivedAreaConflict(t, err, sourceArea.ID)
+	persisted, err := projects.Find(ctx, moving.ID)
+	if err != nil {
+		t.Fatalf("Find(after blocked source move) error = %v", err)
+	}
+	if !reflect.DeepEqual(persisted, contentEdited) {
+		t.Errorf("project after blocked source move = %#v, want unchanged %#v", persisted, contentEdited)
+	}
+
+	_, err = projects.Edit(
+		ctx,
+		standalone.ID,
+		project.EditFields{Area: project.AreaChange{Set: &destinationArea.ID}},
+		"2026-01-08T00:00:00.000Z",
+	)
+	assertArchivedAreaConflict(t, err, destinationArea.ID)
+
+	_, err = projects.Edit(
+		ctx,
+		moving.ID,
+		project.EditFields{Area: project.AreaChange{Set: &destinationArea.ID}},
+		"2026-01-09T00:00:00.000Z",
+	)
+	assertArchivedAreaConflict(t, err, sourceArea.ID, destinationArea.ID)
+
+	missingAreaID := int64(999)
+	if _, err := projects.Edit(
+		ctx,
+		moving.ID,
+		project.EditFields{Area: project.AreaChange{Set: &missingAreaID}},
+		"2026-01-10T00:00:00.000Z",
+	); errorCode(err) != apperr.NotFound {
+		t.Errorf("Edit(archived source to missing destination) error = %v, want not_found", err)
+	}
+}
+
+func TestProjectArchivedAreaGuardsLifecycleButAllowsDelete(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	areas := NewAreas(storage)
+	projects := NewProjects(storage)
+
+	container := addStoredArea(t, areas, area.AddFields{Title: "retired"})
+	completeCandidate := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "complete"})
+	cancelCandidate := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "cancel"})
+	reopenCandidate := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "reopen"})
+	deleteCandidate := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "delete"})
+	if _, err := projects.Resolve(
+		ctx,
+		reopenCandidate.ID,
+		project.ExitDone,
+		"2026-01-02T00:00:00.000Z",
+	); err != nil {
+		t.Fatalf("Resolve(reopen fixture) error = %v", err)
+	}
+	if _, err := areas.Archive(ctx, container.ID, "2026-01-03T00:00:00.000Z"); err != nil {
+		t.Fatalf("Archive(container) error = %v", err)
+	}
+
+	for _, apply := range []func() error{
+		func() error {
+			_, err := projects.Resolve(ctx, completeCandidate.ID, project.ExitDone, "2026-01-04T00:00:00.000Z")
+			return err
+		},
+		func() error {
+			_, err := projects.Resolve(ctx, cancelCandidate.ID, project.ExitCancelled, "2026-01-04T00:00:00.000Z")
+			return err
+		},
+		func() error {
+			_, err := projects.Reopen(ctx, reopenCandidate.ID, "2026-01-04T00:00:00.000Z")
+			return err
+		},
+	} {
+		err := apply()
+		assertArchivedAreaConflict(t, err, container.ID)
+	}
+
+	deleted, err := projects.Delete(ctx, deleteCandidate.ID)
+	if err != nil || deleted.ID != deleteCandidate.ID {
+		t.Errorf("Delete(project under archived area) = %#v, %v; want allowed", deleted, err)
+	}
+}
+
+func assertArchivedAreaConflict(t *testing.T, err error, wantIDs ...int64) {
+	t.Helper()
+
+	if errorCode(err) != apperr.Conflict {
+		t.Fatalf("error = %v, want conflict", err)
+	}
+	var archived *area.ArchivedAreasError
+	if !errors.As(err, &archived) {
+		t.Fatalf("error = %v, want archived-area metadata", err)
+	}
+	if !reflect.DeepEqual(archived.IDs, wantIDs) {
+		t.Errorf("archived area IDs = %v, want %v", archived.IDs, wantIDs)
+	}
+	for _, id := range wantIDs {
+		if !strings.Contains(err.Error(), fmt.Sprint(id)) {
+			t.Errorf("error = %v, want area ID %d", err, id)
+		}
+	}
+}
+
 func TestProjectLifecycleTransactionSharesTimestampAndOrdersCancelledTasks(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
-	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
+	ctx, storage := openTestStorage(t)
 	projects := NewProjects(storage)
 	tasks := NewTasks(storage)
-	t.Cleanup(func() { _ = storage.Close() })
 
 	created, err := projects.Add(
 		ctx,
@@ -232,14 +571,9 @@ WHERE project_id = ?
 func TestProjectResolutionRollsBackWhenCascadeFails(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
-	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
+	ctx, storage := openTestStorage(t)
 	projects := NewProjects(storage)
 	tasks := NewTasks(storage)
-	t.Cleanup(func() { _ = storage.Close() })
 
 	created, err := projects.Add(ctx, project.AddFields{Title: "atomic"}, "2026-01-01T00:00:00.000Z")
 	if err != nil {
@@ -291,13 +625,8 @@ END
 func TestProjectTransactionRollsBackAfterPanic(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
-	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
+	ctx, storage := openTestStorage(t)
 	projects := NewProjects(storage)
-	t.Cleanup(func() { _ = storage.Close() })
 
 	created, err := projects.Add(
 		ctx,
@@ -350,14 +679,9 @@ func TestProjectTransactionRollsBackAfterPanic(t *testing.T) {
 func TestProjectDeleteHonorsRestrictAndRecursiveTransaction(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
-	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
+	ctx, storage := openTestStorage(t)
 	projects := NewProjects(storage)
 	tasks := NewTasks(storage)
-	t.Cleanup(func() { _ = storage.Close() })
 
 	created, err := projects.Add(ctx, project.AddFields{Title: "doomed"}, "2026-01-01T00:00:00.000Z")
 	if err != nil {
@@ -517,13 +841,8 @@ END
 func TestProjectStoreRejectsInvalidCallsAndReportsMissingProjects(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
-	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
+	ctx, storage := openTestStorage(t)
 	projects := NewProjects(storage)
-	t.Cleanup(func() { _ = storage.Close() })
 
 	if _, err := projects.Find(ctx, 99); errorCode(err) != apperr.NotFound || !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("Find(missing) error = %v, want not_found wrapping sql.ErrNoRows", err)
@@ -560,6 +879,17 @@ func TestProjectStoreRejectsInvalidCallsAndReportsMissingProjects(t *testing.T) 
 		t.Error("Edit(no fields) error = nil, want caller-contract error")
 	} else if _, coded := apperr.CodeOf(err); coded {
 		t.Errorf("Edit(no fields) error = %v, want uncoded caller-contract error", err)
+	}
+	areaID := int64(1)
+	if _, err := projects.Edit(
+		ctx,
+		1,
+		project.EditFields{Area: project.AreaChange{Set: &areaID, Clear: true}},
+		"2026-01-01T00:00:00.000Z",
+	); err == nil {
+		t.Error("Edit(set and clear area) error = nil, want caller-contract error")
+	} else if _, coded := apperr.CodeOf(err); coded {
+		t.Errorf("Edit(set and clear area) error = %v, want uncoded caller-contract error", err)
 	}
 	if _, err := projects.List(ctx, project.ListOptions{Status: project.ListStatus("invalid")}); err == nil {
 		t.Error("List(invalid status) error = nil, want caller-contract error")

@@ -11,11 +11,12 @@ import (
 	"testing"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-func TestOpenBootstrapsMilestoneThreeSchemaAndConfiguresConnections(t *testing.T) {
+func TestOpenBootstrapsMilestoneFourSchemaAndConfiguresConnections(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -32,11 +33,11 @@ func TestOpenBootstrapsMilestoneThreeSchemaAndConfiguresConnections(t *testing.T
 	if err := storage.database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("read user_version: %v", err)
 	}
-	if version != 9003 {
-		t.Errorf("user_version = %d, want 9003", version)
+	if version != 9004 {
+		t.Errorf("user_version = %d, want 9004", version)
 	}
 
-	for _, tableName := range []string{"projects", "tasks"} {
+	for _, tableName := range []string{"areas", "projects", "tasks"} {
 		var strict int
 		if err := storage.database.QueryRowContext(
 			ctx,
@@ -58,14 +59,19 @@ func TestOpenBootstrapsMilestoneThreeSchemaAndConfiguresConnections(t *testing.T
 		t.Fatalf("read available view: %v", err)
 	}
 	wantAvailableSQL := `CREATE VIEW available AS
-SELECT t.*, p.title AS project_title
+SELECT t.*,
+       p.title                        AS project_title,
+       COALESCE(t.area_id, p.area_id) AS governing_area_id,
+       a.title                        AS governing_area_title
 FROM tasks t
 LEFT JOIN projects p ON p.id = t.project_id
+LEFT JOIN areas    a ON a.id = COALESCE(t.area_id, p.area_id)
 WHERE t.status = 'open'
   AND (t.project_id IS NULL OR p.status = 'open')
+  AND a.archived_at IS NULL
   AND (t.defer_until IS NULL OR t.defer_until <= date('now', 'localtime'))`
 	if strings.Join(strings.Fields(availableSQL), " ") != strings.Join(strings.Fields(wantAvailableSQL), " ") {
-		t.Errorf("available view = %q, want project-aware definition", availableSQL)
+		t.Errorf("available view = %q, want governing-area-aware definition", availableSQL)
 	}
 
 	storage.database.SetMaxOpenConns(2)
@@ -308,7 +314,7 @@ func TestOpenRejectsUnsafeBootstrapStates(t *testing.T) {
 		name  string
 		setup string
 	}{
-		{name: "previous development revision", setup: "PRAGMA user_version = 9002"},
+		{name: "previous development revision", setup: "PRAGMA user_version = 9003"},
 		{name: "wrong revision", setup: "PRAGMA user_version = 42"},
 		{name: "nonempty version zero", setup: "CREATE TABLE existing (id INTEGER)"},
 	}
@@ -913,9 +919,12 @@ func TestTaskLifecycleTransitionsAreBlockedByResolvedProject(t *testing.T) {
 	}
 	for _, operation := range operations {
 		err := operation.apply()
-		if errorCode(err) != apperr.Conflict || !strings.Contains(err.Error(), "reopen") ||
-			!strings.Contains(err.Error(), fmt.Sprint(container.ID)) {
-			t.Errorf("%s error = %v, want conflict naming resolved project with reopen guidance", operation.name, err)
+		var resolvedProjects *project.ResolvedProjectsError
+		if errorCode(err) != apperr.Conflict ||
+			!strings.Contains(err.Error(), fmt.Sprint(container.ID)) ||
+			!errors.As(err, &resolvedProjects) ||
+			!reflect.DeepEqual(resolvedProjects.IDs, []int64{container.ID}) {
+			t.Errorf("%s error = %v, want conflict naming the resolved project with the typed marker", operation.name, err)
 		}
 	}
 
@@ -946,6 +955,132 @@ func TestTaskLifecycleTransitionsAreBlockedByResolvedProject(t *testing.T) {
 	}
 	if !reflect.DeepEqual(deleted, deleteCandidate) {
 		t.Errorf("Delete(task in resolved project) = %#v, want snapshot %#v", deleted, deleteCandidate)
+	}
+}
+
+func TestTaskArchivedAreaLifecycleGuardsAndDeleteAllowance(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	areas := NewAreas(storage)
+	projects := NewProjects(storage)
+	tasks := NewTasks(storage)
+
+	directArea := addStoredArea(t, areas, area.AddFields{Title: "direct"})
+	inheritedArea := addStoredArea(t, areas, area.AddFields{Title: "inherited"})
+	openProject := addStoredProject(
+		t,
+		projects,
+		project.AddFields{AreaID: &inheritedArea.ID, Title: "open project"},
+	)
+	resolvedProject := addStoredProject(
+		t,
+		projects,
+		project.AddFields{AreaID: &inheritedArea.ID, Title: "resolved project"},
+	)
+	doneCandidate := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{AreaID: &directArea.ID, Title: "done candidate"},
+	)
+	cancelCandidate := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{ProjectID: &openProject.ID, Title: "cancel candidate"},
+	)
+	reopenCandidate := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{ProjectID: &openProject.ID, Title: "reopen candidate"},
+	)
+	combinedCandidate := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{ProjectID: &resolvedProject.ID, Title: "combined candidate"},
+	)
+	deleteInherited := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{ProjectID: &openProject.ID, Title: "delete inherited"},
+	)
+	var err error
+	reopenCandidate, err = tasks.Done(
+		ctx,
+		reopenCandidate.ID,
+		"2026-01-02T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Done(reopen candidate fixture) error = %v", err)
+	}
+	if _, err := projects.Resolve(
+		ctx,
+		resolvedProject.ID,
+		project.ExitDone,
+		"2026-01-03T00:00:00.000Z",
+	); err != nil {
+		t.Fatalf("Resolve(project fixture) error = %v", err)
+	}
+	archiveStoredAreas(t, storage, directArea.ID, inheritedArea.ID)
+
+	operations := []struct {
+		name      string
+		areaID    int64
+		projectID int64
+		apply     func() error
+	}{
+		{
+			name:   "done direct",
+			areaID: directArea.ID,
+			apply: func() error {
+				_, operationErr := tasks.Done(ctx, doneCandidate.ID, "2026-01-04T00:00:00.000Z")
+				return operationErr
+			},
+		},
+		{
+			name:   "cancel inherited",
+			areaID: inheritedArea.ID,
+			apply: func() error {
+				_, operationErr := tasks.Cancel(ctx, cancelCandidate.ID, "2026-01-04T00:00:00.000Z")
+				return operationErr
+			},
+		},
+		{
+			name:   "reopen inherited",
+			areaID: inheritedArea.ID,
+			apply: func() error {
+				_, operationErr := tasks.Reopen(ctx, reopenCandidate.ID, "2026-01-04T00:00:00.000Z")
+				return operationErr
+			},
+		},
+		{
+			name:      "resolved project and archived inherited area",
+			areaID:    inheritedArea.ID,
+			projectID: resolvedProject.ID,
+			apply: func() error {
+				_, operationErr := tasks.Done(ctx, combinedCandidate.ID, "2026-01-04T00:00:00.000Z")
+				return operationErr
+			},
+		},
+	}
+	for _, operation := range operations {
+		err := operation.apply()
+		if errorCode(err) != apperr.Conflict {
+			t.Errorf("%s error = %v, want conflict", operation.name, err)
+			continue
+		}
+		assertArchivedAreaIDs(t, err, []int64{operation.areaID})
+		if !strings.Contains(err.Error(), fmt.Sprintf("area %d", operation.areaID)) {
+			t.Errorf("%s error = %v, want area ID %d", operation.name, err, operation.areaID)
+		}
+		if operation.projectID != 0 &&
+			!strings.Contains(err.Error(), fmt.Sprintf("project %d", operation.projectID)) {
+			t.Errorf("%s error = %v, want project ID %d", operation.name, err, operation.projectID)
+		}
+	}
+
+	deleted, err := tasks.Delete(ctx, deleteInherited.ID)
+	if err != nil || !reflect.DeepEqual(deleted, deleteInherited) {
+		t.Errorf("Delete(task under archived area) = %#v, %v; want %#v", deleted, err, deleteInherited)
 	}
 }
 

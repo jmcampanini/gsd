@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -24,6 +25,7 @@ const (
 
 type Project struct {
 	ID          int64   `json:"id"`
+	AreaID      *int64  `json:"area_id"`
 	Title       string  `json:"title"`
 	Note        string  `json:"note"`
 	DoneAt      *string `json:"done_at"`
@@ -35,17 +37,25 @@ type Project struct {
 }
 
 type AddFields struct {
-	Title string
-	Note  string
+	AreaID *int64
+	Title  string
+	Note   string
+}
+
+type AreaChange struct {
+	Set   *int64
+	Clear bool
 }
 
 type EditFields struct {
+	Area  AreaChange
 	Title *string
 	Note  *string
 }
 
 type ListOptions struct {
 	Status ListStatus
+	AreaID *int64
 }
 
 type Resolution struct {
@@ -56,6 +66,14 @@ type Resolution struct {
 type Deletion struct {
 	Project      Project     `json:"project"`
 	DeletedTasks []task.Task `json:"deleted_tasks"`
+}
+
+type ResolvedProjectsError struct {
+	IDs []int64
+}
+
+func (e ResolvedProjectsError) Error() string {
+	return fmt.Sprintf("resolved projects block this operation: %v", e.IDs)
 }
 
 type Store interface {

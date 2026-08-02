@@ -44,13 +44,21 @@ transactional completion/cancellation cascade with narration, the
 resolved-project guard, RESTRICT-guarded deletion with an explicit
 `--recursive` opt-in, and the interleaved `logbook`.
 
+### Milestone 4 — Areas
+
+Delivered areas holding projects and loose tasks with schema-enforced
+containment exclusivity, governing-area inheritance through `available`
+and the enriched views, archive/unarchive as retired history with typed
+unarchive-first guidance, and RESTRICT-guarded area deletion with a
+transactional `--recursive` opt-in reporting a container-grouped
+envelope.
+
 ## Active roadmap
 
-Active planning begins with the Areas milestone:
+Active planning begins with the Tags milestone:
 
 | # | Milestone | Capability delivered | Data mode |
 |---|-----------|----------------------|-----------|
-| 4 | [Areas](MILESTONE_4.md) | Areas, archive, governing-area inheritance | throwaway |
 | 5 | [Tags](MILESTONE_5.md) | Tags across all entities | throwaway |
 | 6 | [Config](MILESTONE_6.md) | Config file via go-config-loader; color modes | throwaway |
 | 7 | [Go live](MILESTONE_7.md) | Migrations, install story, real-data import | **live** |

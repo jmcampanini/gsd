@@ -27,17 +27,22 @@ func newProjectsCommand(options *rootOptions, factory applicationFactory) *cobra
 
 func newProjectsAddCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
 	var note string
+	var areaIDValue string
 	command := &cobra.Command{
 		Use:   "add TITLE",
 		Short: "Add a project",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
+			areaID, err := parseAreaIDFlag(command, areaIDValue)
+			if err != nil {
+				return err
+			}
 			resolvedNote, err := resolveNote(command, note)
 			if err != nil {
 				return err
 			}
 
-			fields := project.AddFields{Title: args[0], Note: resolvedNote}
+			fields := project.AddFields{AreaID: areaID, Title: args[0], Note: resolvedNote}
 			return withProjectApplication(command, options, factory, func(application project.Application) error {
 				created, addErr := application.Add(command.Context(), fields)
 				if addErr != nil {
@@ -48,12 +53,14 @@ func newProjectsAddCommand(options *rootOptions, factory applicationFactory) *co
 		},
 	}
 	command.Flags().StringVar(&note, "note", "", "project note or - to read stdin")
+	command.Flags().StringVar(&areaIDValue, "area", "", "area ID")
 
 	return command
 }
 
 func newProjectsListCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
 	statusValue := string(project.ListStatusOpen)
+	var areaIDValue string
 	command := &cobra.Command{
 		Use:   "list",
 		Short: "List projects",
@@ -63,9 +70,13 @@ func newProjectsListCommand(options *rootOptions, factory applicationFactory) *c
 			if err != nil {
 				return err
 			}
+			areaID, err := parseAreaIDFlag(command, areaIDValue)
+			if err != nil {
+				return err
+			}
 
 			return withProjectApplication(command, options, factory, func(application project.Application) error {
-				projects, listErr := application.List(command.Context(), project.ListOptions{Status: status})
+				projects, listErr := application.List(command.Context(), project.ListOptions{Status: status, AreaID: areaID})
 				if listErr != nil {
 					return listErr
 				}
@@ -79,6 +90,7 @@ func newProjectsListCommand(options *rootOptions, factory applicationFactory) *c
 		statusValue,
 		"filter by status: open, done, cancelled, or all",
 	)
+	command.Flags().StringVar(&areaIDValue, "area", "", "filter by area ID")
 
 	return command
 }
@@ -251,6 +263,8 @@ func newProjectDeleteCommand(options *rootOptions, factory applicationFactory) *
 func newProjectEditCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
 	var title string
 	var note string
+	var areaIDValue string
+	var noArea bool
 	command := &cobra.Command{
 		Use:   "edit ID",
 		Short: "Edit a project",
@@ -260,16 +274,22 @@ func newProjectEditCommand(options *rootOptions, factory applicationFactory) *co
 			if err != nil {
 				return err
 			}
+			areaID, err := parseAreaIDFlag(command, areaIDValue)
+			if err != nil {
+				return err
+			}
 
-			if !anyFlagChanged(command, "title", "note") {
+			if !anyFlagChanged(command, "title", "note", "area", "no-area") {
 				return apperr.New(
 					apperr.InvalidArgument,
-					"project edit requires --title or --note",
+					"project edit requires --title, --note, --area, or --no-area",
 					nil,
 				)
 			}
 
 			fields := project.EditFields{}
+			fields.Area.Set = areaID
+			fields.Area.Clear = noArea
 			if command.Flags().Changed("title") {
 				fields.Title = &title
 			}
@@ -296,6 +316,9 @@ func newProjectEditCommand(options *rootOptions, factory applicationFactory) *co
 	}
 	command.Flags().StringVar(&title, "title", "", "project title")
 	command.Flags().StringVar(&note, "note", "", "project note or - to read stdin")
+	command.Flags().StringVar(&areaIDValue, "area", "", "area ID")
+	command.Flags().BoolVar(&noArea, "no-area", false, "remove the project from its area")
+	command.MarkFlagsMutuallyExclusive("area", "no-area")
 
 	return command
 }

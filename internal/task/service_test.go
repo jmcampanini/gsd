@@ -14,11 +14,14 @@ type recordingStore struct {
 	title              string
 	note               string
 	addedProjectID     *int64
+	addedAreaID        *int64
 	addedDueOn         *string
 	addedDeferUntil    *string
 	timestamp          string
+	inboxCalls         int
+	inboxResult        []ViewTask
 	availableCalls     int
-	availableResult    []Task
+	availableResult    []ViewTask
 	findCalls          int
 	listCalls          int
 	listedOptions      ListOptions
@@ -44,6 +47,7 @@ func (r *recordingStore) Add(
 	r.title = fields.Title
 	r.note = fields.Note
 	r.addedProjectID = fields.ProjectID
+	r.addedAreaID = fields.AreaID
 	r.addedDueOn = fields.DueOn
 	r.addedDeferUntil = fields.DeferUntil
 	r.timestamp = timestamp
@@ -51,6 +55,7 @@ func (r *recordingStore) Add(
 	return Task{
 		ID:         1,
 		ProjectID:  fields.ProjectID,
+		AreaID:     fields.AreaID,
 		Title:      fields.Title,
 		Note:       fields.Note,
 		DueOn:      fields.DueOn,
@@ -60,11 +65,12 @@ func (r *recordingStore) Add(
 	}, nil
 }
 
-func (*recordingStore) Inbox(context.Context) ([]Task, error) {
-	return []Task{}, nil
+func (r *recordingStore) Inbox(context.Context) ([]ViewTask, error) {
+	r.inboxCalls++
+	return r.inboxResult, nil
 }
 
-func (r *recordingStore) Available(context.Context) ([]Task, error) {
+func (r *recordingStore) Available(context.Context) ([]ViewTask, error) {
 	r.availableCalls++
 	return r.availableResult, nil
 }
@@ -174,6 +180,35 @@ func TestAddPreservesAcceptedTextAndNormalizesTimestamp(t *testing.T) {
 	}
 	if nowCalls != 1 || store.timestamp != "2026-07-27T16:34:56.987Z" {
 		t.Errorf("clock calls/timestamp = %d/%q, want one call and UTC milliseconds", nowCalls, store.timestamp)
+	}
+}
+
+func TestAddValidatesAndDelegatesArea(t *testing.T) {
+	t.Parallel()
+
+	areaID := int64(11)
+	store := &recordingStore{}
+	if _, err := NewService(store).Add(context.Background(), AddFields{AreaID: &areaID, Title: "area task"}); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if store.addCalls != 1 || store.addedAreaID == nil || *store.addedAreaID != areaID {
+		t.Errorf("store Add() calls/area = %d/%#v, want 1/%d", store.addCalls, store.addedAreaID, areaID)
+	}
+
+	projectID := int64(7)
+	invalidAreaID := int64(0)
+	for _, fields := range []AddFields{
+		{AreaID: &invalidAreaID, Title: "valid"},
+		{ProjectID: &projectID, AreaID: &areaID, Title: "valid"},
+	} {
+		store := &recordingStore{}
+		_, err := NewService(store).Add(context.Background(), fields)
+		if code, ok := apperr.CodeOf(err); !ok || code != apperr.InvalidArgument {
+			t.Errorf("Add(%#v) error = %v, want invalid_argument", fields, err)
+		}
+		if store.addCalls != 0 {
+			t.Errorf("store Add() calls = %d, want 0", store.addCalls)
+		}
 	}
 }
 
@@ -318,6 +353,22 @@ func TestParseListStatus(t *testing.T) {
 	}
 }
 
+func TestInboxNormalizesNil(t *testing.T) {
+	t.Parallel()
+
+	store := &recordingStore{}
+	inbox, err := NewService(store).Inbox(context.Background())
+	if err != nil {
+		t.Fatalf("Inbox() error = %v", err)
+	}
+	if inbox == nil || len(inbox) != 0 {
+		t.Errorf("Inbox() = %#v, want non-nil empty list", inbox)
+	}
+	if store.inboxCalls != 1 {
+		t.Errorf("store Inbox() calls = %d, want 1", store.inboxCalls)
+	}
+}
+
 func TestAvailableNormalizesNil(t *testing.T) {
 	t.Parallel()
 
@@ -374,6 +425,36 @@ func TestListValidatesOptionsAndNormalizesNil(t *testing.T) {
 	}
 	if store.listCalls != 1 {
 		t.Errorf("store List() calls = %d, want 1", store.listCalls)
+	}
+}
+
+func TestListValidatesAndDelegatesArea(t *testing.T) {
+	t.Parallel()
+
+	areaID := int64(11)
+	store := &recordingStore{}
+	options := ListOptions{Status: ListStatusOpen, AreaID: &areaID}
+	if _, err := NewService(store).List(context.Background(), options); err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if store.listCalls != 1 || store.listedOptions != options {
+		t.Errorf("store List() calls/options = %d/%#v, want 1/%#v", store.listCalls, store.listedOptions, options)
+	}
+
+	projectID := int64(7)
+	invalidAreaID := int64(0)
+	for _, options := range []ListOptions{
+		{Status: ListStatusOpen, AreaID: &invalidAreaID},
+		{Status: ListStatusOpen, ProjectID: &projectID, AreaID: &areaID},
+	} {
+		store := &recordingStore{}
+		_, err := NewService(store).List(context.Background(), options)
+		if code, ok := apperr.CodeOf(err); !ok || code != apperr.InvalidArgument {
+			t.Errorf("List(%#v) error = %v, want invalid_argument", options, err)
+		}
+		if store.listCalls != 0 {
+			t.Errorf("store List() calls = %d, want 0", store.listCalls)
+		}
 	}
 }
 
@@ -471,6 +552,43 @@ func TestEditDistinguishesClearedFieldsFromOmittedFields(t *testing.T) {
 	}
 	if omittedStore.editFields.Project != (ProjectChange{}) {
 		t.Errorf("edited project = %#v, want omitted", omittedStore.editFields.Project)
+	}
+}
+
+func TestEditValidatesAndDelegatesAreaIntent(t *testing.T) {
+	t.Parallel()
+
+	areaID := int64(11)
+	accepted := []EditFields{
+		{Area: AreaChange{Set: &areaID}},
+		{Area: AreaChange{Clear: true}},
+	}
+	for _, fields := range accepted {
+		store := &recordingStore{}
+		if _, err := NewService(store).Edit(context.Background(), 7, fields); err != nil {
+			t.Fatalf("Edit(%#v) error = %v", fields, err)
+		}
+		if store.editCalls != 1 || store.editFields.Area != fields.Area {
+			t.Errorf("store Edit() calls/area = %d/%#v, want 1/%#v", store.editCalls, store.editFields.Area, fields.Area)
+		}
+	}
+
+	projectID := int64(7)
+	invalidAreaID := int64(0)
+	invalid := []EditFields{
+		{Area: AreaChange{Set: &invalidAreaID}},
+		{Area: AreaChange{Set: &areaID, Clear: true}},
+		{Project: ProjectChange{Set: &projectID}, Area: AreaChange{Set: &areaID}},
+	}
+	for _, fields := range invalid {
+		store := &recordingStore{}
+		_, err := NewService(store).Edit(context.Background(), 7, fields)
+		if code, ok := apperr.CodeOf(err); !ok || code != apperr.InvalidArgument {
+			t.Errorf("Edit(%#v) error = %v, want invalid_argument", fields, err)
+		}
+		if store.editCalls != 0 {
+			t.Errorf("store Edit() calls = %d, want 0", store.editCalls)
+		}
 	}
 }
 

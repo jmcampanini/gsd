@@ -52,11 +52,95 @@ gsd list [--tag NAME] ...
 
 ## Chunks
 
+0. **Transaction seam groundwork** — the `Tasks` store gains the
+   executor + `WithinTransaction` seam before any tag behavior lands
+   (see below).
 1. **Tag administration** — `tags` table + joins, `tags add/list/
    rename/delete`, uniqueness and rename semantics.
 2. **Attachment everywhere** — `tag`/`untag` verbs on all three nouns,
    `--tag` on the three `add` commands and `list` filter, view + JSON
    enrichment.
+
+### Chunk 0: the Tasks store transaction seam
+
+`--tag` on `add` turns task creation into a multi-statement write:
+insert the task, insert its join rows, and fail with `not_found` when a
+tag name does not exist — atomically. A single statement no longer
+proves the complete operation, so per `AGENTS.md` this becomes a
+service-owned transaction. Two gaps in `internal/store` stand in the
+way:
+
+- `Tasks` is the only store without the transaction seam: `Areas` and
+  `Projects` take an executor interface plus `WithinTransaction`, while
+  `Tasks` holds the raw database handle directly.
+- The failure-classification reads (`findContainerState`, which
+  re-queries project and area state to name blockers) construct sibling
+  stores on the raw handle. Inside a transaction they would read outside
+  it, classifying against state the transaction cannot see.
+
+Chunk 0 closes both gaps before any tag behavior lands: give `Tasks`
+the same executor + `WithinTransaction` shape as its siblings and route
+the classification reads through the executor. No behavior changes; the
+existing store and service suites pass untouched.
+
+Chunk 0 also decides how the archived-area and open-project guards live
+inside the new transaction, applied consistently to every task mutation
+the milestone touches. Viable options:
+
+- **Keep the guards in the statement.** The guarded
+  `INSERT/UPDATE ... WHERE ... RETURNING` runs as the transaction's
+  first statement; join-row inserts follow. Smallest diff and keeps the
+  established idiom, but retains the dual maintenance between the SQL
+  guard clauses and the Go classification pass, and the guard
+  statements keep growing with each new rule. If this option wins, the
+  repeated guard clauses (open-project, governing-area-active) are
+  extracted into named SQL fragment constants written once and shared
+  across the verbs, so each rule has a single source even though the
+  classification pass remains.
+- **Read-then-validate inside the transaction.** Select the container
+  state under `BEGIN IMMEDIATE`, validate in Go with exact typed
+  errors, then execute plain writes. Collapses the guard/classifier
+  duplication and shrinks the oversized statements, but departs from
+  the one-atomic-statement idiom for these verbs and is a materially
+  larger refactor. `AGENTS.md` already permits it once the operation is
+  genuinely multi-statement.
+
+The acid test for the choice is `Tasks.Edit`: a ~175-line method whose
+membership guard is assembled by string concatenation around a CTE
+that exists only when membership changes, referenced by SQL fragments
+whose reachability is enforced by an early return far from their use,
+with argument splicing that fails only at bind time. Read-then-validate
+dissolves all of that; keeping statement guards means wrapping it in a
+transaction and living with its growth. Whichever way the decision
+goes, it must be defensible against this method in particular.
+
+Whichever option wins, chunk 0 also consolidates the duplicated
+classification stanzas in the `Projects` store: `Resolve` and `Reopen`
+carry near-identical find-row → find-area → archived-conflict blocks,
+and `Edit` re-implements the singular/plural blocker message that
+`blockers.go` already owns. Under read-then-validate they dissolve into
+the in-transaction validation; under statement guards they collapse
+into one shared classification helper.
+
+Chunk 0 also retires the sentinel-row idiom in the contained listings
+(`Tasks.listContained` and the area-scoped project listing), which
+distinguishes a missing container from an empty one by UNION-ing a
+fabricated all-zero row and filtering `ID != 0` in Go — an unstated
+real-IDs-start-at-1 invariant plus a placeholder column list that must
+track the real column lists by hand. With the transaction seam in
+place, each listing becomes a container `Find` followed by the list
+query inside one read transaction: same missing-versus-empty semantics
+and snapshot consistency, with both the SQL and the Go scan paths
+simplified.
+
+Finally, chunk 0 extracts the service-layer helpers triplicated across
+`task`, `project`, and `area` — title/note validation, positive-ID
+checks, digit-strict ID parsing, and timestamp formatting — into one
+shared package (e.g. `internal/domain`), parameterized by entity noun
+so every message stays byte-identical. Without this, the `tag` package
+mints copy number four, and a cross-entity rule change (trim titles,
+cap lengths, change timestamp precision) needs N coordinated edits
+with silent divergence when one is missed.
 
 ## User stories
 

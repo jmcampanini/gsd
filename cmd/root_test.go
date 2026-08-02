@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -18,9 +19,9 @@ import (
 type fakeApplication struct {
 	addResult       task.Task
 	addError        error
-	inboxResult     []task.Task
+	inboxResult     []task.ViewTask
 	inboxError      error
-	availableResult []task.Task
+	availableResult []task.ViewTask
 	availableError  error
 	listResult      []task.Task
 	listError       error
@@ -39,6 +40,7 @@ type fakeApplication struct {
 	addTitle        string
 	addNote         string
 	addProjectID    *int64
+	addAreaID       *int64
 	addDueOn        *string
 	addDeferUntil   *string
 	listOptions     task.ListOptions
@@ -53,16 +55,17 @@ func (f *fakeApplication) Add(_ context.Context, fields task.AddFields) (task.Ta
 	f.addTitle = fields.Title
 	f.addNote = fields.Note
 	f.addProjectID = fields.ProjectID
+	f.addAreaID = fields.AreaID
 	f.addDueOn = fields.DueOn
 	f.addDeferUntil = fields.DeferUntil
 	return f.addResult, f.addError
 }
 
-func (f *fakeApplication) Inbox(context.Context) ([]task.Task, error) {
+func (f *fakeApplication) Inbox(context.Context) ([]task.ViewTask, error) {
 	return f.inboxResult, f.inboxError
 }
 
-func (f *fakeApplication) Available(context.Context) ([]task.Task, error) {
+func (f *fakeApplication) Available(context.Context) ([]task.ViewTask, error) {
 	return f.availableResult, f.availableError
 }
 
@@ -224,6 +227,85 @@ func TestExitCodeForError(t *testing.T) {
 	}
 }
 
+func TestNormalizeApplicationErrorAddsTypedUnarchiveGuidanceDeterministically(t *testing.T) {
+	t.Parallel()
+
+	cause := &area.ArchivedAreasError{IDs: []int64{9, 2, 9, 4}}
+	original := apperr.New(apperr.Conflict, "archived areas block this operation", cause)
+	normalized := normalizeApplicationError(original)
+	code, ok := apperr.CodeOf(normalized)
+	if !ok || code != apperr.Conflict {
+		t.Fatalf("normalized code = %q/%t, want conflict", code, ok)
+	}
+	want := "archived areas block this operation; unarchive first: gsd area unarchive 2; gsd area unarchive 4; gsd area unarchive 9"
+	if normalized.Error() != want {
+		t.Errorf("normalized error = %q, want %q", normalized, want)
+	}
+	if !errors.Is(normalized, original) || !errors.Is(normalized, cause) {
+		t.Errorf("normalized error = %v, want original typed cause preserved", normalized)
+	}
+}
+
+func TestNormalizeApplicationErrorAddsTypedReopenGuidanceDeterministically(t *testing.T) {
+	t.Parallel()
+
+	cause := &project.ResolvedProjectsError{IDs: []int64{9, 2, 9, 4}}
+	original := apperr.New(apperr.Conflict, "resolved projects block this operation", cause)
+	normalized := normalizeApplicationError(original)
+	code, ok := apperr.CodeOf(normalized)
+	if !ok || code != apperr.Conflict {
+		t.Fatalf("normalized code = %q/%t, want conflict", code, ok)
+	}
+	want := "resolved projects block this operation; reopen first: gsd project reopen 2; gsd project reopen 4; gsd project reopen 9"
+	if normalized.Error() != want {
+		t.Errorf("normalized error = %q, want %q", normalized, want)
+	}
+	if !errors.Is(normalized, original) || !errors.Is(normalized, cause) {
+		t.Errorf("normalized error = %v, want original typed cause preserved", normalized)
+	}
+}
+
+func TestNormalizeApplicationErrorComposesReopenBeforeUnarchiveGuidance(t *testing.T) {
+	t.Parallel()
+
+	original := apperr.New(
+		apperr.Conflict,
+		"cannot move task 3 while project 1 is resolved and area 2 is archived",
+		errors.Join(
+			&project.ResolvedProjectsError{IDs: []int64{1}},
+			&area.ArchivedAreasError{IDs: []int64{2}},
+		),
+	)
+	normalized := normalizeApplicationError(original)
+	want := "cannot move task 3 while project 1 is resolved and area 2 is archived" +
+		"; reopen first: gsd project reopen 1; unarchive first: gsd area unarchive 2"
+	if normalized.Error() != want {
+		t.Errorf("normalized error = %q, want %q", normalized, want)
+	}
+}
+
+func TestTypedArchivedAreaErrorWritesJSONGuidanceToStderr(t *testing.T) {
+	t.Parallel()
+
+	application := &fakeApplication{doneError: apperr.New(
+		apperr.Conflict,
+		"cannot complete task 7 while its governing area is archived",
+		&area.ArchivedAreasError{IDs: []int64{3}},
+	)}
+	result := runCommand(t, application, "done", "7", "--json")
+	if result.exitCode != 1 || result.stdout != "" || result.opens != 1 || result.closes != 1 {
+		t.Fatalf("result = %#v, want stderr-only conflict and one open/close", result)
+	}
+	var envelope errorEnvelope
+	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
+		t.Fatalf("decode stderr: %v", err)
+	}
+	want := "cannot complete task 7 while its governing area is archived; unarchive first: gsd area unarchive 3"
+	if envelope.Error.Code != apperr.Conflict || envelope.Error.Message != want {
+		t.Errorf("error = %#v, want typed unarchive guidance", envelope.Error)
+	}
+}
+
 func TestJSONCommandOutput(t *testing.T) {
 	t.Parallel()
 
@@ -280,6 +362,7 @@ func TestJSONCommandOutput(t *testing.T) {
 	for _, field := range []string{
 		"id",
 		"project_id",
+		"area_id",
 		"title",
 		"note",
 		"defer_until",
@@ -295,14 +378,15 @@ func TestJSONCommandOutput(t *testing.T) {
 			t.Errorf("JSON fields = %v, missing %q", fields, field)
 		}
 	}
-	if len(fields) != 12 {
-		t.Errorf("JSON field count = %d, want 12", len(fields))
+	if len(fields) != 13 {
+		t.Errorf("JSON field count = %d, want 13", len(fields))
 	}
-	if string(fields["project_id"]) != "null" || string(fields["done_at"]) != "null" ||
-		string(fields["cancelled_at"]) != "null" {
+	if string(fields["project_id"]) != "null" || string(fields["area_id"]) != "null" ||
+		string(fields["done_at"]) != "null" || string(fields["cancelled_at"]) != "null" {
 		t.Errorf(
-			"nullable fields = (%s, %s, %s), want null",
+			"nullable fields = (%s, %s, %s, %s), want null",
 			fields["project_id"],
+			fields["area_id"],
 			fields["done_at"],
 			fields["cancelled_at"],
 		)
@@ -534,7 +618,7 @@ func TestEditWithoutFieldsFailsBeforeOpeningApplication(t *testing.T) {
 func TestEmptyInboxJSONIsArray(t *testing.T) {
 	t.Parallel()
 
-	result := runCommand(t, &fakeApplication{inboxResult: []task.Task{}}, "inbox", "--json")
+	result := runCommand(t, &fakeApplication{inboxResult: []task.ViewTask{}}, "inbox", "--json")
 	if result.exitCode != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr = %q", result.exitCode, result.stderr)
 	}
@@ -547,12 +631,12 @@ func TestAvailableAdaptsOutputModes(t *testing.T) {
 	t.Parallel()
 
 	deferUntil := "2026-07-28"
-	tasks := []task.Task{{ID: 7, Title: "actionable", DeferUntil: &deferUntil, Status: "open"}}
+	tasks := []task.ViewTask{{Task: task.Task{ID: 7, Title: "actionable", DeferUntil: &deferUntil, Status: "open"}}}
 	jsonResult := runCommand(t, &fakeApplication{availableResult: tasks}, "available", "--json")
 	if jsonResult.exitCode != 0 || jsonResult.stderr != "" {
 		t.Fatalf("JSON available result = %#v, want success", jsonResult)
 	}
-	var decoded []task.Task
+	var decoded []task.ViewTask
 	if err := json.Unmarshal([]byte(jsonResult.stdout), &decoded); err != nil {
 		t.Fatalf("decode available JSON: %v", err)
 	}
@@ -568,9 +652,50 @@ func TestAvailableAdaptsOutputModes(t *testing.T) {
 		t.Errorf("human available = %q, want inbox-style row without status", humanResult.stdout)
 	}
 
-	emptyResult := runCommand(t, &fakeApplication{availableResult: []task.Task{}}, "available", "--json")
+	emptyResult := runCommand(t, &fakeApplication{availableResult: []task.ViewTask{}}, "available", "--json")
 	if emptyResult.exitCode != 0 || emptyResult.stdout != "[]\n" || emptyResult.stderr != "" {
 		t.Errorf("empty available = %#v, want empty JSON array", emptyResult)
+	}
+}
+
+func TestInboxJSONIncludesExactViewTaskEnrichment(t *testing.T) {
+	t.Parallel()
+
+	projectID := int64(2)
+	areaID := int64(3)
+	projectTitle := "Kitchen"
+	areaTitle := "Home"
+	view := task.ViewTask{
+		Task:               task.Task{ID: 1, ProjectID: &projectID, Title: "Get quotes", Status: "open"},
+		ProjectTitle:       &projectTitle,
+		GoverningAreaID:    &areaID,
+		GoverningAreaTitle: &areaTitle,
+	}
+	result := runCommand(t, &fakeApplication{inboxResult: []task.ViewTask{view}}, "inbox", "--json")
+	if result.exitCode != 0 || result.stderr != "" {
+		t.Fatalf("result = %#v, want success", result)
+	}
+	var fields []map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(result.stdout), &fields); err != nil {
+		t.Fatalf("decode inbox JSON: %v", err)
+	}
+	want := []string{
+		"id", "project_id", "area_id", "title", "note", "defer_until", "due_on", "done_at",
+		"cancelled_at", "status", "position", "created_at", "updated_at", "project_title",
+		"governing_area_id", "governing_area_title",
+	}
+	if len(fields) != 1 || len(fields[0]) != len(want) {
+		t.Fatalf("fields = %v, want exact view row", fields)
+	}
+	for _, name := range want {
+		if _, ok := fields[0][name]; !ok {
+			t.Errorf("fields = %v, missing %q", fields[0], name)
+		}
+	}
+	if string(fields[0]["project_title"]) != `"Kitchen"` ||
+		string(fields[0]["governing_area_id"]) != "3" ||
+		string(fields[0]["governing_area_title"]) != `"Home"` {
+		t.Errorf("enrichment = %v, want project and governing area", fields[0])
 	}
 }
 
@@ -768,9 +893,9 @@ func TestHumanOutputUsesPlainTables(t *testing.T) {
 
 	dueOn := "2026-07-28"
 	deferUntil := "2026-07-29"
-	application := &fakeApplication{inboxResult: []task.Task{
-		{ID: 1, Title: "one", DueOn: &dueOn, DeferUntil: &deferUntil},
-		{ID: 20, Title: "twenty"},
+	application := &fakeApplication{inboxResult: []task.ViewTask{
+		{Task: task.Task{ID: 1, Title: "one", DueOn: &dueOn, DeferUntil: &deferUntil}},
+		{Task: task.Task{ID: 20, Title: "twenty"}},
 	}}
 	result := runCommand(t, application, "inbox")
 	if result.exitCode != 0 {
@@ -861,8 +986,8 @@ func TestHumanOutputEscapesTerminalControls(t *testing.T) {
 		},
 		{
 			name: "collection",
-			application: &fakeApplication{inboxResult: []task.Task{
-				{ID: 1, Title: title},
+			application: &fakeApplication{inboxResult: []task.ViewTask{
+				{Task: task.Task{ID: 1, Title: title}},
 			}},
 			args: []string{"inbox"},
 		},
