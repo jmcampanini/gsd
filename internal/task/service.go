@@ -53,11 +53,11 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Task, error) {
 }
 
 func (s *Service) Inbox(ctx context.Context) ([]ViewTask, error) {
-	return normalizeViewTasks(s.store.Inbox(ctx))
+	return normalizeSlice(s.store.Inbox(ctx))
 }
 
 func (s *Service) Available(ctx context.Context) ([]ViewTask, error) {
-	return normalizeViewTasks(s.store.Available(ctx))
+	return normalizeSlice(s.store.Available(ctx))
 }
 
 func (s *Service) Show(ctx context.Context, id int64) (Task, error) {
@@ -85,7 +85,7 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Task, error)
 		return nil, apperr.New(apperr.InvalidArgument, "cannot filter tasks by both project and area", nil)
 	}
 
-	return normalizeTasks(s.store.List(ctx, options))
+	return normalizeSlice(s.store.List(ctx, options))
 }
 
 func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, error) {
@@ -237,26 +237,15 @@ func canonicalizeDate(value *string, reference time.Time) (*string, error) {
 	return &canonical, nil
 }
 
-func normalizeTasks(tasks []Task, err error) ([]Task, error) {
+func normalizeSlice[T any](values []T, err error) ([]T, error) {
 	if err != nil {
 		return nil, err
 	}
-	if tasks == nil {
-		return []Task{}, nil
+	if values == nil {
+		return []T{}, nil
 	}
 
-	return tasks, nil
-}
-
-func normalizeViewTasks(tasks []ViewTask, err error) ([]ViewTask, error) {
-	if err != nil {
-		return nil, err
-	}
-	if tasks == nil {
-		return []ViewTask{}, nil
-	}
-
-	return tasks, nil
+	return values, nil
 }
 
 func validateID(id int64) error {
