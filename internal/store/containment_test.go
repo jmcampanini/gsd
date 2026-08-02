@@ -679,11 +679,13 @@ func TestTaskMoveReportsBothResolvedProjectsTogether(t *testing.T) {
 		task.EditFields{Project: task.ProjectChange{Set: &destination.ID}},
 		"2026-01-04T00:00:00.000Z",
 	)
+	var resolvedProjects *project.ResolvedProjectsError
 	if errorCode(err) != apperr.Conflict ||
 		!strings.Contains(err.Error(), fmt.Sprint(source.ID)) ||
 		!strings.Contains(err.Error(), fmt.Sprint(destination.ID)) ||
-		!strings.Contains(err.Error(), "reopen both projects") {
-		t.Errorf("Edit(between two resolved projects) error = %v, want both IDs and reopen-both guidance", err)
+		!errors.As(err, &resolvedProjects) ||
+		!reflect.DeepEqual(resolvedProjects.IDs, []int64{source.ID, destination.ID}) {
+		t.Errorf("Edit(between two resolved projects) error = %v, want both IDs and the typed resolved-projects marker", err)
 	}
 
 	for _, id := range []int64{source.ID, destination.ID} {

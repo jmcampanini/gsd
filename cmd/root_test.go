@@ -246,6 +246,44 @@ func TestNormalizeApplicationErrorAddsTypedUnarchiveGuidanceDeterministically(t 
 	}
 }
 
+func TestNormalizeApplicationErrorAddsTypedReopenGuidanceDeterministically(t *testing.T) {
+	t.Parallel()
+
+	cause := &project.ResolvedProjectsError{IDs: []int64{9, 2, 9, 4}}
+	original := apperr.New(apperr.Conflict, "resolved projects block this operation", cause)
+	normalized := normalizeApplicationError(original)
+	code, ok := apperr.CodeOf(normalized)
+	if !ok || code != apperr.Conflict {
+		t.Fatalf("normalized code = %q/%t, want conflict", code, ok)
+	}
+	want := "resolved projects block this operation; reopen first: gsd project reopen 2; gsd project reopen 4; gsd project reopen 9"
+	if normalized.Error() != want {
+		t.Errorf("normalized error = %q, want %q", normalized, want)
+	}
+	if !errors.Is(normalized, original) || !errors.Is(normalized, cause) {
+		t.Errorf("normalized error = %v, want original typed cause preserved", normalized)
+	}
+}
+
+func TestNormalizeApplicationErrorComposesReopenBeforeUnarchiveGuidance(t *testing.T) {
+	t.Parallel()
+
+	original := apperr.New(
+		apperr.Conflict,
+		"cannot move task 3 while project 1 is resolved and area 2 is archived",
+		errors.Join(
+			&project.ResolvedProjectsError{IDs: []int64{1}},
+			&area.ArchivedAreasError{IDs: []int64{2}},
+		),
+	)
+	normalized := normalizeApplicationError(original)
+	want := "cannot move task 3 while project 1 is resolved and area 2 is archived" +
+		"; reopen first: gsd project reopen 1; unarchive first: gsd area unarchive 2"
+	if normalized.Error() != want {
+		t.Errorf("normalized error = %q, want %q", normalized, want)
+	}
+}
+
 func TestTypedArchivedAreaErrorWritesJSONGuidanceToStderr(t *testing.T) {
 	t.Parallel()
 

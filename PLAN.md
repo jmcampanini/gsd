@@ -432,25 +432,25 @@ demo (`.sandbox/demos/4-chunk-3.html`):
 
 After every chunk is reviewed and squash-merged into the milestone branch:
 
-- [ ] Reconcile the accepted semantics into the canonical specifications:
+- [x] Reconcile the accepted semantics into the canonical specifications:
       the areas listing partition and `--all` grammar, the archived-area
       guard, area `not_found` references, the mutual-exclusion
       `invalid_argument` classification, and the recursive area deletion
       envelope into `plans/COMMANDS.md` and `plans/OVERVIEW.md`.
-- [ ] Diff the shipped `available` view SQL against `SCHEMA.md`'s
+- [x] Diff the shipped `available` view SQL against `SCHEMA.md`'s
       definition — the remaining delta must be exactly the `tags` column
       (the milestone's specific exit criterion) — and confirm the other
       views and tables match.
-- [ ] Reconcile tests around stable observable contracts and codify lasting
+- [x] Reconcile tests around stable observable contracts and codify lasting
       review findings in `AGENTS.md`, lint/build configuration, or the
       owning tests.
-- [ ] Decide whether reopen-first guidance should move from store-composed
+- [x] Decide whether reopen-first guidance should move from store-composed
       text to typed resolved-project metadata composed by the command
-      adapter; preserve the current behavior unless consolidation accepts
-      the architectural change.
-- [ ] Run the automated Milestone 4 subprocess workflow through
+      adapter; consolidation accepted the architectural change, mirroring
+      the typed archived-area pattern.
+- [x] Run the automated Milestone 4 subprocess workflow through
       `make check`.
-- [ ] Build the real binary and retain a clean transcript of the workflow
+- [x] Build the real binary and retain a clean transcript of the workflow
       below.
 - [ ] Have Javier demo the milestone user stories.
 - [ ] Update the roadmap and links, then permanently delete
@@ -464,46 +464,46 @@ After every chunk is reviewed and squash-merged into the milestone branch:
 Use the real built binary, a fresh temporary database under `.sandbox/`, and
 JSON output except where human rendering is explicitly inspected.
 
-- [ ] Build: area A with a loose task and a project holding two tasks; area
+- [x] Build: area A with a loose task and a project holding two tasks; area
       B with one loose task; one inbox task. Assert each created row echoes
       its `area_id` or `project_id`.
-- [ ] Assert `gsd available` returns all five tasks and each row's
+- [x] Assert `gsd available` returns all five tasks and each row's
       `governing_area_id` is correct — inherited for the project tasks, own
       for the loose tasks, `null` for the inbox task — with
       `project_title` and `governing_area_title` populated to match.
-- [ ] `gsd area archive A`: assert `available` drops to the area-B task
+- [x] `gsd area archive A`: assert `available` drops to the area-B task
       plus the inbox task, `gsd list --area A` still sees the loose task,
       and `gsd inbox` is unchanged.
-- [ ] Assert the guard while A is archived: `gsd add --area A`,
+- [x] Assert the guard while A is archived: `gsd add --area A`,
       re-parenting a task into and out of A, `gsd done` on a project task
       governed by A, and `gsd project done` on its project all fail
       `conflict` with exit 1, while a title edit and a task delete under A
       succeed (recreate the deleted task before continuing).
-- [ ] Assert the partition while A is archived: `gsd areas list` returns
+- [x] Assert the partition while A is archived: `gsd areas list` returns
       only B, `--archived` returns only A, `--all` returns both;
       `--archived --all` together is a usage error with exit 2.
-- [ ] `gsd area unarchive A`: assert all five tasks return to `available`
+- [x] `gsd area unarchive A`: assert all five tasks return to `available`
       with positions intact, and `gsd area unarchive A` again fails
       `conflict`.
-- [ ] Assert mutual exclusion: task `add` and `edit` with both containers,
+- [x] Assert mutual exclusion: task `add` and `edit` with both containers,
       and `gsd list --project N --area M`, all fail `invalid_argument` with
       exit 1.
-- [ ] Re-parent the project to area B; assert its tasks' `governing_area_id`
+- [x] Re-parent the project to area B; assert its tasks' `governing_area_id`
       follows and the project appended to the end of B's project list; assert
       re-stating its area does not move it.
-- [ ] Delete a task inside the project and the loose task in area A; assert
+- [x] Delete a task inside the project and the loose task in area A; assert
       both succeed (task deletes never block).
-- [ ] Assert `gsd area delete B` fails `conflict` (it holds the project and
+- [x] Assert `gsd area delete B` fails `conflict` (it holds the project and
       its loose task), and `gsd area delete A` — now empty — succeeds.
-- [ ] `gsd area delete B --recursive`: assert one transaction returns the
+- [x] `gsd area delete B --recursive`: assert one transaction returns the
       envelope with the project in `deleted_projects` and both the
       project's remaining task and B's loose task in `deleted_tasks`.
-- [ ] Assert `gsd add --area 99` and `gsd list --area 99` fail `not_found`
+- [x] Assert `gsd add --area 99` and `gsd list --area 99` fail `not_found`
       with exit 1, and bare `gsd areas` and bare `gsd area` are usage errors
       with exit code 2 and no database side effect.
-- [ ] Inspect human output for the archive mutation line, the `areas list
+- [x] Inspect human output for the archive mutation line, the `areas list
       --all` archived marker, one guarded conflict with unarchive-first
       guidance, the `Area` row on task `show`, and one recursive deletion
       narration (no ANSI styling).
-- [ ] Run `make check` and report the command transcript and final clean
+- [x] Run `make check` and report the command transcript and final clean
       result.

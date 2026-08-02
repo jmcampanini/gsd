@@ -186,9 +186,18 @@ func normalizeApplicationError(err error) error {
 		return nil
 	}
 	if code, ok := apperr.CodeOf(err); ok {
+		message := err.Error()
+		guided := message
+		var resolvedProjects *project.ResolvedProjectsError
+		if errors.As(err, &resolvedProjects) {
+			guided = appendRecoveryGuidance(guided, "reopen", "project reopen", resolvedProjects.IDs)
+		}
 		var archivedAreas *area.ArchivedAreasError
 		if errors.As(err, &archivedAreas) {
-			return apperr.New(code, appendUnarchiveGuidance(err.Error(), archivedAreas.IDs), err)
+			guided = appendRecoveryGuidance(guided, "unarchive", "area unarchive", archivedAreas.IDs)
+		}
+		if guided != message {
+			return apperr.New(code, guided, err)
 		}
 		return err
 	}
@@ -196,7 +205,7 @@ func normalizeApplicationError(err error) error {
 	return apperr.New(apperr.Internal, err.Error(), err)
 }
 
-func appendUnarchiveGuidance(message string, ids []int64) string {
+func appendRecoveryGuidance(message, verb, command string, ids []int64) string {
 	unique := make(map[int64]struct{}, len(ids))
 	for _, id := range ids {
 		unique[id] = struct{}{}
@@ -209,13 +218,13 @@ func appendUnarchiveGuidance(message string, ids []int64) string {
 
 	commands := make([]string, 0, len(ordered))
 	for _, id := range ordered {
-		commands = append(commands, fmt.Sprintf("gsd area unarchive %d", id))
+		commands = append(commands, fmt.Sprintf("gsd %s %d", command, id))
 	}
 	if len(commands) == 0 {
 		return message
 	}
 
-	return message + "; unarchive first: " + strings.Join(commands, "; ")
+	return message + "; " + verb + " first: " + strings.Join(commands, "; ")
 }
 
 func exitCodeForError(err error) int {

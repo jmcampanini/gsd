@@ -77,7 +77,7 @@ gsd project delete N [--recursive]
 
 ```
 gsd areas add "Home" [--tag NAME]... [--note TEXT|-]
-gsd areas list [--archived]
+gsd areas list [--archived | --all]
 gsd area show N
 gsd area edit N [--title TEXT] [--note TEXT|-]
 gsd area archive N
@@ -114,8 +114,10 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
 
 ## Semantics
 
-- **Mutual exclusion**: `--project` and `--area` together is an error
-  (matches the schema CHECK). Neither = inbox.
+- **Mutual exclusion**: `--project` and `--area` together is
+  `invalid_argument` (matches the schema CHECK), on task `add`, `edit`, and
+  as `list` filters. Pairing a set flag with its own clear
+  (`--area N --no-area`) is a usage error. Neither = inbox.
 - **Re-parenting appends** to the end of the destination container;
   re-stating the current container is a no-op and does not move the entity.
 - **Reorder is sibling-relative**; referencing an entity in a different
@@ -132,8 +134,22 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
   or out of it are `conflict` errors with reopen-the-project-first guidance
   (a move blocked by a resolved source and a resolved destination names
   both). Content edits and deletion of contained tasks stay allowed.
-- **Referencing a nonexistent project is `not_found`** everywhere a project
-  ID can appear: `add --project`, `edit --project`, and `list --project`.
+- **An archived area is retired history**, mirroring the resolved-project
+  guard through the governing area (own, or inherited through the project):
+  creating a task or project into it, re-parenting into or out of it, and
+  completing, cancelling, or reopening anything it governs are `conflict`
+  errors with unarchive-the-area-first guidance; a move blocked by more than
+  one guard names every blocker. Content edits and deletes stay allowed,
+  archiving never mutates contents, and unarchive restores visibility with
+  every position intact.
+- **`areas list` partitions by archive state**: archived areas are hidden by
+  default, `--archived` lists only archived ones, and `--all` lists both
+  with an archived marker on the archived rows. The two flags are mutually
+  exclusive.
+- **Referencing a nonexistent project or area is `not_found`** everywhere
+  its ID can appear: `--project` and `--area` on task `add`, `edit`, and
+  `list`; `projects add --area`, `projects list --area`, and
+  `project edit --area`; and every singular `project` or `area` verb.
 - **Delete honors RESTRICT**: deleting a non-empty project/area is an
   error; `--recursive` is the explicit opt-in (children deleted in one
   transaction). Deleting a task never blocks.
@@ -165,8 +181,10 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
   row so agents can capture its ID without another call.
 - **Cascades report what they touched**:
   `{"project":{...},"cancelled_tasks":[{...},...]}`; recursive deletion
-  mirrors it as `{"project":{...},"deleted_tasks":[...]}`. Both arrays may
-  be `[]`.
+  mirrors it as `{"project":{...},"deleted_tasks":[...]}` and, for areas,
+  `{"area":{...},"deleted_projects":[...],"deleted_tasks":[...]}` —
+  `deleted_tasks` holding both loose and project-contained tasks, its
+  arrays ordered by `position`, then `id`. All arrays may be `[]`.
 - **Collections are position-ordered**: `inbox` and `list` return rows
   ordered by `position`, then `id`, for every status filter, in both output
   modes.

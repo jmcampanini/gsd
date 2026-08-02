@@ -9,6 +9,7 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/project"
 )
 
 func archivedAreasConflict(message string, areaIDs []int64, cause error) error {
@@ -56,18 +57,15 @@ func taskBlockersConflict(
 	}
 
 	message := fmt.Sprintf("cannot %s while %s", action, strings.Join(blockers, " and "))
-	switch len(resolvedProjectIDs) {
-	case 0:
-	case 1:
-		message += fmt.Sprintf("; reopen project %d first", resolvedProjectIDs[0])
-	default:
-		message += "; reopen both projects first"
+	causes := []error{cause}
+	if len(resolvedProjectIDs) > 0 {
+		causes = append(causes, &project.ResolvedProjectsError{IDs: resolvedProjectIDs})
 	}
 	if len(archivedAreaIDs) > 0 {
-		return archivedAreasConflict(message, archivedAreaIDs, cause)
+		causes = append(causes, &area.ArchivedAreasError{IDs: archivedAreaIDs})
 	}
 
-	return apperr.New(apperr.Conflict, message, cause)
+	return apperr.New(apperr.Conflict, message, errors.Join(causes...))
 }
 
 func sortedUniqueIDs(ids []int64) []int64 {
