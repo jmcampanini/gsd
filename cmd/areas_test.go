@@ -367,12 +367,13 @@ func TestAreaShowUsesSchemaOrderFieldValueTable(t *testing.T) {
 		Position:   2,
 		CreatedAt:  "2026-07-27T12:00:00.000Z",
 		UpdatedAt:  archivedAt,
+		Tags:       []string{"Errands", "Home"},
 	}}
 	result := runAreaCommand(t, application, "area", "show", "007")
 	if result.exitCode != 0 || result.stderr != "" || application.showID != 7 {
 		t.Fatalf("result/ID = %#v/%d, want successful show for 7", result, application.showID)
 	}
-	wantLabels := []string{"ID", "Title", "Note", "Archived at", "Position", "Created at", "Updated at"}
+	wantLabels := []string{"ID", "Title", "Note", "Archived at", "Position", "Created at", "Updated at", "Tags"}
 	lastIndex := -1
 	for _, label := range wantLabels {
 		index := strings.Index(result.stdout, label)
@@ -384,6 +385,13 @@ func TestAreaShowUsesSchemaOrderFieldValueTable(t *testing.T) {
 	if !strings.Contains(result.stdout, "first line\n") ||
 		!strings.Contains(result.stdout, "second\\tline\\x1b") || strings.Contains(result.stdout, "\x1b") {
 		t.Errorf("stdout = %q, want linefeeds preserved and other controls escaped", result.stdout)
+	}
+	normalizedRows := make(map[string]bool)
+	for _, line := range strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n") {
+		normalizedRows[strings.Join(strings.Fields(line), " ")] = true
+	}
+	if !normalizedRows["Tags Errands, Home"] {
+		t.Errorf("stdout = %q, want rendered tags row", result.stdout)
 	}
 }
 

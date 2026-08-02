@@ -65,7 +65,7 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 	command.Flags().StringVar(&areaIDValue, "area", "", "area ID")
 	command.Flags().StringVar(&dueOn, "due", "", "task due date")
 	command.Flags().StringVar(&deferUntil, "defer", "", "task defer date")
-	command.Flags().StringArrayVar(&tags, "tag", nil, "attach tag (repeatable)")
+	command.Flags().StringArrayVar(&tags, "tag", nil, "tag name to attach (repeatable)")
 
 	return command
 }

@@ -16,9 +16,7 @@ import (
 
 const taskColumns = `id, project_id, area_id, title, note, defer_until, due_on, done_at, cancelled_at, status, position, created_at, updated_at`
 
-const taskBaseColumns = taskColumns
-
-const taskViewColumns = taskBaseColumns + `, project_title, governing_area_id, governing_area_title, tags`
+const taskViewColumns = taskColumns + `, project_title, governing_area_id, governing_area_title, tags`
 
 type Tasks struct {
 	database *DB
@@ -515,7 +513,7 @@ WITH snapshot AS MATERIALIZED (
 DELETE FROM tasks
 WHERE id = ?
   AND EXISTS (SELECT 1 FROM snapshot WHERE snapshot.id = tasks.id)
-RETURNING `+taskBaseColumns+`,
+RETURNING `+taskColumns+`,
           (SELECT tags FROM snapshot WHERE snapshot.id = tasks.id)
 `, id, id)
 	deleted, err := scanTask(row)

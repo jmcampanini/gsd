@@ -56,7 +56,7 @@ func newProjectsAddCommand(options *rootOptions, factory applicationFactory) *co
 	}
 	command.Flags().StringVar(&note, "note", "", "project note or - to read stdin")
 	command.Flags().StringVar(&areaIDValue, "area", "", "area ID")
-	command.Flags().StringArrayVar(&tags, "tag", nil, "tag name (repeatable)")
+	command.Flags().StringArrayVar(&tags, "tag", nil, "tag name to attach (repeatable)")
 
 	return command
 }

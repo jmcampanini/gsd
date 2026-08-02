@@ -51,7 +51,7 @@ func newAreasAddCommand(options *rootOptions, factory applicationFactory) *cobra
 		},
 	}
 	command.Flags().StringVar(&note, "note", "", "area note or - to read stdin")
-	command.Flags().StringArrayVar(&tags, "tag", nil, "tag name (repeatable)")
+	command.Flags().StringArrayVar(&tags, "tag", nil, "tag name to attach (repeatable)")
 
 	return command
 }

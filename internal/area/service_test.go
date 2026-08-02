@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -212,7 +213,7 @@ func TestAddPreservesAcceptedTextAndUsesOneUTCMillisecondTimestamp(t *testing.T)
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	if !reflect.DeepEqual(got, want) || store.addCalls != 1 || !reflect.DeepEqual(store.addFields, fields) {
+	if !reflect.DeepEqual(got, want) || store.addCalls != 1 || !equalAddFields(store.addFields, fields) {
 		t.Errorf("Add() result/calls/fields = %#v/%d/%#v, want %#v/1/%#v", got, store.addCalls, store.addFields, want, fields)
 	}
 	if store.transactionCalls != 0 {
@@ -893,6 +894,10 @@ func TestAreaLifecycleStoreAndTransactionErrorsPassThrough(t *testing.T) {
 			}
 		})
 	}
+}
+
+func equalAddFields(left, right AddFields) bool {
+	return left.Title == right.Title && left.Note == right.Note && slices.Equal(left.Tags, right.Tags)
 }
 
 func errorCode(err error) apperr.Code {

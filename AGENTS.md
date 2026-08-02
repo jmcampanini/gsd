@@ -13,6 +13,7 @@
 - Return stable coded application errors from service/store boundaries. Convert unexpected errors to `internal` and Cobra syntax failures to `usage` at the root adapter.
 - Service and store error messages state semantics only. Recovery guidance that names CLI flags or command spellings is presentation and is composed by the command adapter.
 - Route all success and error rendering through shared writers so JSON remains compact and newline-terminated, errors stay on stderr, and human output stays on stdout.
+- Task, project, and area tag service flows are intentionally parallel. When changing one, compare it with both siblings and keep only entity-specific differences.
 
 ## Test ownership
 

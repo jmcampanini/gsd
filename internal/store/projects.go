@@ -387,7 +387,7 @@ WITH snapshot AS MATERIALIZED (
 )
 DELETE FROM tasks
 WHERE id IN (SELECT id FROM snapshot)
-RETURNING `+taskBaseColumns+`,
+RETURNING `+taskColumns+`,
           (SELECT tags FROM snapshot WHERE snapshot.id = tasks.id)
 `, projectID)
 	if err != nil {

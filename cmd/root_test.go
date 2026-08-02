@@ -1107,6 +1107,7 @@ func TestHumanShowUsesPlainFieldValueTableForMultilineNotes(t *testing.T) {
 		Position:   2,
 		CreatedAt:  "2026-07-27T12:00:00.000Z",
 		UpdatedAt:  "2026-07-27T13:00:00.000Z",
+		Tags:       []string{"Errands", "Home"},
 	}}, "show", "7")
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)
@@ -1120,6 +1121,7 @@ func TestHumanShowUsesPlainFieldValueTableForMultilineNotes(t *testing.T) {
 		"Status",
 		"Created at",
 		"Updated at",
+		"Tags",
 	} {
 		if !strings.Contains(result.stdout, value) {
 			t.Errorf("stdout = %q, want %q", result.stdout, value)
@@ -1129,7 +1131,11 @@ func TestHumanShowUsesPlainFieldValueTableForMultilineNotes(t *testing.T) {
 	for _, line := range strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n") {
 		normalizedRows[strings.Join(strings.Fields(line), " ")] = true
 	}
-	for _, row := range []string{"Due on 2026-07-28", "Defer until 2026-07-29"} {
+	for _, row := range []string{
+		"Due on 2026-07-28",
+		"Defer until 2026-07-29",
+		"Tags Errands, Home",
+	} {
 		if !normalizedRows[row] {
 			t.Errorf("stdout = %q, want associated row %q", result.stdout, row)
 		}

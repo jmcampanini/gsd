@@ -28,16 +28,16 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Area, error) {
 	if err := domain.ValidateNote(fields.Note); err != nil {
 		return Area{}, err
 	}
-	if len(fields.Tags) == 0 {
-		return normalizeAreaResult(s.store.Add(ctx, fields, domain.FormatTimestamp(s.now())))
-	}
-
 	normalizedTags, err := domain.NormalizeTagNames(fields.Tags)
 	if err != nil {
 		return Area{}, err
 	}
 	fields.Tags = normalizedTags
 	timestamp := domain.FormatTimestamp(s.now())
+	if len(fields.Tags) == 0 {
+		return normalizeAreaResult(s.store.Add(ctx, fields, timestamp))
+	}
+
 	var added Area
 	err = s.store.WithinTransaction(ctx, func(store Store) error {
 		created, err := store.Add(ctx, fields, timestamp)
