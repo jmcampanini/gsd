@@ -122,10 +122,32 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
   re-stating the current container is a no-op and does not move the entity.
 - **Reorder is sibling-relative**; referencing an entity in a different
   container is an error.
-- **Tags must pre-exist**: `tag`/`untag` with an unknown name is an error.
-  `gsd tags add` is the only way tags come into existence. Tag matching uses
-  SQLite `NOCASE`, which folds ASCII only; non-ASCII case variants remain
-  distinct.
+- **Tag names use title validation**: they must be valid UTF-8 and nonblank
+  after surrounding-space inspection, and accepted spelling is stored
+  unchanged. The stored spelling (initially the first-created spelling) is
+  displayed. Uniqueness and every name lookup use SQLite `NOCASE`, which
+  folds ASCII only; non-ASCII case variants remain distinct. Conflicts name
+  the existing stored spelling. A case-only rename of the same tag succeeds;
+  renaming onto another existing tag is `conflict`.
+- **Tags must pre-exist**: unknown names on `tag`, `untag`, repeated `--tag`
+  on task/project/area `add`, or task `list --tag` are `not_found`
+  (`no tag NAME`). `gsd tags add` is the only creation path. Attach, detach, filter,
+  rename-source, and delete-target matching all resolve to the stored
+  spelling case-insensitively.
+- **Attach and detach are idempotent**: attaching an already attached tag or
+  detaching an existing but unattached tag succeeds without changing the
+  join rows. Multi-name `tag`/`untag` and repeated `add --tag` operations are
+  all-or-nothing; an unknown name changes nothing, and duplicate names,
+  including ASCII case variants, collapse to one attachment. Tagged creation
+  is transactional, so a failed tag lookup leaves no new entity.
+- **Tagging is an unguarded content edit**: attach and detach remain allowed
+  under archived governing areas and resolved projects. They change only
+  join rows and never bump the entity's `updated_at`; rename bumps the tag's
+  own `updated_at`.
+- **Rename and deletion propagate through joins**: renaming immediately
+  changes every attached entity's `tags` value. Deleting a tag detaches it
+  everywhere and reports the total count; deleting a tagged entity removes
+  its join rows and reduces that tag's usage count.
 - **Cascades narrate**: completing/cancelling a project cancels its open
   tasks and reports each one.
 - **Reopening a project is not un-cascade**: it clears only the project's
@@ -174,13 +196,29 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
 
 - `--json` is a global complete-output-mode flag. Successful entity output is
   its table row — the same column names and formats, including derived
-  `status`. Nullable timestamps are `null`; collections are arrays, including
-  `[]`. `tags` is absent until Milestone 5, when it becomes an additive array
-  field.
-- JSON output is exactly one compact value followed by a newline. Field names,
-  types, and error codes are stable; field order and message wording are not.
-- **Mutations echo the affected entity**: `gsd add --json` returns the created
-  row so agents can capture its ID without another call.
+  `status` — plus `tags`, an array of stored tag names in tag-creation order.
+  The complete v1 entity field sets are:
+  - task: `id`, `project_id`, `area_id`, `title`, `note`, `defer_until`,
+    `due_on`, `done_at`, `cancelled_at`, `status`, `position`, `created_at`,
+    `updated_at`, `tags`;
+  - project: `id`, `area_id`, `title`, `note`, `done_at`, `cancelled_at`,
+    `status`, `position`, `created_at`, `updated_at`, `tags`;
+  - area: `id`, `title`, `note`, `archived_at`, `position`, `created_at`,
+    `updated_at`, `tags`.
+  Nullable values are `null`; collections are arrays, including `[]`.
+- JSON output is exactly one compact value followed by a newline. Tags
+  complete the v1 entity field set, but field order remains unstable; field
+  names, types, and error codes are stable, while message wording is not.
+- **Mutations echo the affected entity**: the three `add` commands and all
+  `tag`/`untag` commands return the complete entity row, so agents can capture
+  an ID or the resulting tags without another call.
+- **Tag administration returns complete rows and envelopes**: a tag row is
+  `{"id":N,"title":"...","created_at":"...","updated_at":"..."}`;
+  `tags add` and `tags rename` return that row. `tags list` returns an array
+  of rows with `id`, `title`, `created_at`, `updated_at`, and `usage_count`,
+  totaled across tasks, projects, and areas. `tags delete` returns
+  `{"tag":{...},"detached":N}`, where `tag` is the deleted row and `detached`
+  is the total removed attachment count.
 - **Cascades report what they touched**:
   `{"project":{...},"cancelled_tasks":[{...},...]}`; recursive deletion
   mirrors it as `{"project":{...},"deleted_tasks":[...]}` and, for areas,
@@ -208,10 +246,18 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
   error. Fine distinctions live in the JSON error code.
 - Human collections are headerless aligned tables, `show` is a field/value
   table, mutations use concise action-prefixed payloads, and empty collections
-  print nothing. Successful tag mutation lines use stored spelling after
-  case-insensitive resolution, including both the previous and new titles for
-  rename. Human tables are unstyled until color support arrives in Milestone
-  6.
+  print nothing. `tags list` prints stored name and cross-entity usage count,
+  ordered alphabetically with `NOCASE`, without IDs or a header. Task,
+  project, and area `show` include a `Tags` row of comma-separated stored
+  names, blank when untagged; collection rows gain no tags column.
+- Successful tag mutation lines are concise and action-prefixed:
+  `Added tag NAME`, `Renamed tag OLD to NEW`,
+  `Deleted tag NAME (detached from N items)`, `Tagged: KIND ID  NAME`, and
+  `Untagged: KIND ID  NAME`. They use stored spelling after case-insensitive
+  resolution; rename prints both the stored previous and new titles. Human
+  tables are unstyled until color support arrives in Milestone 6.
+- Bare `gsd tags`, `gsd tag`, and `gsd untag` are usage errors (exit `2`) and
+  do not open the database.
 - Human output escapes ASCII control characters (`show` preserves note line
   breaks) so stored text cannot inject terminal control sequences.
 
