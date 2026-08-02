@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -65,6 +66,14 @@ type Resolution struct {
 type Deletion struct {
 	Project      Project     `json:"project"`
 	DeletedTasks []task.Task `json:"deleted_tasks"`
+}
+
+type ResolvedProjectsError struct {
+	IDs []int64
+}
+
+func (e ResolvedProjectsError) Error() string {
+	return fmt.Sprintf("resolved projects block this operation: %v", e.IDs)
 }
 
 type Store interface {

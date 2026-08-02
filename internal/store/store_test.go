@@ -919,9 +919,12 @@ func TestTaskLifecycleTransitionsAreBlockedByResolvedProject(t *testing.T) {
 	}
 	for _, operation := range operations {
 		err := operation.apply()
-		if errorCode(err) != apperr.Conflict || !strings.Contains(err.Error(), "reopen") ||
-			!strings.Contains(err.Error(), fmt.Sprint(container.ID)) {
-			t.Errorf("%s error = %v, want conflict naming resolved project with reopen guidance", operation.name, err)
+		var resolvedProjects *project.ResolvedProjectsError
+		if errorCode(err) != apperr.Conflict ||
+			!strings.Contains(err.Error(), fmt.Sprint(container.ID)) ||
+			!errors.As(err, &resolvedProjects) ||
+			!reflect.DeepEqual(resolvedProjects.IDs, []int64{container.ID}) {
+			t.Errorf("%s error = %v, want conflict naming the resolved project with the typed marker", operation.name, err)
 		}
 	}
 

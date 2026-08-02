@@ -4,9 +4,10 @@
 personal to-do system. Its design goals are simple, extendable primitives, a
 Things-inspired workflow, and a SQLite backend. The current baseline provides
 the repository and CLI foundation, a complete bare-inbox task lifecycle,
-calendar-aware due dates, deferrals, and an `available` view, plus projects
+calendar-aware due dates, deferrals, and an `available` view, projects
 with task containment, narrated completion cascades, and the interleaved
-`logbook`. The broader model
+`logbook`, plus areas holding projects and loose tasks, with governing-area
+archiving and RESTRICT-guarded recursive deletion. The broader model
 below remains the forward-looking canonical v1 target and is delivered
 incrementally through `MILESTONES.md`. The SQL schema lives in `SCHEMA.md`.
 
@@ -83,6 +84,12 @@ Hard delete exists but is the uncommon path — the normal end of life is
   reopening its tasks, adding tasks into it, and moving tasks in or out are
   conflicts until the project is reopened. Content edits and hard deletes
   of contained tasks stay allowed.
+- An archived area is retired history through the governing area (own, or
+  inherited through the project): creating into it, moving projects or
+  tasks in or out of it, and completing, cancelling, or reopening anything
+  it governs are conflicts until the area is unarchived. Content edits and
+  hard deletes stay allowed; archiving never mutates contents, and
+  unarchive restores visibility with every position intact.
 - Hard deletes never destroy other entities: deleting a non-empty area or
   project is an error — archive it (areas) or empty it first. A recursive
   delete exists only as an explicit CLI opt-in (`--recursive`), never as a
