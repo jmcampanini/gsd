@@ -29,6 +29,7 @@ func newAreasCommand(options *rootOptions, factory applicationFactory) *cobra.Co
 
 func newAreasAddCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
 	var note string
+	var tags []string
 	command := &cobra.Command{
 		Use:   "add TITLE",
 		Short: "Add an area",
@@ -39,7 +40,7 @@ func newAreasAddCommand(options *rootOptions, factory applicationFactory) *cobra
 				return err
 			}
 
-			fields := area.AddFields{Title: args[0], Note: resolvedNote}
+			fields := area.AddFields{Title: args[0], Note: resolvedNote, Tags: tags}
 			return withAreaApplication(command, options, factory, func(application area.Application) error {
 				created, addErr := application.Add(command.Context(), fields)
 				if addErr != nil {
@@ -50,6 +51,7 @@ func newAreasAddCommand(options *rootOptions, factory applicationFactory) *cobra
 		},
 	}
 	command.Flags().StringVar(&note, "note", "", "area note or - to read stdin")
+	command.Flags().StringArrayVar(&tags, "tag", nil, "tag name (repeatable)")
 
 	return command
 }
@@ -100,7 +102,9 @@ func newAreaCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 		newAreaDeleteCommand(options, factory),
 		newAreaEditCommand(options, factory),
 		newAreaShowCommand(options, factory),
+		newAreaTagCommand(options, factory),
 		newAreaUnarchiveCommand(options, factory),
+		newAreaUntagCommand(options, factory),
 	)
 
 	return command
@@ -123,6 +127,67 @@ func newAreaShowCommand(options *rootOptions, factory applicationFactory) *cobra
 					return showErr
 				}
 				return writeCommandOutput(command.OutOrStdout(), options.json, found, writeArea)
+			})
+		},
+	}
+}
+
+type areaTagMutation func(context.Context, area.Application, int64, []string) (area.Tagging, error)
+
+func newAreaTagCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	return newAreaTagMutationCommand(
+		options,
+		factory,
+		"tag ID NAME...",
+		"Tag an area",
+		"Tagged",
+		func(ctx context.Context, application area.Application, id int64, names []string) (area.Tagging, error) {
+			return application.Tag(ctx, id, names)
+		},
+	)
+}
+
+func newAreaUntagCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	return newAreaTagMutationCommand(
+		options,
+		factory,
+		"untag ID NAME...",
+		"Untag an area",
+		"Untagged",
+		func(ctx context.Context, application area.Application, id int64, names []string) (area.Tagging, error) {
+			return application.Untag(ctx, id, names)
+		},
+	)
+}
+
+func newAreaTagMutationCommand(
+	options *rootOptions,
+	factory applicationFactory,
+	use string,
+	short string,
+	action string,
+	mutate areaTagMutation,
+) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  cobra.MinimumNArgs(2),
+		RunE: func(command *cobra.Command, args []string) error {
+			id, err := area.ParseID(args[0])
+			if err != nil {
+				return err
+			}
+
+			return withAreaApplication(command, options, factory, func(application area.Application) error {
+				tagging, mutationErr := mutate(command.Context(), application, id, args[1:])
+				if mutationErr != nil {
+					return mutationErr
+				}
+				if options.json {
+					return writeJSON(command.OutOrStdout(), tagging.Area)
+				}
+
+				return writeAreaTagging(command.OutOrStdout(), action, tagging)
 			})
 		},
 	}

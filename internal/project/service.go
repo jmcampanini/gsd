@@ -7,6 +7,7 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/domain"
+	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -30,7 +31,39 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Project, error) {
 		return Project{}, err
 	}
 
-	return s.store.Add(ctx, fields, domain.FormatTimestamp(s.now()))
+	normalizedTags, err := domain.NormalizeTagNames(fields.Tags)
+	if err != nil {
+		return Project{}, err
+	}
+	fields.Tags = normalizedTags
+	timestamp := domain.FormatTimestamp(s.now())
+	if len(fields.Tags) == 0 {
+		return normalizeProjectResult(s.store.Add(ctx, fields, timestamp))
+	}
+
+	var created Project
+	err = s.store.WithinTransaction(ctx, func(store Store) error {
+		created, err = store.Add(ctx, fields, timestamp)
+		if err != nil {
+			return err
+		}
+
+		resolvedTags, resolveErr := store.ResolveTags(ctx, fields.Tags)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		if err = store.AttachTags(ctx, created.ID, resolvedTags); err != nil {
+			return err
+		}
+
+		created, err = store.Find(ctx, created.ID)
+		return err
+	})
+	if err != nil {
+		return Project{}, err
+	}
+
+	return normalizeProject(created), nil
 }
 
 func (s *Service) List(ctx context.Context, options ListOptions) ([]Project, error) {
@@ -45,7 +78,7 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Project, err
 		return nil, err
 	}
 
-	return domain.NormalizeSliceResult(s.store.List(ctx, options))
+	return normalizeProjectsResult(s.store.List(ctx, options))
 }
 
 func (s *Service) Show(ctx context.Context, id int64) (Project, error) {
@@ -53,7 +86,7 @@ func (s *Service) Show(ctx context.Context, id int64) (Project, error) {
 		return Project{}, err
 	}
 
-	return s.store.Find(ctx, id)
+	return normalizeProjectResult(s.store.Find(ctx, id))
 }
 
 func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Project, error) {
@@ -88,7 +121,7 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Projec
 		}
 	}
 
-	return s.store.Edit(ctx, id, fields, domain.FormatTimestamp(s.now()))
+	return normalizeProjectResult(s.store.Edit(ctx, id, fields, domain.FormatTimestamp(s.now())))
 }
 
 func (s *Service) Resolve(ctx context.Context, id int64, exit Exit) (Resolution, error) {
@@ -111,12 +144,12 @@ func (s *Service) Resolve(ctx context.Context, id int64, exit Exit) (Resolution,
 			return err
 		}
 
-		cancelledTasks, err := domain.NormalizeSliceResult(store.CancelOpenTasks(ctx, id, timestamp))
+		cancelledTasks, err := normalizeTasksResult(store.CancelOpenTasks(ctx, id, timestamp))
 		if err != nil {
 			return err
 		}
 
-		resolution.Project = project
+		resolution.Project = normalizeProject(project)
 		resolution.CancelledTasks = cancelledTasks
 		return nil
 	})
@@ -132,7 +165,71 @@ func (s *Service) Reopen(ctx context.Context, id int64) (Project, error) {
 		return Project{}, err
 	}
 
-	return s.store.Reopen(ctx, id, domain.FormatTimestamp(s.now()))
+	return normalizeProjectResult(s.store.Reopen(ctx, id, domain.FormatTimestamp(s.now())))
+}
+
+func (s *Service) Tag(ctx context.Context, id int64, names []string) (Tagging, error) {
+	return s.changeTags(ctx, id, names, true)
+}
+
+func (s *Service) Untag(ctx context.Context, id int64, names []string) (Tagging, error) {
+	return s.changeTags(ctx, id, names, false)
+}
+
+func (s *Service) changeTags(
+	ctx context.Context,
+	id int64,
+	names []string,
+	attach bool,
+) (Tagging, error) {
+	if err := validateID(id); err != nil {
+		return Tagging{}, err
+	}
+	if len(names) == 0 {
+		return Tagging{}, apperr.New(
+			apperr.InvalidArgument,
+			"project tagging requires at least one tag",
+			nil,
+		)
+	}
+
+	normalizedNames, err := domain.NormalizeTagNames(names)
+	if err != nil {
+		return Tagging{}, err
+	}
+
+	var tagging Tagging
+	err = s.store.WithinTransaction(ctx, func(store Store) error {
+		if _, findErr := store.Find(ctx, id); findErr != nil {
+			return findErr
+		}
+
+		resolvedTags, resolveErr := store.ResolveTags(ctx, normalizedNames)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		if attach {
+			err = store.AttachTags(ctx, id, resolvedTags)
+		} else {
+			err = store.DetachTags(ctx, id, resolvedTags)
+		}
+		if err != nil {
+			return err
+		}
+
+		tagging.Project, err = store.Find(ctx, id)
+		if err != nil {
+			return err
+		}
+		tagging.TagTitles = tag.Titles(resolvedTags)
+		return nil
+	})
+	if err != nil {
+		return Tagging{}, err
+	}
+
+	tagging.Project = normalizeProject(tagging.Project)
+	return tagging, nil
 }
 
 func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletion, error) {
@@ -147,14 +244,14 @@ func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletio
 		}
 
 		return Deletion{
-			Project:      project,
+			Project:      normalizeProject(project),
 			DeletedTasks: []task.Task{},
 		}, nil
 	}
 
 	deletion := Deletion{DeletedTasks: []task.Task{}}
 	err := s.store.WithinTransaction(ctx, func(store Store) error {
-		deletedTasks, err := domain.NormalizeSliceResult(store.DeleteTasks(ctx, id))
+		deletedTasks, err := normalizeTasksResult(store.DeleteTasks(ctx, id))
 		if err != nil {
 			return err
 		}
@@ -164,7 +261,7 @@ func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletio
 			return err
 		}
 
-		deletion.Project = project
+		deletion.Project = normalizeProject(project)
 		deletion.DeletedTasks = deletedTasks
 		return nil
 	})
@@ -173,6 +270,44 @@ func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletio
 	}
 
 	return deletion, nil
+}
+
+func normalizeProject(result Project) Project {
+	if result.Tags == nil {
+		result.Tags = []string{}
+	}
+	return result
+}
+
+func normalizeProjectResult(result Project, err error) (Project, error) {
+	if err != nil {
+		return Project{}, err
+	}
+	return normalizeProject(result), nil
+}
+
+func normalizeProjectsResult(results []Project, err error) ([]Project, error) {
+	results, err = domain.NormalizeSliceResult(results, err)
+	if err != nil {
+		return nil, err
+	}
+	for index := range results {
+		results[index] = normalizeProject(results[index])
+	}
+	return results, nil
+}
+
+func normalizeTasksResult(results []task.Task, err error) ([]task.Task, error) {
+	results, err = domain.NormalizeSliceResult(results, err)
+	if err != nil {
+		return nil, err
+	}
+	for index := range results {
+		if results[index].Tags == nil {
+			results[index].Tags = []string{}
+		}
+	}
+	return results, nil
 }
 
 func ParseID(value string) (int64, error) {

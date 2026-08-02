@@ -24,8 +24,8 @@ func TestServiceListDelegatesAndReturnsEntries(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.WithValue(context.Background(), contextKey{}, "request")
-	want := []Entry{{Kind: "task", ID: 7, Title: "shipped", Status: "done"}}
-	store := &recordingStore{result: want}
+	want := []Entry{{Kind: "task", ID: 7, Title: "shipped", Status: "done", Tags: []string{}}}
+	store := &recordingStore{result: []Entry{{Kind: "task", ID: 7, Title: "shipped", Status: "done"}}}
 
 	got, err := NewService(store).List(ctx)
 	if err != nil {

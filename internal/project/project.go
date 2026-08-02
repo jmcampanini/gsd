@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -24,22 +25,24 @@ const (
 )
 
 type Project struct {
-	ID          int64   `json:"id"`
-	AreaID      *int64  `json:"area_id"`
-	Title       string  `json:"title"`
-	Note        string  `json:"note"`
-	DoneAt      *string `json:"done_at"`
-	CancelledAt *string `json:"cancelled_at"`
-	Status      string  `json:"status"`
-	Position    int64   `json:"position"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
+	ID          int64    `json:"id"`
+	AreaID      *int64   `json:"area_id"`
+	Title       string   `json:"title"`
+	Note        string   `json:"note"`
+	DoneAt      *string  `json:"done_at"`
+	CancelledAt *string  `json:"cancelled_at"`
+	Status      string   `json:"status"`
+	Position    int64    `json:"position"`
+	CreatedAt   string   `json:"created_at"`
+	UpdatedAt   string   `json:"updated_at"`
+	Tags        []string `json:"tags"`
 }
 
 type AddFields struct {
 	AreaID *int64
 	Title  string
 	Note   string
+	Tags   []string
 }
 
 type AreaChange struct {
@@ -68,6 +71,11 @@ type Deletion struct {
 	DeletedTasks []task.Task `json:"deleted_tasks"`
 }
 
+type Tagging struct {
+	Project   Project
+	TagTitles []string
+}
+
 type ResolvedProjectsError struct {
 	IDs []int64
 }
@@ -86,6 +94,9 @@ type Store interface {
 	Reopen(context.Context, int64, string) (Project, error)
 	Delete(context.Context, int64) (Project, error)
 	DeleteTasks(context.Context, int64) ([]task.Task, error)
+	ResolveTags(context.Context, []string) ([]tag.Tag, error)
+	AttachTags(context.Context, int64, []tag.Tag) error
+	DetachTags(context.Context, int64, []tag.Tag) error
 	WithinTransaction(context.Context, func(Store) error) error
 }
 
@@ -96,5 +107,7 @@ type Application interface {
 	Edit(context.Context, int64, EditFields) (Project, error)
 	Resolve(context.Context, int64, Exit) (Resolution, error)
 	Reopen(context.Context, int64) (Project, error)
+	Tag(context.Context, int64, []string) (Tagging, error)
+	Untag(context.Context, int64, []string) (Tagging, error)
 	Delete(context.Context, int64, bool) (Deletion, error)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
+	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -24,6 +25,7 @@ type Projects struct {
 type projectExecutor interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }
 
 func NewProjects(database *DB) *Projects {
@@ -58,7 +60,7 @@ INSERT INTO projects (area_id, title, note, position, created_at, updated_at)
 VALUES (?, ?, ?,
         COALESCE((SELECT MAX(position) FROM projects WHERE area_id IS ?), -1) + 1,
         ?, ?)
-RETURNING `+projectColumns,
+RETURNING `+projectColumnsWithTags("projects.id"),
 		areaID,
 		fields.Title,
 		fields.Note,
@@ -74,7 +76,11 @@ RETURNING `+projectColumns,
 }
 
 func (s *Projects) Find(ctx context.Context, id int64) (project.Project, error) {
-	row := s.executor.QueryRowContext(ctx, "SELECT "+projectColumns+" FROM projects WHERE id = ?", id)
+	row := s.executor.QueryRowContext(
+		ctx,
+		"SELECT "+projectColumnsWithTags("projects.id")+" FROM projects WHERE id = ?",
+		id,
+	)
 	found, err := scanProject(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return project.Project{}, apperr.New(apperr.NotFound, fmt.Sprintf("no project %d", id), err)
@@ -115,7 +121,7 @@ func (s *Projects) List(ctx context.Context, options project.ListOptions) ([]pro
 		return s.listArea(ctx, *options.AreaID, conditions, arguments)
 	}
 
-	query := "SELECT " + projectColumns + " FROM projects"
+	query := "SELECT " + projectColumnsWithTags("projects.id") + " FROM projects"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -204,7 +210,7 @@ func (s *Projects) Edit(
 	}
 
 	query := "UPDATE projects SET " + strings.Join(assignments, ", ") +
-		" WHERE id = ? RETURNING " + projectColumns
+		" WHERE id = ? RETURNING " + projectColumnsWithTags("projects.id")
 	arguments = append(arguments, id)
 	edited, err := scanProject(s.executor.QueryRowContext(ctx, query, arguments...))
 	if err != nil {
@@ -259,7 +265,8 @@ func (s *Projects) Resolve(
 		)
 	}
 
-	query := "UPDATE projects SET " + column + " = ?, updated_at = ? WHERE id = ? RETURNING " + projectColumns
+	query := "UPDATE projects SET " + column + " = ?, updated_at = ? WHERE id = ? RETURNING " +
+		projectColumnsWithTags("projects.id")
 	resolved, err := scanProject(s.executor.QueryRowContext(ctx, query, timestamp, timestamp, id))
 	if err != nil {
 		return project.Project{}, fmt.Errorf("%s project: %w", action, err)
@@ -277,7 +284,7 @@ func (s *Projects) CancelOpenTasks(
 UPDATE tasks
 SET cancelled_at = ?, updated_at = ?
 WHERE project_id = ? AND done_at IS NULL AND cancelled_at IS NULL
-RETURNING `+taskColumns, timestamp, timestamp, projectID)
+RETURNING `+taskColumnsWithTags("tasks.id"), timestamp, timestamp, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("cancel open project tasks: %w", err)
 	}
@@ -327,7 +334,7 @@ func (s *Projects) Reopen(
 UPDATE projects
 SET done_at = NULL, cancelled_at = NULL, updated_at = ?
 WHERE id = ?
-RETURNING `+projectColumns, timestamp, id))
+RETURNING `+projectColumnsWithTags("projects.id"), timestamp, id))
 	if err != nil {
 		return project.Project{}, fmt.Errorf("reopen project: %w", err)
 	}
@@ -343,10 +350,17 @@ func (s *Projects) Delete(ctx context.Context, id int64) (project.Project, error
 	}
 
 	deleted, err := scanProject(s.executor.QueryRowContext(ctx, `
+WITH snapshot AS MATERIALIZED (
+    SELECT `+projectColumnsWithTags("projects.id")+`
+    FROM projects
+    WHERE id = ?
+      AND NOT EXISTS (SELECT 1 FROM tasks WHERE project_id = projects.id)
+)
 DELETE FROM projects
-WHERE id = ?
-  AND NOT EXISTS (SELECT 1 FROM tasks WHERE project_id = projects.id)
-RETURNING `+projectColumns, id))
+WHERE id IN (SELECT id FROM snapshot)
+RETURNING `+projectColumns+`,
+          (SELECT tags FROM snapshot WHERE snapshot.id = projects.id)
+`, id))
 	if err == nil {
 		return deleted, nil
 	}
@@ -365,11 +379,17 @@ RETURNING `+projectColumns, id))
 }
 
 func (s *Projects) DeleteTasks(ctx context.Context, projectID int64) ([]task.Task, error) {
-	rows, err := s.executor.QueryContext(
-		ctx,
-		"DELETE FROM tasks WHERE project_id = ? RETURNING "+taskColumns,
-		projectID,
-	)
+	rows, err := s.executor.QueryContext(ctx, `
+WITH snapshot AS MATERIALIZED (
+    SELECT `+taskColumnsWithTags("tasks.id")+`
+    FROM tasks
+    WHERE project_id = ?
+)
+DELETE FROM tasks
+WHERE id IN (SELECT id FROM snapshot)
+RETURNING `+taskBaseColumns+`,
+          (SELECT tags FROM snapshot WHERE snapshot.id = tasks.id)
+`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("delete project tasks: %w", err)
 	}
@@ -381,6 +401,18 @@ func (s *Projects) DeleteTasks(ctx context.Context, projectID int64) ([]task.Tas
 	sortTasks(deleted)
 
 	return deleted, nil
+}
+
+func (s *Projects) ResolveTags(ctx context.Context, names []string) ([]tag.Tag, error) {
+	return resolveStoredTags(ctx, s.executor, names)
+}
+
+func (s *Projects) AttachTags(ctx context.Context, projectID int64, tags []tag.Tag) error {
+	return attachEntityTags(ctx, s.executor, projectTagSpec, projectID, tags)
+}
+
+func (s *Projects) DetachTags(ctx context.Context, projectID int64, tags []tag.Tag) error {
+	return detachEntityTags(ctx, s.executor, projectTagSpec, projectID, tags)
 }
 
 func (s *Projects) WithinTransaction(
@@ -443,6 +475,7 @@ func scanProject(scanner rowScanner) (project.Project, error) {
 		&value.Position,
 		&value.CreatedAt,
 		&value.UpdatedAt,
+		scanTagTitles(&value.Tags),
 	)
 
 	return value, err
@@ -458,7 +491,7 @@ func (s *Projects) listArea(
 		return nil, err
 	}
 
-	query := "SELECT " + projectColumns + " FROM projects WHERE area_id = ?"
+	query := "SELECT " + projectColumnsWithTags("projects.id") + " FROM projects WHERE area_id = ?"
 	if len(conditions) > 0 {
 		query += " AND " + strings.Join(conditions, " AND ")
 	}
@@ -472,6 +505,10 @@ func (s *Projects) listArea(
 	}
 
 	return collectProjectRows(rows, "scan listed area project", "iterate listed area projects")
+}
+
+func projectColumnsWithTags(entityReference string) string {
+	return projectColumns + ", " + tagJSONExpression(projectTagSpec, entityReference) + " AS tags"
 }
 
 func (s *Projects) archivedAreaIDs(ctx context.Context, ids ...int64) ([]int64, error) {

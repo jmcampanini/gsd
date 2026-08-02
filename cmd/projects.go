@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
@@ -28,6 +29,7 @@ func newProjectsCommand(options *rootOptions, factory applicationFactory) *cobra
 func newProjectsAddCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
 	var note string
 	var areaIDValue string
+	var tags []string
 	command := &cobra.Command{
 		Use:   "add TITLE",
 		Short: "Add a project",
@@ -42,7 +44,7 @@ func newProjectsAddCommand(options *rootOptions, factory applicationFactory) *co
 				return err
 			}
 
-			fields := project.AddFields{AreaID: areaID, Title: args[0], Note: resolvedNote}
+			fields := project.AddFields{AreaID: areaID, Title: args[0], Note: resolvedNote, Tags: tags}
 			return withProjectApplication(command, options, factory, func(application project.Application) error {
 				created, addErr := application.Add(command.Context(), fields)
 				if addErr != nil {
@@ -54,6 +56,7 @@ func newProjectsAddCommand(options *rootOptions, factory applicationFactory) *co
 	}
 	command.Flags().StringVar(&note, "note", "", "project note or - to read stdin")
 	command.Flags().StringVar(&areaIDValue, "area", "", "area ID")
+	command.Flags().StringArrayVar(&tags, "tag", nil, "tag name (repeatable)")
 
 	return command
 }
@@ -111,6 +114,8 @@ func newProjectCommand(options *rootOptions, factory applicationFactory) *cobra.
 		newProjectEditCommand(options, factory),
 		newProjectReopenCommand(options, factory),
 		newProjectShowCommand(options, factory),
+		newProjectTagCommand(options, factory),
+		newProjectUntagCommand(options, factory),
 	)
 
 	return command
@@ -133,6 +138,67 @@ func newProjectShowCommand(options *rootOptions, factory applicationFactory) *co
 					return showErr
 				}
 				return writeCommandOutput(command.OutOrStdout(), options.json, found, writeProject)
+			})
+		},
+	}
+}
+
+type projectTagMutation func(context.Context, project.Application, int64, []string) (project.Tagging, error)
+
+func newProjectTagCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	return newProjectTaggingCommand(
+		options,
+		factory,
+		"tag ID NAME...",
+		"Tag a project",
+		"Tagged",
+		func(ctx context.Context, application project.Application, id int64, names []string) (project.Tagging, error) {
+			return application.Tag(ctx, id, names)
+		},
+	)
+}
+
+func newProjectUntagCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	return newProjectTaggingCommand(
+		options,
+		factory,
+		"untag ID NAME...",
+		"Untag a project",
+		"Untagged",
+		func(ctx context.Context, application project.Application, id int64, names []string) (project.Tagging, error) {
+			return application.Untag(ctx, id, names)
+		},
+	)
+}
+
+func newProjectTaggingCommand(
+	options *rootOptions,
+	factory applicationFactory,
+	use string,
+	short string,
+	action string,
+	mutate projectTagMutation,
+) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  cobra.MinimumNArgs(2),
+		RunE: func(command *cobra.Command, args []string) error {
+			id, err := project.ParseID(args[0])
+			if err != nil {
+				return err
+			}
+
+			return withProjectApplication(command, options, factory, func(application project.Application) error {
+				tagging, mutationErr := mutate(command.Context(), application, id, args[1:])
+				if mutationErr != nil {
+					return mutationErr
+				}
+				if options.json {
+					return writeJSON(command.OutOrStdout(), tagging.Project)
+				}
+
+				return writeProjectTagging(command.OutOrStdout(), action, tagging)
 			})
 		},
 	}

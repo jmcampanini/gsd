@@ -18,6 +18,11 @@ func (s *Service) List(ctx context.Context) ([]Entry, error) {
 	if entries == nil {
 		return []Entry{}, nil
 	}
+	for index := range entries {
+		if entries[index].Tags == nil {
+			entries[index].Tags = []string{}
+		}
+	}
 
 	return entries, nil
 }

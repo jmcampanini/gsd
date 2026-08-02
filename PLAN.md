@@ -28,7 +28,7 @@ complete:
       and delete tags in one case-insensitive namespace, with the complete
       revision-`9005` schema landed and the view `tags` enrichment proven by
       store tests.
-- [ ] **Chunk 2 — Attachment everywhere** — a human can tag and untag tasks,
+- [x] **Chunk 2 — Attachment everywhere** — a human can tag and untag tasks,
       projects, and areas, create any of them pre-tagged with `--tag`, filter
       the task list by tag, and see the `tags` array complete the JSON output
       contract.
@@ -376,28 +376,28 @@ every JSON row — finishing the v1 entity model and output contract.
 
 ### Implementation
 
-- [ ] Carry `Tags []string` through the task, project, and area values,
+- [x] Carry `Tags []string` through the task, project, and area values,
       scanners, and every store round trip using the views' correlated
       subquery; view-row scans gain the `tags` column.
-- [ ] Add `Tag`/`Untag` to the three services with the all-or-nothing
+- [x] Add `Tag`/`Untag` to the three services with the all-or-nothing
       transaction, idempotent attach and detach, case-insensitive
       resolution, duplicate collapse, and no `updated_at` bump; extend the
       store interfaces with the narrow tag methods.
-- [ ] Add `Tags` to the three `AddFields` and make creation transactional:
+- [x] Add `Tags` to the three `AddFields` and make creation transactional:
       unknown tag → `not_found`, no entity created, proven by rollback
       tests.
-- [ ] Add the `--tag` filter to `task.ListOptions` and `gsd list`,
+- [x] Add the `--tag` filter to `task.ListOptions` and `gsd list`,
       resolving the tag in-transaction and composing with existing filters.
-- [ ] Add the commands: `gsd tag N NAME...`, `gsd untag N NAME...`,
+- [x] Add the commands: `gsd tag N NAME...`, `gsd untag N NAME...`,
       `gsd project tag/untag N NAME...`, `gsd area tag/untag N NAME...`,
       repeatable `--tag` on the three `add` commands.
-- [ ] Render attachment output: entity echoes with `tags`, the `Tags` row
+- [x] Render attachment output: entity echoes with `tags`, the `Tags` row
       on the three `show` commands, and the `Tagged:`/`Untagged:` mutation
       lines; tagging succeeds under archived areas and resolved projects.
-- [ ] Extend the subprocess workflow to the complete milestone workflow:
+- [x] Extend the subprocess workflow to the complete milestone workflow:
       attachment persistence, filtering, rename propagation, tag deletion
       detachment, and entity-deletion CASCADE visible in usage counts.
-- [ ] Run `make check` and build the real binary before opening the chunk
+- [x] Run `make check` and build the real binary before opening the chunk
       pull request.
 
 ### Human proof
@@ -405,21 +405,21 @@ every JSON row — finishing the v1 entity model and output contract.
 Against a fresh database with the real built binary, captured as the chunk
 demo (`.sandbox/demos/5-chunk-2.html`):
 
-- [ ] `gsd tags add errands`; `gsd add "Drop off dry cleaning"`;
+- [x] `gsd tags add errands`; `gsd add "Drop off dry cleaning"`;
       `gsd projects add "Kitchen reno"`; `gsd areas add "Home"`.
-- [ ] `gsd tag 1 errands`, `gsd project tag 1 errands`,
+- [x] `gsd tag 1 errands`, `gsd project tag 1 errands`,
       `gsd area tag 1 errands`; `gsd tags list` shows `errands 3`.
-- [ ] `gsd list --tag errands` shows the task; `gsd show 1` renders the
+- [x] `gsd list --tag errands` shows the task; `gsd show 1` renders the
       `Tags` row.
-- [ ] `gsd tag 1 groceries` fails `not_found` (`no tag groceries`) with
+- [x] `gsd tag 1 groceries` fails `not_found` (`no tag groceries`) with
       exit 1; `gsd tag 1 ERRANDS` succeeds as a no-op; `gsd untag 1 ghost`
       fails `not_found`.
-- [ ] `gsd add "Buy stamps" --tag errands` echoes the task with its tag;
+- [x] `gsd add "Buy stamps" --tag errands` echoes the task with its tag;
       `gsd add "X" --tag nope` fails `not_found` and creates nothing
       (`gsd inbox` unchanged).
-- [ ] `gsd tags rename errands out-and-about`; `gsd show 1` shows the new
+- [x] `gsd tags rename errands out-and-about`; `gsd show 1` shows the new
       name.
-- [ ] `gsd tags delete out-and-about` reports detachment from 4 items;
+- [x] `gsd tags delete out-and-about` reports detachment from 4 items;
       `gsd show 1`, `gsd project show 1`, and `gsd area show 1` all show no
       tags, entities intact.
 

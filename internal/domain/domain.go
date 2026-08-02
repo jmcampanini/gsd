@@ -29,6 +29,37 @@ func ValidateNote(note string) error {
 	return nil
 }
 
+func NormalizeTagNames(names []string) ([]string, error) {
+	normalized := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if err := ValidateTitle(name); err != nil {
+			return nil, err
+		}
+		key := sqliteNoCaseKey(name)
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, name)
+	}
+
+	return normalized, nil
+}
+
+func sqliteNoCaseKey(value string) string {
+	var key strings.Builder
+	key.Grow(len(value))
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if character >= 'A' && character <= 'Z' {
+			character += 'a' - 'A'
+		}
+		key.WriteByte(character)
+	}
+	return key.String()
+}
+
 func ValidateID(noun string, id int64) error {
 	if id <= 0 {
 		return apperr.New(apperr.InvalidArgument, fmt.Sprintf("%s ID must be positive", noun), nil)

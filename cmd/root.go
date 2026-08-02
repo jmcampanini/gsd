@@ -95,7 +95,9 @@ func newRootCommandWithFactoryAndLocation(
 		newProjectsCommand(options, factory),
 		newReopenCommand(options, factory),
 		newShowCommand(options, factory),
+		newTagCommand(options, factory),
 		newTagsCommand(options, factory),
+		newUntagCommand(options, factory),
 	)
 
 	return root

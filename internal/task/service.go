@@ -8,6 +8,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/dates"
 	"github.com/jmcampanini/gsd/internal/domain"
+	"github.com/jmcampanini/gsd/internal/tag"
 )
 
 type Service struct {
@@ -36,8 +37,13 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Task, error) {
 		return Task{}, apperr.New(apperr.InvalidArgument, "task cannot belong to both a project and an area", nil)
 	}
 
-	reference := s.now()
 	var err error
+	fields.Tags, err = domain.NormalizeTagNames(fields.Tags)
+	if err != nil {
+		return Task{}, err
+	}
+
+	reference := s.now()
 	fields.DueOn, err = canonicalizeDate(fields.DueOn, reference)
 	if err != nil {
 		return Task{}, err
@@ -47,15 +53,42 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Task, error) {
 		return Task{}, err
 	}
 
-	return s.store.Add(ctx, fields, domain.FormatTimestamp(reference))
+	timestamp := domain.FormatTimestamp(reference)
+	if len(fields.Tags) == 0 {
+		return normalizeTaskResult(s.store.Add(ctx, fields, timestamp))
+	}
+
+	var added Task
+	err = s.store.WithinTransaction(ctx, func(store Store) error {
+		added, err = store.Add(ctx, fields, timestamp)
+		if err != nil {
+			return err
+		}
+
+		resolved, err := store.ResolveTags(ctx, fields.Tags)
+		if err != nil {
+			return err
+		}
+		if err := store.AttachTags(ctx, added.ID, resolved); err != nil {
+			return err
+		}
+
+		added, err = store.Find(ctx, added.ID)
+		return err
+	})
+	if err != nil {
+		return Task{}, err
+	}
+
+	return normalizeTask(added), nil
 }
 
 func (s *Service) Inbox(ctx context.Context) ([]ViewTask, error) {
-	return domain.NormalizeSliceResult(s.store.Inbox(ctx))
+	return normalizeViewTasksResult(s.store.Inbox(ctx))
 }
 
 func (s *Service) Available(ctx context.Context) ([]ViewTask, error) {
-	return domain.NormalizeSliceResult(s.store.Available(ctx))
+	return normalizeViewTasksResult(s.store.Available(ctx))
 }
 
 func (s *Service) Show(ctx context.Context, id int64) (Task, error) {
@@ -63,7 +96,7 @@ func (s *Service) Show(ctx context.Context, id int64) (Task, error) {
 		return Task{}, err
 	}
 
-	return s.store.Find(ctx, id)
+	return normalizeTaskResult(s.store.Find(ctx, id))
 }
 
 func (s *Service) List(ctx context.Context, options ListOptions) ([]Task, error) {
@@ -82,8 +115,13 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Task, error)
 	if options.ProjectID != nil && options.AreaID != nil {
 		return nil, apperr.New(apperr.InvalidArgument, "cannot filter tasks by both project and area", nil)
 	}
+	if options.Tag != nil {
+		if err := domain.ValidateTitle(*options.Tag); err != nil {
+			return nil, err
+		}
+	}
 
-	return domain.NormalizeSliceResult(s.store.List(ctx, options))
+	return normalizeTasksResult(s.store.List(ctx, options))
 }
 
 func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, error) {
@@ -144,7 +182,7 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, 
 		return Task{}, err
 	}
 
-	return s.store.Edit(ctx, id, fields, domain.FormatTimestamp(reference))
+	return normalizeTaskResult(s.store.Edit(ctx, id, fields, domain.FormatTimestamp(reference)))
 }
 
 func (s *Service) Done(ctx context.Context, id int64) (Task, error) {
@@ -152,7 +190,7 @@ func (s *Service) Done(ctx context.Context, id int64) (Task, error) {
 		return Task{}, err
 	}
 
-	return s.store.Done(ctx, id, domain.FormatTimestamp(s.now()))
+	return normalizeTaskResult(s.store.Done(ctx, id, domain.FormatTimestamp(s.now())))
 }
 
 func (s *Service) Cancel(ctx context.Context, id int64) (Task, error) {
@@ -160,7 +198,7 @@ func (s *Service) Cancel(ctx context.Context, id int64) (Task, error) {
 		return Task{}, err
 	}
 
-	return s.store.Cancel(ctx, id, domain.FormatTimestamp(s.now()))
+	return normalizeTaskResult(s.store.Cancel(ctx, id, domain.FormatTimestamp(s.now())))
 }
 
 func (s *Service) Reopen(ctx context.Context, id int64) (Task, error) {
@@ -168,7 +206,76 @@ func (s *Service) Reopen(ctx context.Context, id int64) (Task, error) {
 		return Task{}, err
 	}
 
-	return s.store.Reopen(ctx, id, domain.FormatTimestamp(s.now()))
+	return normalizeTaskResult(s.store.Reopen(ctx, id, domain.FormatTimestamp(s.now())))
+}
+
+func (s *Service) Tag(ctx context.Context, id int64, names []string) (Tagging, error) {
+	return s.updateTags(ctx, id, names, func(
+		store Store,
+		resolved []tag.Tag,
+	) error {
+		return store.AttachTags(ctx, id, resolved)
+	})
+}
+
+func (s *Service) Untag(ctx context.Context, id int64, names []string) (Tagging, error) {
+	return s.updateTags(ctx, id, names, func(
+		store Store,
+		resolved []tag.Tag,
+	) error {
+		return store.DetachTags(ctx, id, resolved)
+	})
+}
+
+func (s *Service) updateTags(
+	ctx context.Context,
+	id int64,
+	names []string,
+	mutate func(Store, []tag.Tag) error,
+) (Tagging, error) {
+	if err := validateID(id); err != nil {
+		return Tagging{}, err
+	}
+	if len(names) == 0 {
+		return Tagging{}, apperr.New(
+			apperr.InvalidArgument,
+			"task tagging requires at least one tag",
+			nil,
+		)
+	}
+
+	normalized, err := domain.NormalizeTagNames(names)
+	if err != nil {
+		return Tagging{}, err
+	}
+
+	var result Tagging
+	err = s.store.WithinTransaction(ctx, func(store Store) error {
+		if _, err := store.Find(ctx, id); err != nil {
+			return err
+		}
+
+		resolved, err := store.ResolveTags(ctx, normalized)
+		if err != nil {
+			return err
+		}
+		if err := mutate(store, resolved); err != nil {
+			return err
+		}
+
+		refreshed, err := store.Find(ctx, id)
+		if err != nil {
+			return err
+		}
+		result = Tagging{Task: refreshed, TagTitles: tag.Titles(resolved)}
+		return nil
+	})
+	if err != nil {
+		return Tagging{}, err
+	}
+
+	result.Task = normalizeTask(result.Task)
+	return result, nil
 }
 
 func (s *Service) Delete(ctx context.Context, id int64) (Task, error) {
@@ -176,7 +283,43 @@ func (s *Service) Delete(ctx context.Context, id int64) (Task, error) {
 		return Task{}, err
 	}
 
-	return s.store.Delete(ctx, id)
+	return normalizeTaskResult(s.store.Delete(ctx, id))
+}
+
+func normalizeTask(result Task) Task {
+	if result.Tags == nil {
+		result.Tags = []string{}
+	}
+	return result
+}
+
+func normalizeTaskResult(result Task, err error) (Task, error) {
+	if err != nil {
+		return Task{}, err
+	}
+	return normalizeTask(result), nil
+}
+
+func normalizeTasksResult(results []Task, err error) ([]Task, error) {
+	results, err = domain.NormalizeSliceResult(results, err)
+	if err != nil {
+		return nil, err
+	}
+	for index := range results {
+		results[index] = normalizeTask(results[index])
+	}
+	return results, nil
+}
+
+func normalizeViewTasksResult(results []ViewTask, err error) ([]ViewTask, error) {
+	results, err = domain.NormalizeSliceResult(results, err)
+	if err != nil {
+		return nil, err
+	}
+	for index := range results {
+		results[index].Task = normalizeTask(results[index].Task)
+	}
+	return results, nil
 }
 
 func ParseListStatus(value string) (ListStatus, error) {

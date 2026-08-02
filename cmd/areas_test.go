@@ -29,6 +29,10 @@ type fakeAreaApplication struct {
 	unarchiveError  error
 	deleteResult    area.Deletion
 	deleteError     error
+	tagResult       area.Tagging
+	tagError        error
+	untagResult     area.Tagging
+	untagError      error
 	addFields       area.AddFields
 	listOptions     area.ListOptions
 	showID          int64
@@ -38,6 +42,10 @@ type fakeAreaApplication struct {
 	unarchiveID     int64
 	deleteID        int64
 	deleteRecursive bool
+	tagID           int64
+	tagNames        []string
+	untagID         int64
+	untagNames      []string
 }
 
 func (f *fakeAreaApplication) Add(
@@ -79,6 +87,26 @@ func (f *fakeAreaApplication) Archive(_ context.Context, id int64) (area.Area, e
 func (f *fakeAreaApplication) Unarchive(_ context.Context, id int64) (area.Area, error) {
 	f.unarchiveID = id
 	return f.unarchiveResult, f.unarchiveError
+}
+
+func (f *fakeAreaApplication) Tag(
+	_ context.Context,
+	id int64,
+	names []string,
+) (area.Tagging, error) {
+	f.tagID = id
+	f.tagNames = append([]string(nil), names...)
+	return f.tagResult, f.tagError
+}
+
+func (f *fakeAreaApplication) Untag(
+	_ context.Context,
+	id int64,
+	names []string,
+) (area.Tagging, error) {
+	f.untagID = id
+	f.untagNames = append([]string(nil), names...)
+	return f.untagResult, f.untagError
 }
 
 func (f *fakeAreaApplication) Delete(
@@ -138,6 +166,7 @@ func TestAreaAddAdaptsStdinNoteAndWritesCompleteJSONRow(t *testing.T) {
 		Position:  2,
 		CreatedAt: "2026-07-27T12:00:00.000Z",
 		UpdatedAt: "2026-07-28T12:00:00.000Z",
+		Tags:      []string{},
 	}
 	application := &fakeAreaApplication{addResult: created}
 	result := runAreaCommandWithInput(
@@ -149,7 +178,7 @@ func TestAreaAddAdaptsStdinNoteAndWritesCompleteJSONRow(t *testing.T) {
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)
 	}
-	if application.addFields != (area.AddFields{Title: "Home", Note: note}) {
+	if !reflect.DeepEqual(application.addFields, area.AddFields{Title: "Home", Note: note}) {
 		t.Errorf("Add() fields = %#v, want exact title and stdin note", application.addFields)
 	}
 	if got := decodeAreaJSON[area.Area](t, result.stdout); !reflect.DeepEqual(got, created) {
@@ -159,13 +188,13 @@ func TestAreaAddAdaptsStdinNoteAndWritesCompleteJSONRow(t *testing.T) {
 	if err := json.Unmarshal([]byte(result.stdout), &fields); err != nil {
 		t.Fatalf("decode area fields: %v", err)
 	}
-	for _, field := range []string{"id", "title", "note", "archived_at", "position", "created_at", "updated_at"} {
+	for _, field := range []string{"id", "title", "note", "archived_at", "position", "created_at", "updated_at", "tags"} {
 		if _, ok := fields[field]; !ok {
 			t.Errorf("JSON fields = %v, missing %q", fields, field)
 		}
 	}
-	if len(fields) != 7 || string(fields["archived_at"]) != "null" {
-		t.Errorf("JSON fields = %v, want complete area row with null archived_at", fields)
+	if len(fields) != 8 || string(fields["archived_at"]) != "null" || string(fields["tags"]) != "[]" {
+		t.Errorf("JSON fields = %v, want complete area row with null archived_at and empty tags", fields)
 	}
 	if result.openPath != "chosen.db" || result.opens != 1 || result.closes != 1 {
 		t.Errorf("factory lifecycle = %#v, want chosen path and one open/close", result)
@@ -176,6 +205,89 @@ func TestAreaAddAdaptsStdinNoteAndWritesCompleteJSONRow(t *testing.T) {
 	}}, "areas", "add", "Home")
 	if human.exitCode != 0 || human.stderr != "" || human.stdout != "Added area 7: Home\\x1b[31m\n" {
 		t.Errorf("human result = %#v, want escaped add narration", human)
+	}
+}
+
+func TestAreaAddAccumulatesTagFlagsWithoutSplittingCommas(t *testing.T) {
+	t.Parallel()
+
+	application := &fakeAreaApplication{addResult: area.Area{
+		ID:    8,
+		Title: "Tagged",
+		Tags:  []string{"Errands", "Home,House"},
+	}}
+	result := runAreaCommand(
+		t,
+		application,
+		"areas", "add", "Tagged", "--tag", "Errands", "--tag", "home,house", "--tag", "WORK",
+	)
+	if result.exitCode != 0 || result.stderr != "" ||
+		result.stdout != "Added area 8: Tagged  Errands, Home,House\n" {
+		t.Fatalf("result = %#v, want tagged add narration", result)
+	}
+	want := area.AddFields{Title: "Tagged", Tags: []string{"Errands", "home,house", "WORK"}}
+	if !reflect.DeepEqual(application.addFields, want) {
+		t.Errorf("Add() fields = %#v, want %#v", application.addFields, want)
+	}
+}
+
+func TestAreaTagAdaptsExactNamesAndWritesOnlyAreaJSON(t *testing.T) {
+	t.Parallel()
+
+	affected := area.Area{
+		ID:    7,
+		Title: "Home",
+		Tags:  []string{"Errands", "Home,House"},
+	}
+	application := &fakeAreaApplication{tagResult: area.Tagging{
+		Area:      affected,
+		TagTitles: []string{"Errands", "Home,House"},
+	}}
+	result := runAreaCommand(
+		t,
+		application,
+		"area", "tag", "007", "errands", "Home,House", "--json",
+	)
+	if result.exitCode != 0 || result.stderr != "" {
+		t.Fatalf("result = %#v, want success", result)
+	}
+	if application.tagID != 7 || !reflect.DeepEqual(application.tagNames, []string{"errands", "Home,House"}) {
+		t.Errorf("Tag() input = %d/%#v, want exact ID and names", application.tagID, application.tagNames)
+	}
+	if got := decodeAreaJSON[area.Area](t, result.stdout); !reflect.DeepEqual(got, affected) {
+		t.Errorf("tag JSON = %#v, want area only %#v", got, affected)
+	}
+}
+
+func TestAreaUntagUsesStoredSpellingsForHumanOutput(t *testing.T) {
+	t.Parallel()
+
+	application := &fakeAreaApplication{untagResult: area.Tagging{
+		Area:      area.Area{ID: 7, Title: "Home"},
+		TagTitles: []string{"Stored\x1b", "Second\rName"},
+	}}
+	result := runAreaCommand(t, application, "area", "untag", "7", "stored", "second")
+	if result.exitCode != 0 || result.stderr != "" ||
+		result.stdout != "Untagged: area 7  Stored\\x1b, Second\\rName\n" {
+		t.Fatalf("result = %#v, want escaped stored tag spellings", result)
+	}
+	if application.untagID != 7 || !reflect.DeepEqual(application.untagNames, []string{"stored", "second"}) {
+		t.Errorf("Untag() input = %d/%#v, want exact ID and names", application.untagID, application.untagNames)
+	}
+}
+
+func TestAreaTagArityFailsBeforeFactoryOpen(t *testing.T) {
+	t.Parallel()
+
+	for _, args := range [][]string{
+		{"area", "tag"},
+		{"area", "tag", "7"},
+		{"area", "untag", "7"},
+	} {
+		result := runAreaCommand(t, &fakeAreaApplication{}, args...)
+		if result.exitCode != 2 || result.opens != 0 || result.stdout != "" || result.stderr == "" {
+			t.Errorf("%v result = %#v, want stderr-only usage error without open", args, result)
+		}
 	}
 }
 
@@ -431,6 +543,8 @@ func TestAreaValidationFailsBeforeFactoryOpen(t *testing.T) {
 		{name: "invalid archive ID", args: []string{"area", "archive", "0", "--json"}},
 		{name: "invalid unarchive ID", args: []string{"area", "unarchive", "nope", "--json"}},
 		{name: "invalid delete ID", args: []string{"area", "delete", "+1", "--json"}},
+		{name: "invalid tag ID", args: []string{"area", "tag", "0", "name", "--json"}},
+		{name: "invalid untag ID", args: []string{"area", "untag", "nope", "name", "--json"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
