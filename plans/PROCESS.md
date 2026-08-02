@@ -129,6 +129,10 @@ baseline:
 - Reconcile tests with the stable observable contract and verify the complete
   workflow. For completed capabilities, current code, tests, and canonical
   specifications become authoritative together.
+- Have Javier run `/review-foundation` in a Fable session against the
+  milestone branch, then resolve the findings Javier accepts on the milestone
+  branch before the milestone pull request opens. Accepted findings that must
+  hold in future work feed the guardrails below.
 - Codify review findings that must hold in future work in `AGENTS.md`, lint or
   build configuration, or tests. Do not leave permanent guardrails only in
   review comments or memory.
@@ -153,6 +157,8 @@ criteria, hold:
 - [ ] Javier successfully demoed the milestone's user stories.
 - [ ] Canonical documentation was reconciled with decided and shipped
       behavior, and temporary divergence entries due now were removed.
+- [ ] Javier ran `/review-foundation` in a Fable session against the
+      milestone branch, and the accepted findings were resolved.
 - [ ] Review-derived guardrails were codified in the repository.
 - [ ] The completed milestone file and root `PLAN.md` were deleted, and
       roadmap/document links were checked.
