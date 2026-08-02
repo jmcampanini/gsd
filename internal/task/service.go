@@ -3,13 +3,12 @@ package task
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/dates"
+	"github.com/jmcampanini/gsd/internal/domain"
+	"github.com/jmcampanini/gsd/internal/tag"
 )
 
 type Service struct {
@@ -22,24 +21,29 @@ func NewService(store Store) *Service {
 }
 
 func (s *Service) Add(ctx context.Context, fields AddFields) (Task, error) {
-	if err := validateTitle(fields.Title); err != nil {
+	if err := domain.ValidateTitle(fields.Title); err != nil {
 		return Task{}, err
 	}
-	if !utf8.ValidString(fields.Note) {
-		return Task{}, apperr.New(apperr.InvalidArgument, "note must be valid UTF-8", nil)
+	if err := domain.ValidateNote(fields.Note); err != nil {
+		return Task{}, err
 	}
-	if fields.ProjectID != nil && *fields.ProjectID <= 0 {
-		return Task{}, apperr.New(apperr.InvalidArgument, "project ID must be positive", nil)
+	if err := domain.ValidateOptionalID("project", fields.ProjectID); err != nil {
+		return Task{}, err
 	}
-	if fields.AreaID != nil && *fields.AreaID <= 0 {
-		return Task{}, apperr.New(apperr.InvalidArgument, "area ID must be positive", nil)
+	if err := domain.ValidateOptionalID("area", fields.AreaID); err != nil {
+		return Task{}, err
 	}
 	if fields.ProjectID != nil && fields.AreaID != nil {
 		return Task{}, apperr.New(apperr.InvalidArgument, "task cannot belong to both a project and an area", nil)
 	}
 
-	reference := s.now()
 	var err error
+	fields.Tags, err = domain.NormalizeTagNames(fields.Tags)
+	if err != nil {
+		return Task{}, err
+	}
+
+	reference := s.now()
 	fields.DueOn, err = canonicalizeDate(fields.DueOn, reference)
 	if err != nil {
 		return Task{}, err
@@ -49,15 +53,42 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Task, error) {
 		return Task{}, err
 	}
 
-	return s.store.Add(ctx, fields, formatTimestamp(reference))
+	timestamp := domain.FormatTimestamp(reference)
+	if len(fields.Tags) == 0 {
+		return s.store.Add(ctx, fields, timestamp)
+	}
+
+	var added Task
+	err = s.store.WithinTransaction(ctx, func(store Store) error {
+		added, err = store.Add(ctx, fields, timestamp)
+		if err != nil {
+			return err
+		}
+
+		resolved, err := store.ResolveTags(ctx, fields.Tags)
+		if err != nil {
+			return err
+		}
+		if err := store.AttachTags(ctx, added.ID, resolved); err != nil {
+			return err
+		}
+
+		added, err = store.Find(ctx, added.ID)
+		return err
+	})
+	if err != nil {
+		return Task{}, err
+	}
+
+	return added, nil
 }
 
 func (s *Service) Inbox(ctx context.Context) ([]ViewTask, error) {
-	return normalizeSlice(s.store.Inbox(ctx))
+	return domain.NormalizeSliceResult(s.store.Inbox(ctx))
 }
 
 func (s *Service) Available(ctx context.Context) ([]ViewTask, error) {
-	return normalizeSlice(s.store.Available(ctx))
+	return domain.NormalizeSliceResult(s.store.Available(ctx))
 }
 
 func (s *Service) Show(ctx context.Context, id int64) (Task, error) {
@@ -75,17 +106,22 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Task, error)
 	if !validDateSelector(options.Date) {
 		return nil, apperr.New(apperr.InvalidArgument, fmt.Sprintf("invalid date selector %q", options.Date), nil)
 	}
-	if options.ProjectID != nil && *options.ProjectID <= 0 {
-		return nil, apperr.New(apperr.InvalidArgument, "project ID must be positive", nil)
+	if err := domain.ValidateOptionalID("project", options.ProjectID); err != nil {
+		return nil, err
 	}
-	if options.AreaID != nil && *options.AreaID <= 0 {
-		return nil, apperr.New(apperr.InvalidArgument, "area ID must be positive", nil)
+	if err := domain.ValidateOptionalID("area", options.AreaID); err != nil {
+		return nil, err
 	}
 	if options.ProjectID != nil && options.AreaID != nil {
 		return nil, apperr.New(apperr.InvalidArgument, "cannot filter tasks by both project and area", nil)
 	}
+	if options.Tag != nil {
+		if err := domain.ValidateTitle(*options.Tag); err != nil {
+			return nil, err
+		}
+	}
 
-	return normalizeSlice(s.store.List(ctx, options))
+	return domain.NormalizeSliceResult(s.store.List(ctx, options))
 }
 
 func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, error) {
@@ -101,14 +137,14 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, 
 	if fields.Project.Set != nil && fields.Project.Clear {
 		return Task{}, apperr.New(apperr.InvalidArgument, "project cannot be set and cleared", nil)
 	}
-	if fields.Project.Set != nil && *fields.Project.Set <= 0 {
-		return Task{}, apperr.New(apperr.InvalidArgument, "project ID must be positive", nil)
+	if err := domain.ValidateOptionalID("project", fields.Project.Set); err != nil {
+		return Task{}, err
 	}
 	if fields.Area.Set != nil && fields.Area.Clear {
 		return Task{}, apperr.New(apperr.InvalidArgument, "area cannot be set and cleared", nil)
 	}
-	if fields.Area.Set != nil && *fields.Area.Set <= 0 {
-		return Task{}, apperr.New(apperr.InvalidArgument, "area ID must be positive", nil)
+	if err := domain.ValidateOptionalID("area", fields.Area.Set); err != nil {
+		return Task{}, err
 	}
 	if fields.Project.Set != nil && fields.Area.Set != nil {
 		return Task{}, apperr.New(apperr.InvalidArgument, "task cannot be moved to both a project and an area", nil)
@@ -125,12 +161,14 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, 
 		)
 	}
 	if fields.Title != nil {
-		if err := validateTitle(*fields.Title); err != nil {
+		if err := domain.ValidateTitle(*fields.Title); err != nil {
 			return Task{}, err
 		}
 	}
-	if fields.Note != nil && !utf8.ValidString(*fields.Note) {
-		return Task{}, apperr.New(apperr.InvalidArgument, "note must be valid UTF-8", nil)
+	if fields.Note != nil {
+		if err := domain.ValidateNote(*fields.Note); err != nil {
+			return Task{}, err
+		}
 	}
 
 	reference := s.now()
@@ -144,7 +182,7 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, 
 		return Task{}, err
 	}
 
-	return s.store.Edit(ctx, id, fields, formatTimestamp(reference))
+	return s.store.Edit(ctx, id, fields, domain.FormatTimestamp(reference))
 }
 
 func (s *Service) Done(ctx context.Context, id int64) (Task, error) {
@@ -152,7 +190,7 @@ func (s *Service) Done(ctx context.Context, id int64) (Task, error) {
 		return Task{}, err
 	}
 
-	return s.store.Done(ctx, id, formatTimestamp(s.now()))
+	return s.store.Done(ctx, id, domain.FormatTimestamp(s.now()))
 }
 
 func (s *Service) Cancel(ctx context.Context, id int64) (Task, error) {
@@ -160,7 +198,7 @@ func (s *Service) Cancel(ctx context.Context, id int64) (Task, error) {
 		return Task{}, err
 	}
 
-	return s.store.Cancel(ctx, id, formatTimestamp(s.now()))
+	return s.store.Cancel(ctx, id, domain.FormatTimestamp(s.now()))
 }
 
 func (s *Service) Reopen(ctx context.Context, id int64) (Task, error) {
@@ -168,7 +206,69 @@ func (s *Service) Reopen(ctx context.Context, id int64) (Task, error) {
 		return Task{}, err
 	}
 
-	return s.store.Reopen(ctx, id, formatTimestamp(s.now()))
+	return s.store.Reopen(ctx, id, domain.FormatTimestamp(s.now()))
+}
+
+func (s *Service) Tag(ctx context.Context, id int64, names []string) (Tagging, error) {
+	return s.changeTags(ctx, id, names, true)
+}
+
+func (s *Service) Untag(ctx context.Context, id int64, names []string) (Tagging, error) {
+	return s.changeTags(ctx, id, names, false)
+}
+
+func (s *Service) changeTags(
+	ctx context.Context,
+	id int64,
+	names []string,
+	attach bool,
+) (Tagging, error) {
+	if err := validateID(id); err != nil {
+		return Tagging{}, err
+	}
+	if len(names) == 0 {
+		return Tagging{}, apperr.New(
+			apperr.InvalidArgument,
+			"task tagging requires at least one tag",
+			nil,
+		)
+	}
+
+	normalizedNames, normalizeErr := domain.NormalizeTagNames(names)
+	if normalizeErr != nil {
+		return Tagging{}, normalizeErr
+	}
+
+	var result Tagging
+	transactionErr := s.store.WithinTransaction(ctx, func(store Store) error {
+		if _, err := store.Find(ctx, id); err != nil {
+			return err
+		}
+
+		resolvedTags, err := store.ResolveTags(ctx, normalizedNames)
+		if err != nil {
+			return err
+		}
+		if attach {
+			if err := store.AttachTags(ctx, id, resolvedTags); err != nil {
+				return err
+			}
+		} else if err := store.DetachTags(ctx, id, resolvedTags); err != nil {
+			return err
+		}
+
+		refreshed, err := store.Find(ctx, id)
+		if err != nil {
+			return err
+		}
+		result = Tagging{Task: refreshed, TagTitles: tag.Titles(resolvedTags)}
+		return nil
+	})
+	if transactionErr != nil {
+		return Tagging{}, transactionErr
+	}
+
+	return result, nil
 }
 
 func (s *Service) Delete(ctx context.Context, id int64) (Task, error) {
@@ -189,21 +289,7 @@ func ParseListStatus(value string) (ListStatus, error) {
 }
 
 func ParseID(value string) (int64, error) {
-	if value == "" {
-		return 0, apperr.New(apperr.InvalidArgument, "task ID must be a positive decimal", nil)
-	}
-	for _, character := range value {
-		if character < '0' || character > '9' {
-			return 0, apperr.New(apperr.InvalidArgument, fmt.Sprintf("invalid task ID %q", value), nil)
-		}
-	}
-
-	id, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || id <= 0 {
-		return 0, apperr.New(apperr.InvalidArgument, fmt.Sprintf("invalid task ID %q", value), err)
-	}
-
-	return id, nil
+	return domain.ParseID("task", value)
 }
 
 func validListStatus(status ListStatus) bool {
@@ -237,36 +323,6 @@ func canonicalizeDate(value *string, reference time.Time) (*string, error) {
 	return &canonical, nil
 }
 
-func normalizeSlice[T any](values []T, err error) ([]T, error) {
-	if err != nil {
-		return nil, err
-	}
-	if values == nil {
-		return []T{}, nil
-	}
-
-	return values, nil
-}
-
 func validateID(id int64) error {
-	if id <= 0 {
-		return apperr.New(apperr.InvalidArgument, "task ID must be positive", nil)
-	}
-
-	return nil
-}
-
-func validateTitle(title string) error {
-	if !utf8.ValidString(title) {
-		return apperr.New(apperr.InvalidArgument, "title must be valid UTF-8", nil)
-	}
-	if strings.TrimSpace(title) == "" {
-		return apperr.New(apperr.InvalidArgument, "title must not be blank", nil)
-	}
-
-	return nil
-}
-
-func formatTimestamp(value time.Time) string {
-	return value.UTC().Format("2006-01-02T15:04:05.000Z")
+	return domain.ValidateID("task", id)
 }

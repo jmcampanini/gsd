@@ -1,6 +1,10 @@
 package task
 
-import "context"
+import (
+	"context"
+
+	"github.com/jmcampanini/gsd/internal/tag"
+)
 
 type ListStatus string
 
@@ -25,22 +29,24 @@ type ListOptions struct {
 	Date      DateSelector
 	ProjectID *int64
 	AreaID    *int64
+	Tag       *string
 }
 
 type Task struct {
-	ID          int64   `json:"id"`
-	ProjectID   *int64  `json:"project_id"`
-	AreaID      *int64  `json:"area_id"`
-	Title       string  `json:"title"`
-	Note        string  `json:"note"`
-	DeferUntil  *string `json:"defer_until"`
-	DueOn       *string `json:"due_on"`
-	DoneAt      *string `json:"done_at"`
-	CancelledAt *string `json:"cancelled_at"`
-	Status      string  `json:"status"`
-	Position    int64   `json:"position"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
+	ID          int64    `json:"id"`
+	ProjectID   *int64   `json:"project_id"`
+	AreaID      *int64   `json:"area_id"`
+	Title       string   `json:"title"`
+	Note        string   `json:"note"`
+	DeferUntil  *string  `json:"defer_until"`
+	DueOn       *string  `json:"due_on"`
+	DoneAt      *string  `json:"done_at"`
+	CancelledAt *string  `json:"cancelled_at"`
+	Status      string   `json:"status"`
+	Position    int64    `json:"position"`
+	CreatedAt   string   `json:"created_at"`
+	UpdatedAt   string   `json:"updated_at"`
+	Tags        []string `json:"tags"`
 }
 
 type ViewTask struct {
@@ -57,6 +63,7 @@ type AddFields struct {
 	Note       string
 	DeferUntil *string
 	DueOn      *string
+	Tags       []string
 }
 
 type DateChange struct {
@@ -83,6 +90,12 @@ type EditFields struct {
 	DueOn      DateChange
 }
 
+type Tagging struct {
+	Task      Task
+	TagTitles []string
+}
+
+// Store returns every task with a non-nil Tags slice.
 type Store interface {
 	Add(ctx context.Context, fields AddFields, timestamp string) (Task, error)
 	Inbox(ctx context.Context) ([]ViewTask, error)
@@ -94,6 +107,10 @@ type Store interface {
 	Cancel(ctx context.Context, id int64, timestamp string) (Task, error)
 	Reopen(ctx context.Context, id int64, timestamp string) (Task, error)
 	Delete(ctx context.Context, id int64) (Task, error)
+	ResolveTags(context.Context, []string) ([]tag.Tag, error)
+	AttachTags(context.Context, int64, []tag.Tag) error
+	DetachTags(context.Context, int64, []tag.Tag) error
+	WithinTransaction(context.Context, func(Store) error) error
 }
 
 type Application interface {
@@ -106,5 +123,7 @@ type Application interface {
 	Done(ctx context.Context, id int64) (Task, error)
 	Cancel(ctx context.Context, id int64) (Task, error)
 	Reopen(ctx context.Context, id int64) (Task, error)
+	Tag(context.Context, int64, []string) (Tagging, error)
+	Untag(context.Context, int64, []string) (Tagging, error)
 	Delete(ctx context.Context, id int64) (Task, error)
 }

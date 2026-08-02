@@ -13,13 +13,14 @@ import (
 )
 
 type areaRow struct {
-	ID         int64   `json:"id"`
-	Title      string  `json:"title"`
-	Note       string  `json:"note"`
-	ArchivedAt *string `json:"archived_at"`
-	Position   int64   `json:"position"`
-	CreatedAt  string  `json:"created_at"`
-	UpdatedAt  string  `json:"updated_at"`
+	ID         int64    `json:"id"`
+	Title      string   `json:"title"`
+	Note       string   `json:"note"`
+	ArchivedAt *string  `json:"archived_at"`
+	Position   int64    `json:"position"`
+	CreatedAt  string   `json:"created_at"`
+	UpdatedAt  string   `json:"updated_at"`
+	Tags       []string `json:"tags"`
 }
 
 func TestAreaCRUDWorkflow(t *testing.T) {
@@ -31,12 +32,12 @@ func TestAreaCRUDWorkflow(t *testing.T) {
 	home := decodeAreaRow(t, runJSON("areas", "add", "Home"))
 	health := decodeAreaRow(t, runJSON("areas", "add", "Health"))
 	if home.ID != 1 || home.Title != "Home" || home.Note != "" || home.ArchivedAt != nil ||
-		home.Position != 0 || home.CreatedAt == "" || home.UpdatedAt == "" {
+		home.Position != 0 || home.CreatedAt == "" || home.UpdatedAt == "" || home.Tags == nil {
 		t.Errorf("home area = %#v, want complete first active area row", home)
 	}
 	if health.ID != 2 || health.Title != "Health" || health.Note != "" ||
 		health.ArchivedAt != nil || health.Position != 1 || health.CreatedAt == "" ||
-		health.UpdatedAt == "" {
+		health.UpdatedAt == "" || health.Tags == nil {
 		t.Errorf("health area = %#v, want complete second active area row", health)
 	}
 
@@ -116,6 +117,7 @@ func assertAreaObjectShape(t *testing.T, data []byte) {
 		"position",
 		"created_at",
 		"updated_at",
+		"tags",
 	}
 	if len(object) != len(expected) {
 		t.Fatalf("area JSON fields = %v, want exactly %v", object, expected)

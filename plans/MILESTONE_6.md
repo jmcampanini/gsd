@@ -1,6 +1,6 @@
 # Milestone 6 — Config
 
-Data mode: throwaway (last one). Depends on: Milestone 5.
+Data mode: throwaway. Depends on: Milestone 5.
 
 ## Capability
 
@@ -12,8 +12,11 @@ config, permanently, before real data exists.
 
 ## Schema delta
 
-None — `user_version` unchanged. The Tags milestone's converged schema is
-exactly what Go live baselines.
+- The tag aggregates inside the three views change from `ORDER BY g.id`
+  to `ORDER BY g.title COLLATE NOCASE`, per the reconciled `SCHEMA.md`:
+  entity `tags` arrays become alphabetical, matching `tags list`. No
+  table changes.
+- `user_version` → `9006`.
 
 ## Config surface (deliberately minimal)
 
@@ -55,6 +58,9 @@ trivially — noted so the review checks the structure, not the absence).
 
 ## Chunks
 
+0. **Milestone 5 consolidation** — the structural decisions from the
+   Milestone 5 foundation review, applied in one chunk before Config
+   work begins (see below).
 1. **Loader integration** — config struct, defaults, file/env/flag
    loaders in precedence order, `--config`, db-path resolution moved onto
    the loaded config; existing `--db`/`GSD_DB` behavior proven unchanged
@@ -62,6 +68,54 @@ trivially — noted so the review checks the structure, not the absence).
 2. **Report + color** — `gsd config` (+ `--provenance`) via
    configreporter, `--color` flag and full resolution chain wired into
    lipgloss profile selection.
+
+### Chunk 0: Milestone 5 consolidation
+
+Behavior-preserving except for the tag-ordering change in the schema
+delta above. The manifest:
+
+- **Root/core store split.** Statement-issuing logic moves to an
+  executor-bound core type per store; the root type holds only the
+  database handle and makes each verb's atomicity decision as a visible
+  one-line wrapper (pool-bound core for single-statement verbs,
+  `runInTransaction` for multi-statement ones). The `database == nil`
+  mode flag and every `if s.database != nil` preamble disappear, as
+  does `Tasks.List`'s hand-synced wrap predicate: filtered lists always
+  run in a deferred read transaction. Acceptance check:
+  `applyTransition` retains a single action switch — the re-entry
+  switch dies with the dual mode.
+- **Read-then-delete.** The six `WITH snapshot AS MATERIALIZED` delete
+  statements become tag-enriched finds/listings followed by plain
+  deletes inside the existing immediate-transaction machinery. Same
+  observable behavior; the pre-CASCADE snapshot trick is deleted, not
+  documented.
+- **Service-owned tag resolution on the read path.** `list --tag`
+  resolves the tag name in the service (as every write path already
+  does) and passes the resolved tag ID to the store; the store filter
+  loses its resolution half. One layer owns the unknown-tag rule.
+- **Sibling alignment.** The three tag service flows and the three cmd
+  tagging factories become byte-parallel modulo entity nouns; cmd
+  naming standardizes on `<noun>TaggingMutation` /
+  `new<Noun>TaggingCommand`.
+- **Tag delete drops its redundant leading `Find`**; the sequence
+  assertion narrows to the semantic pair (`CountUsage` before
+  `Delete`).
+- **Shared `tagUsageCountExpression`** replaces the duplicated
+  three-join-table sum in `Tags.List` and `Tags.CountUsage`.
+- **`domain.TagNames`** — a `[]string` whose `MarshalJSON` emits `[]`
+  for nil — becomes the `Tags` field type in task, project, area, and
+  logbook, making `"tags": null` structurally impossible. Content
+  correctness stays owned by per-read-path store tests.
+- **`collectRows[T]`** replaces the five hand-rolled rows→slice
+  collectors.
+- **Alphabetical tag arrays.** Views and `tagJSONExpression` move to
+  `ORDER BY g.title COLLATE NOCASE` per the schema delta;
+  order-asserting tests updated; schema convergence audit re-run.
+
+Deliberately not in this chunk: genericizing the intentionally-parallel
+tag service flows (revisit on the first sibling-divergence bug or a
+post-v1 attach-semantics change) and a typed transition spec for
+`applyTransition` (revisit if post-v1 work adds transitions).
 
 ## User stories
 
@@ -112,6 +166,8 @@ Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
 - [ ] `COMMANDS.md` § Configuration and § Database rechecked against the
       shipped precedence, report, and color behavior before Go live starts.
+- [ ] **Schema convergence audit re-run** after the ordering change:
+      dev database schema byte-comparable to `SCHEMA.md`.
 
 ## Standards
 

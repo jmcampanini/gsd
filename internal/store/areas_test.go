@@ -239,6 +239,117 @@ func TestAreaArchiveLifecyclePreservesRowAndClassifiesInvalidTransitions(t *test
 	}
 }
 
+func TestAreaTransactionUsesAmbientStateForFailureClassificationAndRollsBack(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	areas := NewAreas(storage)
+	created := addStoredArea(t, areas, area.AddFields{Title: "Home"})
+
+	rollback := errors.New("roll back area transaction")
+	err := areas.WithinTransaction(ctx, func(transaction area.Store) error {
+		bound := transaction.(*Areas)
+		if _, deleteErr := bound.executor.ExecContext(ctx, "DELETE FROM areas WHERE id = ?", created.ID); deleteErr != nil {
+			return deleteErr
+		}
+		for name, apply := range map[string]func() error{
+			"archive": func() error {
+				_, operationErr := transaction.Archive(ctx, created.ID, "2026-01-02T00:00:00.000Z")
+				return operationErr
+			},
+			"unarchive": func() error {
+				_, operationErr := transaction.Unarchive(ctx, created.ID, "2026-01-02T00:00:00.000Z")
+				return operationErr
+			},
+			"delete": func() error {
+				_, operationErr := transaction.Delete(ctx, created.ID)
+				return operationErr
+			},
+		} {
+			if operationErr := apply(); errorCode(operationErr) != apperr.NotFound {
+				t.Errorf("%s against ambient deletion error = %v, want not_found", name, operationErr)
+			}
+		}
+		return rollback
+	})
+	if !errors.Is(err, rollback) {
+		t.Fatalf("WithinTransaction() error = %v, want rollback marker", err)
+	}
+
+	persisted, err := areas.Find(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Find(after rollback) error = %v", err)
+	}
+	if !reflect.DeepEqual(persisted, created) {
+		t.Errorf("area after rollback = %#v, want original %#v", persisted, created)
+	}
+}
+
+func TestAreaClassifiedMutationsOpenImmediateTransactionsAtTopLevel(t *testing.T) {
+	t.Parallel()
+
+	for _, operation := range []string{"archive", "unarchive", "delete"} {
+		t.Run(operation, func(t *testing.T) {
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "gsd.db")
+			storage, err := Open(ctx, path)
+			if err != nil {
+				t.Fatalf("Open() error = %v", err)
+			}
+			t.Cleanup(func() { _ = storage.Close() })
+			areas := NewAreas(storage)
+			created := addStoredArea(t, areas, area.AddFields{Title: operation})
+			if operation == "unarchive" {
+				created, err = areas.Archive(ctx, created.ID, "2026-01-02T00:00:00.000Z")
+				if err != nil {
+					t.Fatalf("prepare archived area: %v", err)
+				}
+			}
+			if _, err := storage.database.ExecContext(ctx, "PRAGMA busy_timeout = 0"); err != nil {
+				t.Fatalf("disable operation busy timeout: %v", err)
+			}
+
+			competing, err := Open(ctx, path)
+			if err != nil {
+				t.Fatalf("Open(competing) error = %v", err)
+			}
+			t.Cleanup(func() { _ = competing.Close() })
+			connection, err := competing.database.Conn(ctx)
+			if err != nil {
+				t.Fatalf("reserve competing connection: %v", err)
+			}
+			defer func() { _ = connection.Close() }()
+			if _, err := connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+				t.Fatalf("reserve competing writer: %v", err)
+			}
+			defer func() { _, _ = connection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK") }()
+
+			switch operation {
+			case "archive":
+				_, err = areas.Archive(ctx, created.ID, "2026-01-03T00:00:00.000Z")
+			case "unarchive":
+				_, err = areas.Unarchive(ctx, created.ID, "2026-01-03T00:00:00.000Z")
+			case "delete":
+				_, err = areas.Delete(ctx, created.ID)
+			}
+			if err == nil || !strings.HasPrefix(err.Error(), "begin area transaction:") {
+				t.Fatalf("%s while writer reserved error = %v, want top-level transaction begin failure", operation, err)
+			}
+			if _, coded := apperr.CodeOf(err); coded {
+				t.Errorf("%s while writer reserved error = %v, want uncoded internal failure", operation, err)
+			}
+
+			persisted, err := areas.Find(ctx, created.ID)
+			if err != nil {
+				t.Fatalf("Find(after blocked %s) error = %v", operation, err)
+			}
+			if !reflect.DeepEqual(persisted, created) {
+				t.Errorf("area after blocked %s = %#v, want unchanged %#v", operation, persisted, created)
+			}
+		})
+	}
+}
+
 func TestAreaDeleteHonorsRestrictAndRecursiveTransaction(t *testing.T) {
 	t.Parallel()
 

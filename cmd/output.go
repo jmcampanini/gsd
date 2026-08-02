@@ -13,6 +13,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
+	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -58,17 +59,102 @@ func writeCommandError(writer io.Writer, jsonMode bool, err error) error {
 }
 
 func writeAddedTask(writer io.Writer, created task.Task) error {
-	_, err := fmt.Fprintf(writer, "Added task %d: %s\n", created.ID, humanText(created.Title, false))
+	_, err := fmt.Fprintf(
+		writer,
+		"Added task %d: %s%s\n",
+		created.ID,
+		humanText(created.Title, false),
+		addedTagSuffix(created.Tags),
+	)
 	return err
 }
 
 func writeAddedProject(writer io.Writer, created project.Project) error {
-	_, err := fmt.Fprintf(writer, "Added project %d: %s\n", created.ID, humanText(created.Title, false))
+	_, err := fmt.Fprintf(
+		writer,
+		"Added project %d: %s%s\n",
+		created.ID,
+		humanText(created.Title, false),
+		addedTagSuffix(created.Tags),
+	)
 	return err
 }
 
 func writeAddedArea(writer io.Writer, created area.Area) error {
-	_, err := fmt.Fprintf(writer, "Added area %d: %s\n", created.ID, humanText(created.Title, false))
+	_, err := fmt.Fprintf(
+		writer,
+		"Added area %d: %s%s\n",
+		created.ID,
+		humanText(created.Title, false),
+		addedTagSuffix(created.Tags),
+	)
+	return err
+}
+
+func addedTagSuffix(titles []string) string {
+	if len(titles) == 0 {
+		return ""
+	}
+	return "  " + humanTagTitles(titles)
+}
+
+func writeAddedTag(writer io.Writer, created tag.Tag) error {
+	_, err := fmt.Fprintf(writer, "Added tag %s\n", humanText(created.Title, false))
+	return err
+}
+
+func writeRenamedTag(writer io.Writer, oldName, newName string) error {
+	_, err := fmt.Fprintf(
+		writer,
+		"Renamed tag %s to %s\n",
+		humanText(oldName, false),
+		humanText(newName, false),
+	)
+	return err
+}
+
+func writeTagDeletion(writer io.Writer, deletion tag.Deletion) error {
+	plural := ""
+	if deletion.Detached != 1 {
+		plural = "s"
+	}
+	_, err := fmt.Fprintf(
+		writer,
+		"Deleted tag %s (detached from %d item%s)\n",
+		humanText(deletion.Tag.Title, false),
+		deletion.Detached,
+		plural,
+	)
+	return err
+}
+
+func writeTaskTagging(writer io.Writer, action string, tagging task.Tagging) error {
+	return writeEntityTagging(writer, action, "task", tagging.Task.ID, tagging.TagTitles)
+}
+
+func writeProjectTagging(writer io.Writer, action string, tagging project.Tagging) error {
+	return writeEntityTagging(writer, action, "project", tagging.Project.ID, tagging.TagTitles)
+}
+
+func writeAreaTagging(writer io.Writer, action string, tagging area.Tagging) error {
+	return writeEntityTagging(writer, action, "area", tagging.Area.ID, tagging.TagTitles)
+}
+
+func writeEntityTagging(
+	writer io.Writer,
+	action string,
+	noun string,
+	id int64,
+	titles []string,
+) error {
+	_, err := fmt.Fprintf(
+		writer,
+		"%s: %s %d  %s\n",
+		action,
+		noun,
+		id,
+		humanTagTitles(titles),
+	)
 	return err
 }
 
@@ -236,6 +322,22 @@ func writeProjectList(writer io.Writer, projects []project.Project) error {
 	return writeTable(writer, rows)
 }
 
+func writeTagList(writer io.Writer, tags []tag.ListedTag) error {
+	if len(tags) == 0 {
+		return nil
+	}
+
+	rows := make([][]string, 0, len(tags))
+	for _, current := range tags {
+		rows = append(rows, []string{
+			humanText(current.Title, false),
+			strconv.FormatInt(current.UsageCount, 10),
+		})
+	}
+
+	return writeTable(writer, rows)
+}
+
 func writeAreaList(writer io.Writer, areas []area.Area) error {
 	if len(areas) == 0 {
 		return nil
@@ -272,6 +374,7 @@ func writeTask(writer io.Writer, current task.Task) error {
 		{"Position", strconv.FormatInt(current.Position, 10)},
 		{"Created at", humanText(current.CreatedAt, false)},
 		{"Updated at", humanText(current.UpdatedAt, false)},
+		{"Tags", humanTagTitles(current.Tags)},
 	}
 
 	return writeTable(writer, rows)
@@ -289,6 +392,7 @@ func writeProject(writer io.Writer, current project.Project) error {
 		{"Position", strconv.FormatInt(current.Position, 10)},
 		{"Created at", humanText(current.CreatedAt, false)},
 		{"Updated at", humanText(current.UpdatedAt, false)},
+		{"Tags", humanTagTitles(current.Tags)},
 	}
 
 	return writeTable(writer, rows)
@@ -303,9 +407,18 @@ func writeArea(writer io.Writer, current area.Area) error {
 		{"Position", strconv.FormatInt(current.Position, 10)},
 		{"Created at", humanText(current.CreatedAt, false)},
 		{"Updated at", humanText(current.UpdatedAt, false)},
+		{"Tags", humanTagTitles(current.Tags)},
 	}
 
 	return writeTable(writer, rows)
+}
+
+func humanTagTitles(titles []string) string {
+	visible := make([]string, len(titles))
+	for index := range titles {
+		visible[index] = humanText(titles[index], false)
+	}
+	return strings.Join(visible, ", ")
 }
 
 func writeTable(writer io.Writer, rows [][]string) error {

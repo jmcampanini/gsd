@@ -3,13 +3,12 @@ package area
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
+	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -23,14 +22,45 @@ func NewService(store Store) *Service {
 }
 
 func (s *Service) Add(ctx context.Context, fields AddFields) (Area, error) {
-	if err := validateTitle(fields.Title); err != nil {
+	if err := domain.ValidateTitle(fields.Title); err != nil {
 		return Area{}, err
 	}
-	if err := validateNote(fields.Note); err != nil {
+	if err := domain.ValidateNote(fields.Note); err != nil {
+		return Area{}, err
+	}
+	normalizedTags, err := domain.NormalizeTagNames(fields.Tags)
+	if err != nil {
+		return Area{}, err
+	}
+	fields.Tags = normalizedTags
+	timestamp := domain.FormatTimestamp(s.now())
+	if len(fields.Tags) == 0 {
+		return s.store.Add(ctx, fields, timestamp)
+	}
+
+	var added Area
+	err = s.store.WithinTransaction(ctx, func(store Store) error {
+		created, err := store.Add(ctx, fields, timestamp)
+		if err != nil {
+			return err
+		}
+
+		resolvedTags, err := store.ResolveTags(ctx, fields.Tags)
+		if err != nil {
+			return err
+		}
+		if err := store.AttachTags(ctx, created.ID, resolvedTags); err != nil {
+			return err
+		}
+
+		added, err = store.Find(ctx, created.ID)
+		return err
+	})
+	if err != nil {
 		return Area{}, err
 	}
 
-	return s.store.Add(ctx, fields, formatTimestamp(s.now()))
+	return added, nil
 }
 
 func (s *Service) List(ctx context.Context, options ListOptions) ([]Area, error) {
@@ -45,15 +75,7 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Area, error)
 		)
 	}
 
-	areas, err := s.store.List(ctx, options)
-	if err != nil {
-		return nil, err
-	}
-	if areas == nil {
-		return []Area{}, nil
-	}
-
-	return areas, nil
+	return domain.NormalizeSliceResult(s.store.List(ctx, options))
 }
 
 func (s *Service) Show(ctx context.Context, id int64) (Area, error) {
@@ -76,17 +98,17 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Area, 
 		)
 	}
 	if fields.Title != nil {
-		if err := validateTitle(*fields.Title); err != nil {
+		if err := domain.ValidateTitle(*fields.Title); err != nil {
 			return Area{}, err
 		}
 	}
 	if fields.Note != nil {
-		if err := validateNote(*fields.Note); err != nil {
+		if err := domain.ValidateNote(*fields.Note); err != nil {
 			return Area{}, err
 		}
 	}
 
-	return s.store.Edit(ctx, id, fields, formatTimestamp(s.now()))
+	return s.store.Edit(ctx, id, fields, domain.FormatTimestamp(s.now()))
 }
 
 func (s *Service) Archive(ctx context.Context, id int64) (Area, error) {
@@ -94,7 +116,7 @@ func (s *Service) Archive(ctx context.Context, id int64) (Area, error) {
 		return Area{}, err
 	}
 
-	return s.store.Archive(ctx, id, formatTimestamp(s.now()))
+	return s.store.Archive(ctx, id, domain.FormatTimestamp(s.now()))
 }
 
 func (s *Service) Unarchive(ctx context.Context, id int64) (Area, error) {
@@ -102,7 +124,69 @@ func (s *Service) Unarchive(ctx context.Context, id int64) (Area, error) {
 		return Area{}, err
 	}
 
-	return s.store.Unarchive(ctx, id, formatTimestamp(s.now()))
+	return s.store.Unarchive(ctx, id, domain.FormatTimestamp(s.now()))
+}
+
+func (s *Service) Tag(ctx context.Context, id int64, names []string) (Tagging, error) {
+	return s.changeTags(ctx, id, names, true)
+}
+
+func (s *Service) Untag(ctx context.Context, id int64, names []string) (Tagging, error) {
+	return s.changeTags(ctx, id, names, false)
+}
+
+func (s *Service) changeTags(
+	ctx context.Context,
+	id int64,
+	names []string,
+	attach bool,
+) (Tagging, error) {
+	if err := validateID(id); err != nil {
+		return Tagging{}, err
+	}
+	if len(names) == 0 {
+		return Tagging{}, apperr.New(
+			apperr.InvalidArgument,
+			"area tagging requires at least one tag",
+			nil,
+		)
+	}
+
+	normalizedNames, normalizeErr := domain.NormalizeTagNames(names)
+	if normalizeErr != nil {
+		return Tagging{}, normalizeErr
+	}
+
+	var result Tagging
+	transactionErr := s.store.WithinTransaction(ctx, func(store Store) error {
+		if _, err := store.Find(ctx, id); err != nil {
+			return err
+		}
+
+		resolvedTags, err := store.ResolveTags(ctx, normalizedNames)
+		if err != nil {
+			return err
+		}
+		if attach {
+			if err := store.AttachTags(ctx, id, resolvedTags); err != nil {
+				return err
+			}
+		} else if err := store.DetachTags(ctx, id, resolvedTags); err != nil {
+			return err
+		}
+
+		refreshed, err := store.Find(ctx, id)
+		if err != nil {
+			return err
+		}
+		result = Tagging{Area: refreshed, TagTitles: tag.Titles(resolvedTags)}
+		return nil
+	})
+	if transactionErr != nil {
+		return Tagging{}, transactionErr
+	}
+
+	return result, nil
 }
 
 func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletion, error) {
@@ -124,20 +208,24 @@ func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletio
 	}
 
 	var deletedArea Area
-	var deletedProjects []project.Project
+	deletedProjects := []project.Project{}
 	deletedTasks := []task.Task{}
 	err := s.store.WithinTransaction(ctx, func(store Store) error {
-		projectTasks, err := store.DeleteTasks(ctx, id, TaskDeletionScopeProject)
+		projectTasks, err := domain.NormalizeSliceResult(
+			store.DeleteTasks(ctx, id, TaskDeletionScopeProject),
+		)
 		if err != nil {
 			return err
 		}
 
-		deletedProjects, err = store.DeleteProjects(ctx, id)
+		deletedProjects, err = domain.NormalizeSliceResult(store.DeleteProjects(ctx, id))
 		if err != nil {
 			return err
 		}
 
-		looseTasks, err := store.DeleteTasks(ctx, id, TaskDeletionScopeLoose)
+		looseTasks, err := domain.NormalizeSliceResult(
+			store.DeleteTasks(ctx, id, TaskDeletionScopeLoose),
+		)
 		if err != nil {
 			return err
 		}
@@ -163,10 +251,6 @@ func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletio
 	if err != nil {
 		return Deletion{}, err
 	}
-	if deletedProjects == nil {
-		deletedProjects = []project.Project{}
-	}
-
 	return Deletion{
 		Area:            deletedArea,
 		DeletedProjects: deletedProjects,
@@ -175,29 +259,7 @@ func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletio
 }
 
 func ParseID(value string) (int64, error) {
-	if value == "" {
-		return 0, apperr.New(apperr.InvalidArgument, "area ID must be a positive decimal", nil)
-	}
-	for _, character := range value {
-		if character < '0' || character > '9' {
-			return 0, apperr.New(
-				apperr.InvalidArgument,
-				fmt.Sprintf("invalid area ID %q", value),
-				nil,
-			)
-		}
-	}
-
-	id, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || id <= 0 {
-		return 0, apperr.New(
-			apperr.InvalidArgument,
-			fmt.Sprintf("invalid area ID %q", value),
-			err,
-		)
-	}
-
-	return id, nil
+	return domain.ParseID("area", value)
 }
 
 func validListSlice(slice ListSlice) bool {
@@ -210,32 +272,5 @@ func validListSlice(slice ListSlice) bool {
 }
 
 func validateID(id int64) error {
-	if id <= 0 {
-		return apperr.New(apperr.InvalidArgument, "area ID must be positive", nil)
-	}
-
-	return nil
-}
-
-func validateTitle(title string) error {
-	if !utf8.ValidString(title) {
-		return apperr.New(apperr.InvalidArgument, "title must be valid UTF-8", nil)
-	}
-	if strings.TrimSpace(title) == "" {
-		return apperr.New(apperr.InvalidArgument, "title must not be blank", nil)
-	}
-
-	return nil
-}
-
-func validateNote(note string) error {
-	if !utf8.ValidString(note) {
-		return apperr.New(apperr.InvalidArgument, "note must be valid UTF-8", nil)
-	}
-
-	return nil
-}
-
-func formatTimestamp(value time.Time) string {
-	return value.UTC().Format("2006-01-02T15:04:05.000Z")
+	return domain.ValidateID("area", id)
 }

@@ -53,18 +53,28 @@ unarchive-first guidance, and RESTRICT-guarded area deletion with a
 transactional `--recursive` opt-in reporting a container-grouped
 envelope.
 
+### Milestone 5 — Tags
+
+Delivered the flat case-insensitive tag namespace across tasks,
+projects, and areas: name-addressed administration with usage counts,
+attach/detach verbs and `--tag` creation and list filtering on all
+three nouns, idempotent attachment, cascade detachment on deletion, and
+`tags` arrays completing every entity JSON envelope — converging the
+schema byte-for-byte with `SCHEMA.md`. Consolidation also landed the
+store transaction seam across all stores, read-then-validate guard
+classification, and the shared `internal/domain` validation package.
+
 ## Active roadmap
 
-Active planning begins with the Tags milestone:
+Active planning begins with the Config milestone:
 
 | # | Milestone | Capability delivered | Data mode |
 |---|-----------|----------------------|-----------|
-| 5 | [Tags](MILESTONE_5.md) | Tags across all entities | throwaway |
 | 6 | [Config](MILESTONE_6.md) | Config file via go-config-loader; color modes | throwaway |
-| 7 | [Go live](MILESTONE_7.md) | Migrations, install story, real-data import | **live** |
-| 8 | [Reorder](MILESTONE_8.md) | Manual ordering | live |
-| 9 | [Search](MILESTONE_9.md) | FTS5 `search` | live |
-| 10 | [Query](MILESTONE_10.md) | Read-only SQL; schema as public contract | live |
+| 7 | [Reorder](MILESTONE_7.md) | Manual ordering | throwaway |
+| 8 | [Search](MILESTONE_8.md) | FTS5 `search` | throwaway |
+| 9 | [Query](MILESTONE_9.md) | Read-only SQL; schema as public contract | throwaway |
+| 10 | [Go live](MILESTONE_10.md) | Migrations, install story, real-data import | **live** |
 
 The TUI is deliberately not in the v1 map. It remains a separate post-v1
 effort described as a forward-looking target in `COMMANDS.md` and
@@ -99,3 +109,14 @@ effort described as a forward-looking target in `COMMANDS.md` and
 - Initial stack, data-policy, TUI-scope, error-rendering, and config decisions
   were settled during planning and implementation interviews on 2026-07-26
   and 2026-07-27, then reconciled into the canonical specifications.
+- 2026-08-02, Milestone 5 foundation review: Go live moved to the end of
+  the roadmap (Config → Reorder → Search → Query → Go live) so the
+  complete written-down v1 surface is demonstrated on throwaway data
+  before real data enters. The go-live baseline therefore includes the
+  FTS schema, and v1 ships no live migrations.
+- Same review: entity `tags` arrays become alphabetical (`NOCASE`),
+  matching `tags list` — specified in the canonical docs now, shipped by
+  Milestone 6 chunk 0, which also consolidates the review's structural
+  findings. The amended transaction-authority rule in `AGENTS.md` was
+  ratified: stores own implementation-detail atomicity, services own
+  use-case composition.

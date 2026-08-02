@@ -6,10 +6,12 @@ Things-inspired workflow, and a SQLite backend. The current baseline provides
 the repository and CLI foundation, a complete bare-inbox task lifecycle,
 calendar-aware due dates, deferrals, and an `available` view, projects
 with task containment, narrated completion cascades, and the interleaved
-`logbook`, plus areas holding projects and loose tasks, with governing-area
-archiving and RESTRICT-guarded recursive deletion. The broader model
-below remains the forward-looking canonical v1 target and is delivered
-incrementally through `MILESTONES.md`. The SQL schema lives in `SCHEMA.md`.
+`logbook`, areas holding projects and loose tasks with governing-area
+archiving and RESTRICT-guarded recursive deletion, and flat tags spanning
+all three entity kinds. Tags complete the v1 entity model and its JSON field
+set; the broader command surface remains the forward-looking canonical v1
+target delivered incrementally through `MILESTONES.md`. The SQL schema lives
+in `SCHEMA.md`.
 
 ## Primitives
 
@@ -35,8 +37,8 @@ nothing (= inbox).
 - `done_at` / `cancelled_at` — at most one set; both empty = open
 - `position`
 
-**Tag** — flat namespace, case-insensitively unique. Attaches to tasks,
-projects, and areas.
+**Tag** — flat namespace, case-insensitively unique with SQLite's ASCII-only
+`NOCASE`. Attaches to tasks, projects, and areas; names are its identity.
 
 ## Field conventions
 
@@ -72,6 +74,25 @@ Hard delete exists but is the uncommon path — the normal end of life is
 - **Logbook**: everything done or cancelled — tasks and projects — ordered
   by resolution time, newest first; a project lists above the tasks its
   cascade cancelled at the same instant.
+
+## Tag lifecycle
+
+- Tags are created explicitly and addressed by name. Valid nonblank UTF-8
+  spelling is stored unchanged; lookups are case-insensitive for ASCII and
+  display the stored spelling, initially the spelling used at creation.
+- Attach and detach are idempotent content edits on tasks, projects, and
+  areas. Multi-name changes collapse duplicates and are all-or-nothing;
+  tagged entity creation is transactional. Tagging remains allowed under
+  archived areas and resolved projects and does not bump entity `updated_at`.
+- Renaming updates the one shared tag, so every entity reflects the new name.
+  Deleting a tag detaches it everywhere. Deleting a tagged entity removes its
+  attachments, reducing usage counts across the three entity kinds.
+- Every task, project, and area JSON row carries a non-null `tags` array.
+  Tag listings add a cross-entity `usage_count`; tag deletion reports its
+  `detached` count.
+- Human tag lists show name and usage count without IDs. Entity `show` output
+  has a `Tags` row, collections add no tags column, and mutations render the
+  stored spelling.
 
 ## Completion cascade and deletion
 

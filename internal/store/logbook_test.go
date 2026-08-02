@@ -25,6 +25,9 @@ INSERT INTO tasks (id, project_id, title, cancelled_at, position)
 VALUES (2, 1, 'second task', '2026-02-01T00:00:00.000Z', 1);
 INSERT INTO tasks (id, project_id, title, done_at, position)
 VALUES (3, 2, 'newest task', '2026-03-01T00:00:00.000Z', 2);
+INSERT INTO tags (id, title) VALUES (1, 'first'), (2, 'second');
+INSERT INTO task_tags (task_id, tag_id) VALUES (3, 2), (3, 1);
+INSERT INTO project_tags (project_id, tag_id) VALUES (1, 2);
 `); err != nil {
 		t.Fatalf("seed logbook entries: %v", err)
 	}
@@ -47,6 +50,7 @@ VALUES (3, 2, 'newest task', '2026-03-01T00:00:00.000Z', 2);
 			Status:       "done",
 			ResolvedAt:   "2026-03-01T00:00:00.000Z",
 			ProjectTitle: &beta,
+			Tags:         []string{"first", "second"},
 		},
 		{
 			Kind:       "project",
@@ -54,6 +58,7 @@ VALUES (3, 2, 'newest task', '2026-03-01T00:00:00.000Z', 2);
 			Title:      "Beta",
 			Status:     "cancelled",
 			ResolvedAt: "2026-02-01T00:00:00.000Z",
+			Tags:       []string{},
 		},
 		{
 			Kind:               "project",
@@ -63,6 +68,7 @@ VALUES (3, 2, 'newest task', '2026-03-01T00:00:00.000Z', 2);
 			ResolvedAt:         "2026-02-01T00:00:00.000Z",
 			GoverningAreaID:    &projectAreaID,
 			GoverningAreaTitle: &projectAreaTitle,
+			Tags:               []string{"second"},
 		},
 		{
 			Kind:               "task",
@@ -73,6 +79,7 @@ VALUES (3, 2, 'newest task', '2026-03-01T00:00:00.000Z', 2);
 			ProjectTitle:       &alpha,
 			GoverningAreaID:    &projectAreaID,
 			GoverningAreaTitle: &projectAreaTitle,
+			Tags:               []string{},
 		},
 		{
 			Kind:               "task",
@@ -82,6 +89,7 @@ VALUES (3, 2, 'newest task', '2026-03-01T00:00:00.000Z', 2);
 			ResolvedAt:         "2026-02-01T00:00:00.000Z",
 			GoverningAreaID:    &directAreaID,
 			GoverningAreaTitle: &directAreaTitle,
+			Tags:               []string{},
 		},
 	}
 	if !reflect.DeepEqual(entries, want) {

@@ -11,6 +11,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
+	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -24,6 +25,7 @@ type Projects struct {
 type projectExecutor interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }
 
 func NewProjects(database *DB) *Projects {
@@ -35,45 +37,50 @@ func (s *Projects) Add(
 	fields project.AddFields,
 	timestamp string,
 ) (project.Project, error) {
+	if s.database != nil {
+		return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Store) (project.Project, error) {
+			return transaction.Add(ctx, fields, timestamp)
+		})
+	}
+
+	if fields.AreaID != nil {
+		archivedAreaIDs, err := s.archivedAreaIDs(ctx, *fields.AreaID)
+		if err != nil {
+			return project.Project{}, err
+		}
+		if len(archivedAreaIDs) > 0 {
+			message := fmt.Sprintf("cannot add project to area %d while it is archived", *fields.AreaID)
+			return project.Project{}, archivedAreasConflict(message, archivedAreaIDs, nil)
+		}
+	}
+
 	areaID := nullableID(fields.AreaID)
 	created, err := scanProject(s.executor.QueryRowContext(ctx, `
 INSERT INTO projects (area_id, title, note, position, created_at, updated_at)
-SELECT ?, ?, ?,
-       COALESCE((SELECT MAX(position) FROM projects WHERE area_id IS ?), -1) + 1,
-       ?, ?
-WHERE ? IS NULL OR EXISTS (
-    SELECT 1 FROM areas WHERE id = ? AND archived_at IS NULL
-)
-RETURNING `+projectColumns,
+VALUES (?, ?, ?,
+        COALESCE((SELECT MAX(position) FROM projects WHERE area_id IS ?), -1) + 1,
+        ?, ?)
+RETURNING `+projectColumnsWithTags("projects.id"),
 		areaID,
 		fields.Title,
 		fields.Note,
 		areaID,
 		timestamp,
 		timestamp,
-		areaID,
-		areaID,
 	))
-	if err == nil {
-		return created, nil
-	}
-	if errors.Is(err, sql.ErrNoRows) && fields.AreaID != nil {
-		found, findErr := s.findArea(ctx, *fields.AreaID)
-		if findErr != nil {
-			return project.Project{}, findErr
-		}
-		if found.ArchivedAt != nil {
-			message := fmt.Sprintf("cannot add project to area %d while it is archived", *fields.AreaID)
-			return project.Project{}, archivedAreasConflict(message, []int64{*fields.AreaID}, err)
-		}
-		return project.Project{}, fmt.Errorf("classify active area %d: %w", *fields.AreaID, err)
+	if err != nil {
+		return project.Project{}, fmt.Errorf("insert project: %w", err)
 	}
 
-	return project.Project{}, fmt.Errorf("insert project: %w", err)
+	return created, nil
 }
 
 func (s *Projects) Find(ctx context.Context, id int64) (project.Project, error) {
-	row := s.executor.QueryRowContext(ctx, "SELECT "+projectColumns+" FROM projects WHERE id = ?", id)
+	row := s.executor.QueryRowContext(
+		ctx,
+		"SELECT "+projectColumnsWithTags("projects.id")+" FROM projects WHERE id = ?",
+		id,
+	)
 	found, err := scanProject(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return project.Project{}, apperr.New(apperr.NotFound, fmt.Sprintf("no project %d", id), err)
@@ -98,35 +105,23 @@ func (s *Projects) List(ctx context.Context, options project.ListOptions) ([]pro
 	}
 
 	if options.AreaID != nil {
-		query := "WITH listed_projects AS (SELECT " + projectColumns +
-			" FROM projects WHERE area_id = ?"
-		if len(conditions) > 0 {
-			query += " AND " + strings.Join(conditions, " AND ")
-		}
-		query += `
-), requested_area AS (
-    SELECT 1 FROM areas WHERE id = ?
-)
-SELECT * FROM listed_projects
-UNION ALL
-SELECT 0, NULL, '', '', NULL, NULL, '', 0, '', ''
-FROM requested_area
-WHERE NOT EXISTS (SELECT 1 FROM listed_projects)
-ORDER BY position, id`
-		scopedArguments := make([]any, 0, len(arguments)+2)
-		scopedArguments = append(scopedArguments, *options.AreaID)
-		scopedArguments = append(scopedArguments, arguments...)
-		scopedArguments = append(scopedArguments, *options.AreaID)
-
-		rows, err := s.executor.QueryContext(ctx, query, scopedArguments...)
-		if err != nil {
-			return nil, fmt.Errorf("list area projects: %w", err)
+		if s.database != nil {
+			var listed []project.Project
+			err := withinDeferredTransaction(ctx, s.database, "project", func(connection *sql.Conn) error {
+				var err error
+				listed, err = (&Projects{executor: connection}).List(ctx, options)
+				return err
+			})
+			if err != nil {
+				return nil, err
+			}
+			return listed, nil
 		}
 
-		return collectAreaProjects(rows, *options.AreaID)
+		return s.listArea(ctx, *options.AreaID, conditions, arguments)
 	}
 
-	query := "SELECT " + projectColumns + " FROM projects"
+	query := "SELECT " + projectColumnsWithTags("projects.id") + " FROM projects"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -149,9 +144,46 @@ func (s *Projects) Edit(
 	if fields.Area.Set != nil && fields.Area.Clear {
 		return project.Project{}, errors.New("area cannot be set and cleared")
 	}
+	contentChanged := fields.Title != nil || fields.Note != nil
+	membershipRequested := fields.Area.Set != nil || fields.Area.Clear
+	if !contentChanged && !membershipRequested {
+		return project.Project{}, errors.New("edit requires at least one field")
+	}
+	if s.database != nil {
+		return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Store) (project.Project, error) {
+			return transaction.Edit(ctx, id, fields, timestamp)
+		})
+	}
+
+	current, err := s.Find(ctx, id)
+	if err != nil {
+		return project.Project{}, err
+	}
+	destination := current.AreaID
+	if fields.Area.Set != nil {
+		destination = fields.Area.Set
+	} else if fields.Area.Clear {
+		destination = nil
+	}
+	movement := !sameProjectArea(current.AreaID, destination)
+	if movement {
+		areaIDs := make([]int64, 0, 2)
+		if destination != nil {
+			areaIDs = append(areaIDs, *destination)
+		}
+		if current.AreaID != nil {
+			areaIDs = append(areaIDs, *current.AreaID)
+		}
+		if err := s.validateActiveAreas(ctx, fmt.Sprintf("move project %d", id), areaIDs...); err != nil {
+			return project.Project{}, err
+		}
+	}
+	if !contentChanged && !movement {
+		return current, nil
+	}
 
 	assignments := make([]string, 0, 5)
-	arguments := make([]any, 0, 10)
+	arguments := make([]any, 0, 6)
 	if fields.Title != nil {
 		assignments = append(assignments, "title = ?")
 		arguments = append(arguments, *fields.Title)
@@ -160,121 +192,31 @@ func (s *Projects) Edit(
 		assignments = append(assignments, "note = ?")
 		arguments = append(arguments, *fields.Note)
 	}
-
-	contentChanged := len(assignments) > 0
-	membershipRequested := fields.Area.Set != nil || fields.Area.Clear
-	if !contentChanged && !membershipRequested {
-		return project.Project{}, errors.New("edit requires at least one field")
-	}
-
-	var destination any
-	if fields.Area.Set != nil {
-		destination = *fields.Area.Set
-	}
-	if membershipRequested {
+	if movement {
+		areaID := nullableID(destination)
 		assignments = append(
 			assignments,
-			`position = CASE
-    WHEN projects.area_id IS ? THEN projects.position
-    ELSE COALESCE((
-        SELECT MAX(sibling.position)
-        FROM projects AS sibling
-        WHERE sibling.area_id IS ?
-    ), -1) + 1
-END`,
+			`position = COALESCE((
+    SELECT MAX(sibling.position)
+    FROM projects AS sibling
+    WHERE sibling.area_id IS ?
+), -1) + 1`,
 			"area_id = ?",
 		)
-		arguments = append(arguments, destination, destination, destination)
+		arguments = append(arguments, areaID, areaID)
 	}
+	assignments = append(assignments, "updated_at = ?")
+	arguments = append(arguments, timestamp)
 
-	if contentChanged {
-		assignments = append(assignments, "updated_at = ?")
-		arguments = append(arguments, timestamp)
-	} else {
-		assignments = append(
-			assignments,
-			"updated_at = CASE WHEN projects.area_id IS ? THEN projects.updated_at ELSE ? END",
-		)
-		arguments = append(arguments, destination, timestamp)
-	}
-
-	query := "UPDATE projects SET " + strings.Join(assignments, ", ") + " WHERE id = ?"
+	query := "UPDATE projects SET " + strings.Join(assignments, ", ") +
+		" WHERE id = ? RETURNING " + projectColumnsWithTags("projects.id")
 	arguments = append(arguments, id)
-	if membershipRequested {
-		query += ` AND (
-    projects.area_id IS ?
-    OR (
-        (
-            projects.area_id IS NULL
-            OR EXISTS (
-                SELECT 1 FROM areas AS source_area
-                WHERE source_area.id = projects.area_id
-                  AND source_area.archived_at IS NULL
-            )
-        )
-        AND (
-            ? IS NULL
-            OR EXISTS (
-                SELECT 1 FROM areas AS destination_area
-                WHERE destination_area.id = ?
-                  AND destination_area.archived_at IS NULL
-            )
-        )
-    )
-)`
-		arguments = append(arguments, destination, destination, destination)
-	}
-	query += " RETURNING " + projectColumns
-
 	edited, err := scanProject(s.executor.QueryRowContext(ctx, query, arguments...))
-	if err == nil {
-		return edited, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if err != nil {
 		return project.Project{}, fmt.Errorf("edit project: %w", err)
 	}
-	current, findErr := s.Find(ctx, id)
-	if findErr != nil {
-		return project.Project{}, findErr
-	}
 
-	archivedAreaIDs := make([]int64, 0, 2)
-	if fields.Area.Set != nil {
-		destinationArea, destinationErr := s.findArea(ctx, *fields.Area.Set)
-		if destinationErr != nil {
-			return project.Project{}, destinationErr
-		}
-		if destinationArea.ArchivedAt != nil {
-			archivedAreaIDs = append(archivedAreaIDs, destinationArea.ID)
-		}
-	}
-	if current.AreaID != nil {
-		sourceArea, sourceErr := s.findArea(ctx, *current.AreaID)
-		if sourceErr != nil {
-			return project.Project{}, sourceErr
-		}
-		if sourceArea.ArchivedAt != nil {
-			archivedAreaIDs = append(archivedAreaIDs, sourceArea.ID)
-		}
-	}
-	if len(archivedAreaIDs) > 0 {
-		archivedAreaIDs = sortedUniqueIDs(archivedAreaIDs)
-		message := fmt.Sprintf(
-			"cannot move project %d while areas %s are archived",
-			id,
-			formatIDs(archivedAreaIDs),
-		)
-		if len(archivedAreaIDs) == 1 {
-			message = fmt.Sprintf(
-				"cannot move project %d while area %d is archived",
-				id,
-				archivedAreaIDs[0],
-			)
-		}
-		return project.Project{}, archivedAreasConflict(message, archivedAreaIDs, err)
-	}
-
-	return project.Project{}, fmt.Errorf("edit project: %w", err)
+	return edited, nil
 }
 
 func (s *Projects) Resolve(
@@ -295,54 +237,41 @@ func (s *Projects) Resolve(
 	default:
 		return project.Project{}, fmt.Errorf("invalid project exit %q", exit)
 	}
+	if s.database != nil {
+		return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Store) (project.Project, error) {
+			return transaction.Resolve(ctx, id, exit, timestamp)
+		})
+	}
 
-	query := "UPDATE projects SET " + column + " = ?, updated_at = ? " +
-		`WHERE id = ?
-  AND done_at IS NULL
-  AND cancelled_at IS NULL
-  AND (
-      area_id IS NULL
-      OR EXISTS (
-          SELECT 1 FROM areas
-          WHERE areas.id = projects.area_id AND areas.archived_at IS NULL
-      )
-  )
-RETURNING ` + projectColumns
-	resolved, err := scanProject(s.executor.QueryRowContext(ctx, query, timestamp, timestamp, id))
-	if err == nil {
-		return resolved, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return project.Project{}, fmt.Errorf("%s project: %w", action, err)
-	}
-	current, findErr := s.Find(ctx, id)
-	if findErr != nil {
-		return project.Project{}, findErr
+	current, err := s.Find(ctx, id)
+	if err != nil {
+		return project.Project{}, err
 	}
 	if current.AreaID != nil {
-		governingArea, areaErr := s.findArea(ctx, *current.AreaID)
-		if areaErr != nil {
-			return project.Project{}, areaErr
-		}
-		if governingArea.ArchivedAt != nil {
-			return project.Project{}, archivedAreasConflict(
-				fmt.Sprintf(
-					"cannot %s project %d while area %d is archived",
-					action,
-					id,
-					governingArea.ID,
-				),
-				[]int64{governingArea.ID},
-				err,
-			)
+		if err := s.validateActiveAreas(
+			ctx,
+			fmt.Sprintf("%s project %d", action, id),
+			*current.AreaID,
+		); err != nil {
+			return project.Project{}, err
 		}
 	}
+	if current.DoneAt != nil || current.CancelledAt != nil {
+		return project.Project{}, apperr.New(
+			apperr.Conflict,
+			fmt.Sprintf("cannot %s project %d in its current state", action, id),
+			nil,
+		)
+	}
 
-	return project.Project{}, apperr.New(
-		apperr.Conflict,
-		fmt.Sprintf("cannot %s project %d in its current state", action, id),
-		err,
-	)
+	query := "UPDATE projects SET " + column + " = ?, updated_at = ? WHERE id = ? RETURNING " +
+		projectColumnsWithTags("projects.id")
+	resolved, err := scanProject(s.executor.QueryRowContext(ctx, query, timestamp, timestamp, id))
+	if err != nil {
+		return project.Project{}, fmt.Errorf("%s project: %w", action, err)
+	}
+
+	return resolved, nil
 }
 
 func (s *Projects) CancelOpenTasks(
@@ -354,7 +283,7 @@ func (s *Projects) CancelOpenTasks(
 UPDATE tasks
 SET cancelled_at = ?, updated_at = ?
 WHERE project_id = ? AND done_at IS NULL AND cancelled_at IS NULL
-RETURNING `+taskColumns, timestamp, timestamp, projectID)
+RETURNING `+taskColumnsWithTags("tasks.id"), timestamp, timestamp, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("cancel open project tasks: %w", err)
 	}
@@ -373,56 +302,64 @@ func (s *Projects) Reopen(
 	id int64,
 	timestamp string,
 ) (project.Project, error) {
+	if s.database != nil {
+		return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Store) (project.Project, error) {
+			return transaction.Reopen(ctx, id, timestamp)
+		})
+	}
+
+	current, err := s.Find(ctx, id)
+	if err != nil {
+		return project.Project{}, err
+	}
+	if current.AreaID != nil {
+		if err := s.validateActiveAreas(
+			ctx,
+			fmt.Sprintf("reopen project %d", id),
+			*current.AreaID,
+		); err != nil {
+			return project.Project{}, err
+		}
+	}
+	if current.DoneAt == nil && current.CancelledAt == nil {
+		return project.Project{}, apperr.New(
+			apperr.Conflict,
+			fmt.Sprintf("cannot reopen project %d in its current state", id),
+			nil,
+		)
+	}
+
 	reopened, err := scanProject(s.executor.QueryRowContext(ctx, `
 UPDATE projects
 SET done_at = NULL, cancelled_at = NULL, updated_at = ?
 WHERE id = ?
-  AND (done_at IS NOT NULL OR cancelled_at IS NOT NULL)
-  AND (
-      area_id IS NULL
-      OR EXISTS (
-          SELECT 1 FROM areas
-          WHERE areas.id = projects.area_id AND areas.archived_at IS NULL
-      )
-  )
-RETURNING `+projectColumns, timestamp, id))
-	if err == nil {
-		return reopened, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+RETURNING `+projectColumnsWithTags("projects.id"), timestamp, id))
+	if err != nil {
 		return project.Project{}, fmt.Errorf("reopen project: %w", err)
 	}
-	current, findErr := s.Find(ctx, id)
-	if findErr != nil {
-		return project.Project{}, findErr
-	}
-	if current.AreaID != nil {
-		governingArea, areaErr := s.findArea(ctx, *current.AreaID)
-		if areaErr != nil {
-			return project.Project{}, areaErr
-		}
-		if governingArea.ArchivedAt != nil {
-			return project.Project{}, archivedAreasConflict(
-				fmt.Sprintf("cannot reopen project %d while area %d is archived", id, governingArea.ID),
-				[]int64{governingArea.ID},
-				err,
-			)
-		}
-	}
 
-	return project.Project{}, apperr.New(
-		apperr.Conflict,
-		fmt.Sprintf("cannot reopen project %d in its current state", id),
-		err,
-	)
+	return reopened, nil
 }
 
 func (s *Projects) Delete(ctx context.Context, id int64) (project.Project, error) {
+	if s.database != nil {
+		return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Store) (project.Project, error) {
+			return transaction.Delete(ctx, id)
+		})
+	}
+
 	deleted, err := scanProject(s.executor.QueryRowContext(ctx, `
+WITH snapshot AS MATERIALIZED (
+    SELECT `+projectColumnsWithTags("projects.id")+`
+    FROM projects
+    WHERE id = ?
+      AND NOT EXISTS (SELECT 1 FROM tasks WHERE project_id = projects.id)
+)
 DELETE FROM projects
-WHERE id = ?
-  AND NOT EXISTS (SELECT 1 FROM tasks WHERE project_id = projects.id)
-RETURNING `+projectColumns, id))
+WHERE id IN (SELECT id FROM snapshot)
+RETURNING `+projectColumns+`,
+          (SELECT tags FROM snapshot WHERE snapshot.id = projects.id)
+`, id))
 	if err == nil {
 		return deleted, nil
 	}
@@ -441,11 +378,17 @@ RETURNING `+projectColumns, id))
 }
 
 func (s *Projects) DeleteTasks(ctx context.Context, projectID int64) ([]task.Task, error) {
-	rows, err := s.executor.QueryContext(
-		ctx,
-		"DELETE FROM tasks WHERE project_id = ? RETURNING "+taskColumns,
-		projectID,
-	)
+	rows, err := s.executor.QueryContext(ctx, `
+WITH snapshot AS MATERIALIZED (
+    SELECT `+taskColumnsWithTags("tasks.id")+`
+    FROM tasks
+    WHERE project_id = ?
+)
+DELETE FROM tasks
+WHERE id IN (SELECT id FROM snapshot)
+RETURNING `+taskColumns+`,
+          (SELECT tags FROM snapshot WHERE snapshot.id = tasks.id)
+`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("delete project tasks: %w", err)
 	}
@@ -457,6 +400,18 @@ func (s *Projects) DeleteTasks(ctx context.Context, projectID int64) ([]task.Tas
 	sortTasks(deleted)
 
 	return deleted, nil
+}
+
+func (s *Projects) ResolveTags(ctx context.Context, names []string) ([]tag.Tag, error) {
+	return resolveStoredTags(ctx, s.executor, names)
+}
+
+func (s *Projects) AttachTags(ctx context.Context, projectID int64, tags []tag.Tag) error {
+	return attachEntityTags(ctx, s.executor, projectTagSpec, projectID, tags)
+}
+
+func (s *Projects) DetachTags(ctx context.Context, projectID int64, tags []tag.Tag) error {
+	return detachEntityTags(ctx, s.executor, projectTagSpec, projectID, tags)
 }
 
 func (s *Projects) WithinTransaction(
@@ -482,34 +437,11 @@ func sortTasks(tasks []task.Task) {
 	})
 }
 
-func collectAreaProjects(rows *sql.Rows, areaID int64) ([]project.Project, error) {
-	defer func() {
-		_ = rows.Close()
-	}()
-
-	areaExists := false
-	projects := make([]project.Project, 0)
-	for rows.Next() {
-		current, err := scanProject(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan listed area project: %w", err)
-		}
-		areaExists = true
-		if current.ID != 0 {
-			projects = append(projects, current)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate listed area projects: %w", err)
-	}
-	if !areaExists {
-		return nil, missingAreaError(areaID, sql.ErrNoRows)
-	}
-
-	return projects, nil
+func collectProjects(rows *sql.Rows) ([]project.Project, error) {
+	return collectProjectRows(rows, "scan listed project", "iterate listed projects")
 }
 
-func collectProjects(rows *sql.Rows) ([]project.Project, error) {
+func collectProjectRows(rows *sql.Rows, scanAction, iterateAction string) ([]project.Project, error) {
 	defer func() {
 		_ = rows.Close()
 	}()
@@ -518,12 +450,12 @@ func collectProjects(rows *sql.Rows) ([]project.Project, error) {
 	for rows.Next() {
 		current, err := scanProject(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan listed project: %w", err)
+			return nil, fmt.Errorf("%s: %w", scanAction, err)
 		}
 		projects = append(projects, current)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate listed projects: %w", err)
+		return nil, fmt.Errorf("%s: %w", iterateAction, err)
 	}
 
 	return projects, nil
@@ -542,15 +474,77 @@ func scanProject(scanner rowScanner) (project.Project, error) {
 		&value.Position,
 		&value.CreatedAt,
 		&value.UpdatedAt,
+		scanTagTitles(&value.Tags),
 	)
 
 	return value, err
+}
+
+func (s *Projects) listArea(
+	ctx context.Context,
+	areaID int64,
+	conditions []string,
+	arguments []any,
+) ([]project.Project, error) {
+	if _, err := s.findArea(ctx, areaID); err != nil {
+		return nil, err
+	}
+
+	query := "SELECT " + projectColumnsWithTags("projects.id") + " FROM projects WHERE area_id = ?"
+	if len(conditions) > 0 {
+		query += " AND " + strings.Join(conditions, " AND ")
+	}
+	query += " ORDER BY position, id"
+	scopedArguments := make([]any, 0, len(arguments)+1)
+	scopedArguments = append(scopedArguments, areaID)
+	scopedArguments = append(scopedArguments, arguments...)
+	rows, err := s.executor.QueryContext(ctx, query, scopedArguments...)
+	if err != nil {
+		return nil, fmt.Errorf("list area projects: %w", err)
+	}
+
+	return collectProjectRows(rows, "scan listed area project", "iterate listed area projects")
+}
+
+func projectColumnsWithTags(entityReference string) string {
+	return projectColumns + ", " + tagJSONExpression(projectTagSpec, entityReference) + " AS tags"
+}
+
+func (s *Projects) archivedAreaIDs(ctx context.Context, ids ...int64) ([]int64, error) {
+	archived := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		found, err := s.findArea(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if found.ArchivedAt != nil {
+			archived = append(archived, found.ID)
+		}
+	}
+
+	return archived, nil
+}
+
+func (s *Projects) validateActiveAreas(ctx context.Context, action string, ids ...int64) error {
+	archived, err := s.archivedAreaIDs(ctx, ids...)
+	if err != nil {
+		return err
+	}
+	if len(archived) == 0 {
+		return nil
+	}
+
+	return taskBlockersConflict(action, nil, archived, nil)
 }
 
 func (s *Projects) findArea(ctx context.Context, id int64) (area.Area, error) {
 	return (&Areas{executor: s.executor}).Find(ctx, id)
 }
 
-func missingAreaError(id int64, cause error) error {
-	return apperr.New(apperr.NotFound, fmt.Sprintf("no area %d", id), cause)
+func sameProjectArea(left *int64, right *int64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+
+	return *left == *right
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/store"
+	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/spf13/cobra"
 )
@@ -30,6 +31,7 @@ type applications struct {
 	tasks    task.Application
 	projects project.Application
 	areas    area.Application
+	tags     tag.Application
 	logbook  logbook.Application
 }
 
@@ -93,6 +95,9 @@ func newRootCommandWithFactoryAndLocation(
 		newProjectsCommand(options, factory),
 		newReopenCommand(options, factory),
 		newShowCommand(options, factory),
+		newTagCommand(options, factory),
+		newTagsCommand(options, factory),
+		newUntagCommand(options, factory),
 	)
 
 	return root
@@ -116,6 +121,7 @@ func defaultApplicationFactory(
 		tasks:    task.NewService(store.NewTasks(database)),
 		projects: project.NewService(store.NewProjects(database)),
 		areas:    area.NewService(store.NewAreas(database)),
+		tags:     tag.NewService(store.NewTags(database)),
 		logbook:  logbook.NewService(store.NewLogbook(database)),
 	}, database, nil
 }
@@ -167,6 +173,17 @@ func withAreaApplication(
 ) error {
 	return withApplications(command, options, factory, func(available applications) error {
 		return run(available.areas)
+	})
+}
+
+func withTagApplication(
+	command *cobra.Command,
+	options *rootOptions,
+	factory applicationFactory,
+	run func(tag.Application) error,
+) error {
+	return withApplications(command, options, factory, func(available applications) error {
+		return run(available.tags)
 	})
 }
 

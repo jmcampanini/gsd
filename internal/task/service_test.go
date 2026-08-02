@@ -2,11 +2,14 @@ package task
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/tag"
 )
 
 type recordingStore struct {
@@ -17,12 +20,18 @@ type recordingStore struct {
 	addedAreaID        *int64
 	addedDueOn         *string
 	addedDeferUntil    *string
+	addedTags          []string
 	timestamp          string
+	addResult          *Task
+	addError           error
 	inboxCalls         int
 	inboxResult        []ViewTask
 	availableCalls     int
 	availableResult    []ViewTask
 	findCalls          int
+	findResults        []Task
+	findError          error
+	findErrors         []error
 	listCalls          int
 	listedOptions      ListOptions
 	listResult         []Task
@@ -36,6 +45,21 @@ type recordingStore struct {
 	deleteCalls        int
 	lifecycleID        int64
 	lifecycleTimestamp string
+	resolveCalls       int
+	resolvedNames      []string
+	resolveResult      []tag.Tag
+	resolveError       error
+	attachCalls        int
+	attachedID         int64
+	attachedTags       []tag.Tag
+	attachError        error
+	detachCalls        int
+	detachedID         int64
+	detachedTags       []tag.Tag
+	detachError        error
+	transactionCalls   int
+	transactionStore   Store
+	transactionError   error
 }
 
 func (r *recordingStore) Add(
@@ -50,7 +74,14 @@ func (r *recordingStore) Add(
 	r.addedAreaID = fields.AreaID
 	r.addedDueOn = fields.DueOn
 	r.addedDeferUntil = fields.DeferUntil
+	r.addedTags = fields.Tags
 	r.timestamp = timestamp
+	if r.addError != nil {
+		return Task{}, r.addError
+	}
+	if r.addResult != nil {
+		return *r.addResult, nil
+	}
 
 	return Task{
 		ID:         1,
@@ -77,6 +108,15 @@ func (r *recordingStore) Available(context.Context) ([]ViewTask, error) {
 
 func (r *recordingStore) Find(_ context.Context, id int64) (Task, error) {
 	r.findCalls++
+	if r.findError != nil {
+		return Task{}, r.findError
+	}
+	if r.findCalls <= len(r.findErrors) && r.findErrors[r.findCalls-1] != nil {
+		return Task{}, r.findErrors[r.findCalls-1]
+	}
+	if r.findCalls <= len(r.findResults) {
+		return r.findResults[r.findCalls-1], nil
+	}
 	return Task{ID: id}, nil
 }
 
@@ -122,6 +162,41 @@ func (r *recordingStore) Delete(_ context.Context, id int64) (Task, error) {
 	r.deleteCalls++
 	r.lifecycleID = id
 	return Task{ID: id}, nil
+}
+
+func (r *recordingStore) ResolveTags(_ context.Context, names []string) ([]tag.Tag, error) {
+	r.resolveCalls++
+	r.resolvedNames = names
+	return r.resolveResult, r.resolveError
+}
+
+func (r *recordingStore) AttachTags(_ context.Context, id int64, tags []tag.Tag) error {
+	r.attachCalls++
+	r.attachedID = id
+	r.attachedTags = tags
+	return r.attachError
+}
+
+func (r *recordingStore) DetachTags(_ context.Context, id int64, tags []tag.Tag) error {
+	r.detachCalls++
+	r.detachedID = id
+	r.detachedTags = tags
+	return r.detachError
+}
+
+func (r *recordingStore) WithinTransaction(
+	ctx context.Context,
+	operation func(Store) error,
+) error {
+	r.transactionCalls++
+	if r.transactionError != nil {
+		return r.transactionError
+	}
+	store := r.transactionStore
+	if store == nil {
+		store = r
+	}
+	return operation(store)
 }
 
 func (r *recordingStore) recordLifecycle(id int64, timestamp string) {
@@ -224,6 +299,7 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 		note       string
 		dueOn      *string
 		deferUntil *string
+		tags       []string
 	}{
 		{name: "blank title", title: " \t\n"},
 		{name: "invalid title UTF-8", title: string([]byte{0xff})},
@@ -231,6 +307,8 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 		{name: "nonpositive project ID", projectID: &invalidProjectID, title: "valid"},
 		{name: "invalid due date", title: "valid", dueOn: &invalidDate},
 		{name: "invalid defer date", title: "valid", deferUntil: &invalidDate},
+		{name: "blank tag", title: "valid", tags: []string{" "}},
+		{name: "invalid tag UTF-8", title: "valid", tags: []string{string([]byte{0xff})}},
 	}
 
 	for _, test := range tests {
@@ -245,6 +323,7 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 				Note:       test.note,
 				DueOn:      test.dueOn,
 				DeferUntil: test.deferUntil,
+				Tags:       test.tags,
 			})
 			if err == nil {
 				t.Fatal("Add() error = nil, want invalid_argument")
@@ -253,8 +332,8 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 			if !ok || code != apperr.InvalidArgument {
 				t.Errorf("Add() error = %v, want invalid_argument", err)
 			}
-			if store.addCalls != 0 {
-				t.Errorf("store Add() calls = %d, want 0", store.addCalls)
+			if store.addCalls != 0 || store.transactionCalls != 0 {
+				t.Errorf("store Add()/transaction calls = %d/%d, want 0/0", store.addCalls, store.transactionCalls)
 			}
 			rejected := test.dueOn
 			if rejected == nil {
@@ -262,6 +341,117 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 			}
 			if rejected != nil && !strings.Contains(err.Error(), *rejected) {
 				t.Errorf("Add() error = %q, want rejected input", err)
+			}
+		})
+	}
+}
+
+func TestAddWithTagsOwnsTransactionNormalizesNamesAndReturnsRefresh(t *testing.T) {
+	t.Parallel()
+
+	created := Task{ID: 7, Title: "tagged task"}
+	refreshed := Task{ID: 7, Title: "tagged task", Tags: []string{"Stored", "é", "É"}}
+	resolved := []tag.Tag{
+		{ID: 1, Title: "Stored"},
+		{ID: 2, Title: "é"},
+		{ID: 3, Title: "É"},
+	}
+	transactionStore := &recordingStore{
+		addResult:     &created,
+		resolveResult: resolved,
+		findResults:   []Task{refreshed},
+	}
+	store := &recordingStore{transactionStore: transactionStore}
+
+	got, err := NewService(store).Add(context.Background(), AddFields{
+		Title: "tagged task",
+		Tags:  []string{"Errands", "ERRANDS", "é", "É"},
+	})
+	if err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, refreshed) {
+		t.Errorf("Add() = %#v, want refreshed %#v", got, refreshed)
+	}
+	if store.transactionCalls != 1 || store.addCalls+store.resolveCalls+store.attachCalls+store.findCalls != 0 {
+		t.Errorf("outer store calls = %#v, want transaction boundary only", store)
+	}
+	wantNames := []string{"Errands", "é", "É"}
+	if !reflect.DeepEqual(transactionStore.addedTags, wantNames) ||
+		!reflect.DeepEqual(transactionStore.resolvedNames, wantNames) {
+		t.Errorf(
+			"normalized add/resolve names = %v/%v, want %v",
+			transactionStore.addedTags,
+			transactionStore.resolvedNames,
+			wantNames,
+		)
+	}
+	if transactionStore.addCalls != 1 || transactionStore.resolveCalls != 1 ||
+		transactionStore.attachCalls != 1 || transactionStore.findCalls != 1 {
+		t.Errorf("transaction-scoped calls = %#v, want one add, resolve, attach, and refresh", transactionStore)
+	}
+	if transactionStore.attachedID != created.ID || !reflect.DeepEqual(transactionStore.attachedTags, resolved) {
+		t.Errorf(
+			"attached ID/tags = %d/%#v, want %d/%#v",
+			transactionStore.attachedID,
+			transactionStore.attachedTags,
+			created.ID,
+			resolved,
+		)
+	}
+}
+
+func TestAddWithoutTagsKeepsDirectStorePath(t *testing.T) {
+	t.Parallel()
+
+	store := &recordingStore{}
+	if _, err := NewService(store).Add(context.Background(), AddFields{Title: "untagged"}); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if store.addCalls != 1 || store.transactionCalls != 0 {
+		t.Errorf("add/transaction calls = %d/%d, want 1/0", store.addCalls, store.transactionCalls)
+	}
+}
+
+func TestAddWithTagsReturnsTransactionErrors(t *testing.T) {
+	t.Parallel()
+
+	storeError := errors.New("store failure")
+	tests := []struct {
+		name        string
+		transaction *recordingStore
+		outerError  error
+	}{
+		{name: "transaction boundary", transaction: &recordingStore{}, outerError: storeError},
+		{name: "add", transaction: &recordingStore{addError: storeError}},
+		{name: "resolve unknown", transaction: &recordingStore{resolveError: storeError}},
+		{
+			name:        "attach",
+			transaction: &recordingStore{resolveResult: []tag.Tag{{ID: 1, Title: "known"}}, attachError: storeError},
+		},
+		{
+			name:        "refresh",
+			transaction: &recordingStore{resolveResult: []tag.Tag{{ID: 1, Title: "known"}}, findError: storeError},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &recordingStore{
+				transactionStore: test.transaction,
+				transactionError: test.outerError,
+			}
+			_, err := NewService(store).Add(context.Background(), AddFields{
+				Title: "tagged",
+				Tags:  []string{"known"},
+			})
+			if !errors.Is(err, storeError) {
+				t.Fatalf("Add() error = %v, want store failure", err)
+			}
+			if store.transactionCalls != 1 || store.addCalls+store.resolveCalls+store.attachCalls+store.findCalls != 0 {
+				t.Errorf("outer store calls = %#v, want transaction boundary only", store)
 			}
 		})
 	}
@@ -455,6 +645,39 @@ func TestListValidatesAndDelegatesArea(t *testing.T) {
 		if store.listCalls != 0 {
 			t.Errorf("store List() calls = %d, want 0", store.listCalls)
 		}
+	}
+}
+
+func TestListValidatesTagBeforePersistence(t *testing.T) {
+	t.Parallel()
+
+	tagName := "ERRANDS"
+	store := &recordingStore{}
+	options := ListOptions{Status: ListStatusOpen, Tag: &tagName}
+	if _, err := NewService(store).List(context.Background(), options); err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if store.listCalls != 1 || store.listedOptions.Tag == nil || *store.listedOptions.Tag != tagName {
+		t.Errorf("store List() calls/options = %d/%#v, want exact tag %q", store.listCalls, store.listedOptions, tagName)
+	}
+
+	for _, invalid := range []string{" \t\n", string([]byte{0xff})} {
+		invalid := invalid
+		t.Run("invalid tag", func(t *testing.T) {
+			t.Parallel()
+
+			store := &recordingStore{}
+			_, err := NewService(store).List(context.Background(), ListOptions{
+				Status: ListStatusOpen,
+				Tag:    &invalid,
+			})
+			if code, ok := apperr.CodeOf(err); !ok || code != apperr.InvalidArgument {
+				t.Errorf("List() error = %v, want invalid_argument", err)
+			}
+			if store.listCalls != 0 {
+				t.Errorf("store List() calls = %d, want 0", store.listCalls)
+			}
+		})
 	}
 }
 
@@ -662,6 +885,209 @@ func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
 			}
 			if store.editCalls != 0 {
 				t.Errorf("store Edit() calls = %d, want 0", store.editCalls)
+			}
+		})
+	}
+}
+
+func TestTagAndUntagOwnNormalizedTransactionsAndReturnStoredTitles(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		apply        func(*Service) (Tagging, error)
+		mutationTags func(*recordingStore) []tag.Tag
+		mutationID   func(*recordingStore) int64
+	}{
+		{
+			name: "tag",
+			apply: func(service *Service) (Tagging, error) {
+				return service.Tag(context.Background(), 7, []string{"Errands", "ERRANDS", "é", "É"})
+			},
+			mutationTags: func(store *recordingStore) []tag.Tag { return store.attachedTags },
+			mutationID:   func(store *recordingStore) int64 { return store.attachedID },
+		},
+		{
+			name: "untag",
+			apply: func(service *Service) (Tagging, error) {
+				return service.Untag(context.Background(), 7, []string{"Errands", "ERRANDS", "é", "É"})
+			},
+			mutationTags: func(store *recordingStore) []tag.Tag { return store.detachedTags },
+			mutationID:   func(store *recordingStore) int64 { return store.detachedID },
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			resolved := []tag.Tag{
+				{ID: 1, Title: "Stored Errands"},
+				{ID: 2, Title: "é"},
+				{ID: 3, Title: "É"},
+			}
+			refreshed := Task{ID: 7, Title: "task", Tags: []string{"Stored Errands", "é", "É"}}
+			transactionStore := &recordingStore{
+				findResults:   []Task{{ID: 7, Title: "task"}, refreshed},
+				resolveResult: resolved,
+			}
+			store := &recordingStore{transactionStore: transactionStore}
+
+			got, err := test.apply(NewService(store))
+			if err != nil {
+				t.Fatalf("%s() error = %v", test.name, err)
+			}
+			want := Tagging{Task: refreshed, TagTitles: []string{"Stored Errands", "é", "É"}}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("%s() = %#v, want %#v", test.name, got, want)
+			}
+			if store.transactionCalls != 1 || store.findCalls+store.resolveCalls+store.attachCalls+store.detachCalls != 0 {
+				t.Errorf("outer store calls = %#v, want transaction boundary only", store)
+			}
+			wantNames := []string{"Errands", "é", "É"}
+			if !reflect.DeepEqual(transactionStore.resolvedNames, wantNames) {
+				t.Errorf("resolved names = %v, want %v", transactionStore.resolvedNames, wantNames)
+			}
+			if transactionStore.findCalls != 2 || transactionStore.resolveCalls != 1 ||
+				transactionStore.attachCalls+transactionStore.detachCalls != 1 {
+				t.Errorf("transaction-scoped calls = %#v, want two finds, one resolve, and one mutation", transactionStore)
+			}
+			if test.mutationID(transactionStore) != 7 || !reflect.DeepEqual(test.mutationTags(transactionStore), resolved) {
+				t.Errorf(
+					"mutation ID/tags = %d/%#v, want 7/%#v",
+					test.mutationID(transactionStore),
+					test.mutationTags(transactionStore),
+					resolved,
+				)
+			}
+		})
+	}
+}
+
+func TestTagAndUntagValidateBeforeTransaction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		apply func(*Service) error
+	}{
+		{name: "tag ID", apply: func(service *Service) error {
+			_, err := service.Tag(context.Background(), 0, []string{"known"})
+			return err
+		}},
+		{name: "untag ID", apply: func(service *Service) error {
+			_, err := service.Untag(context.Background(), 0, []string{"known"})
+			return err
+		}},
+		{name: "tag names", apply: func(service *Service) error { _, err := service.Tag(context.Background(), 1, nil); return err }},
+		{name: "untag names", apply: func(service *Service) error { _, err := service.Untag(context.Background(), 1, []string{}); return err }},
+		{name: "tag blank name", apply: func(service *Service) error {
+			_, err := service.Tag(context.Background(), 1, []string{" "})
+			return err
+		}},
+		{name: "untag invalid UTF-8", apply: func(service *Service) error {
+			_, err := service.Untag(context.Background(), 1, []string{string([]byte{0xff})})
+			return err
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &recordingStore{}
+			err := test.apply(NewService(store))
+			if code, ok := apperr.CodeOf(err); !ok || code != apperr.InvalidArgument {
+				t.Errorf("mutation error = %v, want invalid_argument", err)
+			}
+			if !strings.Contains(err.Error(), "must") && !strings.Contains(err.Error(), "at least one") {
+				t.Errorf("mutation error = %q, want semantic validation message", err)
+			}
+			if store.transactionCalls != 0 {
+				t.Errorf("transaction calls = %d, want 0", store.transactionCalls)
+			}
+		})
+	}
+}
+
+func TestTagAndUntagReturnTransactionErrors(t *testing.T) {
+	t.Parallel()
+
+	storeError := errors.New("store failure")
+	tests := []struct {
+		name        string
+		apply       func(*Service) (Tagging, error)
+		transaction *recordingStore
+		outerError  error
+	}{
+		{
+			name: "tag transaction boundary",
+			apply: func(service *Service) (Tagging, error) {
+				return service.Tag(context.Background(), 7, []string{"known"})
+			},
+			transaction: &recordingStore{},
+			outerError:  storeError,
+		},
+		{
+			name: "tag entity lookup",
+			apply: func(service *Service) (Tagging, error) {
+				return service.Tag(context.Background(), 7, []string{"known"})
+			},
+			transaction: &recordingStore{findError: storeError},
+		},
+		{
+			name: "tag resolution",
+			apply: func(service *Service) (Tagging, error) {
+				return service.Tag(context.Background(), 7, []string{"unknown"})
+			},
+			transaction: &recordingStore{resolveError: storeError},
+		},
+		{
+			name: "tag attach",
+			apply: func(service *Service) (Tagging, error) {
+				return service.Tag(context.Background(), 7, []string{"known"})
+			},
+			transaction: &recordingStore{
+				resolveResult: []tag.Tag{{ID: 1, Title: "known"}},
+				attachError:   storeError,
+			},
+		},
+		{
+			name: "tag refresh",
+			apply: func(service *Service) (Tagging, error) {
+				return service.Tag(context.Background(), 7, []string{"known"})
+			},
+			transaction: &recordingStore{
+				resolveResult: []tag.Tag{{ID: 1, Title: "known"}},
+				findErrors:    []error{nil, storeError},
+			},
+		},
+		{
+			name: "untag detach",
+			apply: func(service *Service) (Tagging, error) {
+				return service.Untag(context.Background(), 7, []string{"known"})
+			},
+			transaction: &recordingStore{
+				resolveResult: []tag.Tag{{ID: 1, Title: "known"}},
+				detachError:   storeError,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &recordingStore{
+				transactionStore: test.transaction,
+				transactionError: test.outerError,
+			}
+			_, err := test.apply(NewService(store))
+			if !errors.Is(err, storeError) {
+				t.Fatalf("mutation error = %v, want store failure", err)
+			}
+			if store.transactionCalls != 1 || store.findCalls+store.resolveCalls+store.attachCalls+store.detachCalls != 0 {
+				t.Errorf("outer store calls = %#v, want transaction boundary only", store)
 			}
 		})
 	}

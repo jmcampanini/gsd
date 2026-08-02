@@ -274,7 +274,7 @@ func TestTaskWorkflow(t *testing.T) {
 
 	shownResult := runGSD(t, "show", "2", "--db", databasePath, "--json")
 	shown := decodeTask(t, shownResult)
-	if shown != second {
+	if !reflect.DeepEqual(shown, second) {
 		t.Errorf("shown task = %#v, want %#v", shown, second)
 	}
 

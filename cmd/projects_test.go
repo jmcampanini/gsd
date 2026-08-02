@@ -25,6 +25,10 @@ type fakeProjectApplication struct {
 	resolveError    error
 	reopenResult    project.Project
 	reopenError     error
+	tagResult       project.Tagging
+	tagError        error
+	untagResult     project.Tagging
+	untagError      error
 	deleteResult    project.Deletion
 	deleteError     error
 	addFields       project.AddFields
@@ -35,6 +39,10 @@ type fakeProjectApplication struct {
 	resolveID       int64
 	resolveExit     project.Exit
 	reopenID        int64
+	tagID           int64
+	tagNames        []string
+	untagID         int64
+	untagNames      []string
 	deleteID        int64
 	deleteRecursive bool
 }
@@ -89,6 +97,26 @@ func (f *fakeProjectApplication) Reopen(
 ) (project.Project, error) {
 	f.reopenID = id
 	return f.reopenResult, f.reopenError
+}
+
+func (f *fakeProjectApplication) Tag(
+	_ context.Context,
+	id int64,
+	names []string,
+) (project.Tagging, error) {
+	f.tagID = id
+	f.tagNames = names
+	return f.tagResult, f.tagError
+}
+
+func (f *fakeProjectApplication) Untag(
+	_ context.Context,
+	id int64,
+	names []string,
+) (project.Tagging, error) {
+	f.untagID = id
+	f.untagNames = names
+	return f.untagResult, f.untagError
 }
 
 func (f *fakeProjectApplication) Delete(
@@ -321,7 +349,7 @@ func TestProjectAddAndEditAdaptFieldsAndOutput(t *testing.T) {
 	t.Parallel()
 
 	note := "line one\nline two\n"
-	created := project.Project{ID: 7, Title: "Kitchen reno", Note: note, Status: "open"}
+	created := project.Project{ID: 7, Title: "Kitchen reno", Note: note, Status: "open", Tags: []string{}}
 	addApplication := &fakeProjectApplication{addResult: created}
 	addResult := runProjectCommandWithInput(
 		t,
@@ -337,7 +365,7 @@ func TestProjectAddAndEditAdaptFieldsAndOutput(t *testing.T) {
 		"--json",
 	)
 	requireProjectCommandJSON(t, addResult, created)
-	if addApplication.addFields != (project.AddFields{Title: "Kitchen reno", Note: note}) {
+	if !reflect.DeepEqual(addApplication.addFields, project.AddFields{Title: "Kitchen reno", Note: note}) {
 		t.Errorf("Add() fields = %#v, want exact title and stdin note", addApplication.addFields)
 	}
 	var fields map[string]json.RawMessage
@@ -355,13 +383,15 @@ func TestProjectAddAndEditAdaptFieldsAndOutput(t *testing.T) {
 		"position",
 		"created_at",
 		"updated_at",
+		"tags",
 	} {
 		if _, ok := fields[field]; !ok {
 			t.Errorf("JSON fields = %v, missing %q", fields, field)
 		}
 	}
-	if len(fields) != 10 || string(fields["area_id"]) != "null" || string(fields["done_at"]) != "null" || string(fields["cancelled_at"]) != "null" {
-		t.Errorf("JSON fields = %v, want complete project row with null exits", fields)
+	if len(fields) != 11 || string(fields["area_id"]) != "null" || string(fields["done_at"]) != "null" ||
+		string(fields["cancelled_at"]) != "null" || string(fields["tags"]) != "[]" {
+		t.Errorf("JSON fields = %v, want complete project row with null exits and tags", fields)
 	}
 	if addResult.openPath != "chosen.db" || addResult.opens != 1 || addResult.closes != 1 {
 		t.Errorf("factory lifecycle = %#v, want chosen path and one open/close", addResult)
@@ -402,6 +432,97 @@ func TestProjectAddAndEditAdaptFieldsAndOutput(t *testing.T) {
 		*editApplication.editFields.Title != title || editApplication.editFields.Note == nil ||
 		*editApplication.editFields.Note != "" {
 		t.Errorf("Edit() ID/fields = %d/%#v, want exact changed fields", editApplication.editID, editApplication.editFields)
+	}
+}
+
+func TestProjectsAddAccumulatesTagFlagsWithoutSplittingCommas(t *testing.T) {
+	t.Parallel()
+
+	created := project.Project{ID: 7, Title: "Kitchen", Tags: []string{"Errands", "home,soon"}}
+	application := &fakeProjectApplication{addResult: created}
+	result := runProjectCommand(
+		t,
+		application,
+		"projects",
+		"add",
+		"Kitchen",
+		"--tag",
+		"Errands",
+		"--tag",
+		"home,soon",
+		"--json",
+	)
+	requireProjectCommandJSON(t, result, created)
+	want := project.AddFields{Title: "Kitchen", Tags: []string{"Errands", "home,soon"}}
+	if !reflect.DeepEqual(application.addFields, want) {
+		t.Errorf("Add() fields = %#v, want %#v", application.addFields, want)
+	}
+}
+
+func TestProjectTagCommandsAdaptExactNamesAndOutputShapes(t *testing.T) {
+	t.Parallel()
+
+	tagged := project.Project{ID: 7, Title: "Kitchen", Tags: []string{"Errands", "home,soon"}}
+	tagApplication := &fakeProjectApplication{tagResult: project.Tagging{
+		Project:   tagged,
+		TagTitles: []string{"Errands", "home,soon"},
+	}}
+	tagResult := runProjectCommand(
+		t,
+		tagApplication,
+		"project",
+		"tag",
+		"007",
+		"ERRANDS",
+		"home,soon",
+		"--json",
+	)
+	requireProjectCommandJSON(t, tagResult, tagged)
+	if tagApplication.tagID != 7 || !reflect.DeepEqual(tagApplication.tagNames, []string{"ERRANDS", "home,soon"}) {
+		t.Errorf("Tag() arguments = (%d, %#v), want (7, exact names)", tagApplication.tagID, tagApplication.tagNames)
+	}
+
+	untagged := project.Project{ID: 8, Title: "Plans", Tags: []string{}}
+	untagApplication := &fakeProjectApplication{untagResult: project.Tagging{
+		Project:   untagged,
+		TagTitles: []string{"Errands", "Home\x1b"},
+	}}
+	untagResult := runProjectCommand(
+		t,
+		untagApplication,
+		"project",
+		"untag",
+		"8",
+		"errands",
+		"HOME",
+	)
+	requireProjectCommandHumanOutput(t, untagResult, "Untagged: project 8  Errands, Home\\x1b\n")
+	if untagApplication.untagID != 8 || !reflect.DeepEqual(untagApplication.untagNames, []string{"errands", "HOME"}) {
+		t.Errorf(
+			"Untag() arguments = (%d, %#v), want (8, exact names)",
+			untagApplication.untagID,
+			untagApplication.untagNames,
+		)
+	}
+}
+
+func TestProjectTagCommandArityAndIDValidationDoNotOpenApplication(t *testing.T) {
+	t.Parallel()
+
+	for _, args := range [][]string{
+		{"project", "tag", "7", "--json"},
+		{"project", "untag", "--json"},
+	} {
+		result := runProjectCommand(t, &fakeProjectApplication{}, args...)
+		if result.exitCode != 2 || result.opens != 0 || result.stdout != "" || result.stderr == "" {
+			t.Errorf("result = %#v, want usage error without application open", result)
+		}
+	}
+
+	result := runProjectCommand(t, &fakeProjectApplication{}, "project", "tag", "nope", "Errands", "--json")
+	got := decodeProjectCommandError(t, result)
+	if result.opens != 0 || got.Code != apperr.InvalidArgument {
+		t.Errorf("result/error = %#v/%#v, want invalid_argument without application open", result, got)
 	}
 }
 
@@ -516,6 +637,7 @@ func TestProjectShowUsesSchemaOrderFieldValueTable(t *testing.T) {
 		"Position",
 		"Created at",
 		"Updated at",
+		"Tags",
 	}
 	lines := strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n")
 	if len(lines) != len(wantLabels) {

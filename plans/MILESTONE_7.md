@@ -1,117 +1,76 @@
-# Milestone 7 — Go live
+# Milestone 7 — Reorder
 
-Data mode: **live from here on**. Depends on: Milestone 6.
+Data mode: throwaway. Depends on: Milestone 6.
+
+Written lighter than the earlier milestones on purpose: later
+consolidations may reorder 7–9 or reshape their scope. Re-review this
+file at its plan gate.
 
 ## Capability
 
-gsd stops being a project and becomes the system of record: schema
-migrations make the database durable, the install story makes the binary a
-resident of the machine, and an agent-driven import moves real data in.
-Exit condition is not a feature — it's "Javier lives in gsd."
+Manual ordering — the thing a list tool is for. `position` has existed
+since the capture-loop baseline (append-only); this milestone makes it
+manipulable. It needs **no schema change**.
 
-## Scope
+## Commands
 
-### Migration runner
+```text
+gsd reorder N          (--after M | --before M | --first | --last)
+gsd project reorder N  (--after M | --before M | --first | --last)
+gsd area reorder N     (--after M | --before M | --first | --last)
+```
 
-- Numbered, embedded SQL migrations; `PRAGMA user_version` tracks the
-  applied revision; applied automatically on open, each migration in its
-  own transaction.
-- `0001_baseline.sql` = the accumulated throwaway schema through Tags,
-  verbatim from the schema-convergence audit (i.e., `SCHEMA.md`).
-- A database newer than the binary (`user_version` > known max, below
-  the dev-only range) is a fail-loud error ("gsd is older than this
-  database").
-- Pre-baseline throwaway dbs are refused by name: their `user_version`
-  sits in the dev-only range (`9000 + roadmap milestone number`), which can
-  never collide with migration numbers, and the runner answers it with the
-  delete-your-dev-db message. They hold throwaway data by declaration.
-- From here, every schema change ships as a new migration file, and
-  `SCHEMA.md`'s stability contract is in force: columns/tables are
-  add-only, views only gain columns.
+## Semantics (per COMMANDS.md)
 
-### Install story
-
-- Homebrew HEAD-only formula (`Formula/gsd.rb`, cmdk pattern):
-  `head` build with the repo's Go flags, correct version stamping,
-  noninteractive functional test (CLI-RELEASE-003).
-- README rewritten as landing page: purpose, `--HEAD` install/upgrade,
-  representative commands, config discovery (CLI-DOCS-001/002).
-- Shell completion generation, wired and documented — gsd now has the
-  interactive command surface that warrants it (CLI-CMD-005).
-
-### Import (no gsd code)
-
-- Export data from the current tool (format: whatever it exports —
-  decided at import time).
-- A Claude session drives the installed `gsd` binary: `tags add` →
-  `areas add` → `projects add` → `add`, wiring IDs from `--json` echoes,
-  setting defer/due dates and tags as they were.
-- The agent then verifies: entity counts by kind match the export, spot
-  checks on titles/notes/dates/tags, `available`/`inbox` look right.
-- Transcript and count summary saved to `.sandbox/import/` and linked
-  from the PR that closes the milestone.
+- Sibling-relative only: the reference entity must live in the same
+  container (same project/area/inbox for tasks; same area or standalone
+  group for projects; the global list for areas). Cross-container
+  reference is `invalid_argument`.
+- Reorder renumbers the container (cheap at this scale, per `SCHEMA.md`).
+- JSON echo: **proposed** — the reordered entity plus its container's new
+  ordering (`{"task": {...}, "container": [ids in order]}`), so agents
+  see the result without a second call.
 
 ## Chunks
 
-1. **Migration runner** — runner + baseline + newer-db guard + tests
-   (fresh db, sequential apply, mid-migration failure rolls back, future
-   version refused).
-2. **Install story** — formula, README landing page, shell completion,
-   `brew install --HEAD` verified on this machine.
-3. **Import session** — no code: the agent-driven import itself,
-   run against the real config-file-pinned database.
+1. **The whole verb** — grammar, all three nouns, renumbering, errors,
+   e2e. Single chunk; split only if review wants it.
 
 ## User stories
 
-### gsd is installed like software, not run like a script
+### The important thing sits on top because you put it there
 
 ```text
-$ brew install jmcampanini/gsd/gsd --HEAD
-$ gsd --version
-gsd version v0.0.0-89-gdeadbee
+$ gsd inbox
+  4  Call plumber
+  9  Renew passport
+$ gsd reorder 9 --first
+$ gsd inbox
+  9  Renew passport
+  4  Call plumber
 ```
 
-### Your actual life is in it
+### Order is honest about its scope
 
 ```text
-$ gsd areas list
-  1  Home
-  2  Work
-$ gsd available
-  ... the real things you could actually do today ...
-```
-
-### Your data survives upgrades by design
-
-```text
-$ brew upgrade --fetch-HEAD gsd    # after any future milestone
-$ gsd inbox                        # migrations applied silently; data intact
+$ gsd reorder 9 --after 12     # 12 lives in some project
+{"error": {"code": "invalid_argument", "message": "task 12 is in a different container"}}
 ```
 
 ## Agent-verified end-to-end workflow
 
-1. Migration tests inside `make check` (fresh apply, idempotent reopen,
-   failure rollback, future-version refusal).
-2. `brew install --HEAD` from the tap; `gsd --version` reports commit
-   identity; formula's functional test passes.
-3. The import session itself — the largest agent-verified workflow yet:
-   every entity kind created through the public CLI, counts verified
-   against the source export.
-4. Post-import: `gsd available`, `inbox`, `logbook` each return sensible
-   real data (reviewed by Javier, not asserted by the agent).
+Fresh temp db, seeded across all three container kinds:
+
+1. Reorder matrix per noun: `--first`, `--last`, `--after`, `--before`;
+   assert full container ordering after each.
+2. Cross-container and self-reference errors.
+3. Mixed-operation stability: add, done, reorder, delete interleaved;
+   ordering stays consistent, no position collisions.
 
 ## Exit criteria
 
-Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
-
-- [ ] The temporary `DIVERGENCES.md` intake is empty after a complete go-live
-      audit; canonical specs describe the shipped system exactly.
-- [ ] Old tool demoted: no longer the capture target (kept read-only or
-      retired — Javier's call, recorded here when made).
-- [ ] One week of real use with no data-integrity incident before
-      Milestone 8 starts.
+Standard exit workflow (see [`PROCESS.md`](PROCESS.md)).
 
 ## Standards
 
-CLI-CMD-005, CLI-RELEASE-001/002/003, CLI-DOCS-001/002/003,
-CLI-QUALITY-001.
+CLI-CMD-002/003.

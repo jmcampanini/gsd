@@ -16,7 +16,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-func TestOpenBootstrapsMilestoneFourSchemaAndConfiguresConnections(t *testing.T) {
+func TestOpenBootstrapsMilestoneFiveSchemaAndConfiguresConnections(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -33,11 +33,13 @@ func TestOpenBootstrapsMilestoneFourSchemaAndConfiguresConnections(t *testing.T)
 	if err := storage.database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("read user_version: %v", err)
 	}
-	if version != 9004 {
-		t.Errorf("user_version = %d, want 9004", version)
+	if version != 9005 {
+		t.Errorf("user_version = %d, want 9005", version)
 	}
 
-	for _, tableName := range []string{"areas", "projects", "tasks"} {
+	for _, tableName := range []string{
+		"areas", "projects", "tasks", "tags", "task_tags", "project_tags", "area_tags",
+	} {
 		var strict int
 		if err := storage.database.QueryRowContext(
 			ctx,
@@ -49,29 +51,6 @@ func TestOpenBootstrapsMilestoneFourSchemaAndConfiguresConnections(t *testing.T)
 		if strict != 1 {
 			t.Errorf("%s strict = %d, want 1", tableName, strict)
 		}
-	}
-
-	var availableSQL string
-	if err := storage.database.QueryRowContext(
-		ctx,
-		"SELECT sql FROM sqlite_schema WHERE type = 'view' AND name = 'available'",
-	).Scan(&availableSQL); err != nil {
-		t.Fatalf("read available view: %v", err)
-	}
-	wantAvailableSQL := `CREATE VIEW available AS
-SELECT t.*,
-       p.title                        AS project_title,
-       COALESCE(t.area_id, p.area_id) AS governing_area_id,
-       a.title                        AS governing_area_title
-FROM tasks t
-LEFT JOIN projects p ON p.id = t.project_id
-LEFT JOIN areas    a ON a.id = COALESCE(t.area_id, p.area_id)
-WHERE t.status = 'open'
-  AND (t.project_id IS NULL OR p.status = 'open')
-  AND a.archived_at IS NULL
-  AND (t.defer_until IS NULL OR t.defer_until <= date('now', 'localtime'))`
-	if strings.Join(strings.Fields(availableSQL), " ") != strings.Join(strings.Fields(wantAvailableSQL), " ") {
-		t.Errorf("available view = %q, want governing-area-aware definition", availableSQL)
 	}
 
 	storage.database.SetMaxOpenConns(2)
@@ -113,6 +92,63 @@ WHERE t.status = 'open'
 	}
 	if strings.EqualFold(journalMode, "wal") {
 		t.Errorf("journal_mode = %q, want non-WAL mode", journalMode)
+	}
+}
+
+func TestContainedListingsDoNotReserveWriter(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "gsd.db")
+	reader, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open(reader) error = %v", err)
+	}
+	t.Cleanup(func() { _ = reader.Close() })
+	areas := NewAreas(reader)
+	projects := NewProjects(reader)
+	tasks := NewTasks(reader)
+	container := addStoredArea(t, areas, area.AddFields{Title: "area"})
+	contained := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "project"})
+	created := addStoredTask(t, tasks, task.AddFields{ProjectID: &contained.ID, Title: "task"})
+	if _, err := reader.database.ExecContext(ctx, "PRAGMA busy_timeout = 0"); err != nil {
+		t.Fatalf("disable reader busy timeout: %v", err)
+	}
+
+	writer, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open(writer) error = %v", err)
+	}
+	t.Cleanup(func() { _ = writer.Close() })
+	writerConnection, err := writer.database.Conn(ctx)
+	if err != nil {
+		t.Fatalf("reserve writer connection: %v", err)
+	}
+	defer func() { _ = writerConnection.Close() }()
+	if _, err := writerConnection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		t.Fatalf("reserve writer transaction: %v", err)
+	}
+	defer func() { _, _ = writerConnection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK") }()
+
+	listedProjects, err := projects.List(
+		ctx,
+		project.ListOptions{Status: project.ListStatusAll, AreaID: &container.ID},
+	)
+	if err != nil {
+		t.Fatalf("List(projects while writer reserved) error = %v", err)
+	}
+	if len(listedProjects) != 1 || listedProjects[0].ID != contained.ID {
+		t.Errorf("List(projects while writer reserved) = %#v, want project %d", listedProjects, contained.ID)
+	}
+	listedTasks, err := tasks.List(
+		ctx,
+		task.ListOptions{Status: task.ListStatusAll, ProjectID: &contained.ID},
+	)
+	if err != nil {
+		t.Fatalf("List(tasks while writer reserved) error = %v", err)
+	}
+	if len(listedTasks) != 1 || listedTasks[0].ID != created.ID {
+		t.Errorf("List(tasks while writer reserved) = %#v, want task %d", listedTasks, created.ID)
 	}
 }
 
@@ -314,7 +350,7 @@ func TestOpenRejectsUnsafeBootstrapStates(t *testing.T) {
 		name  string
 		setup string
 	}{
-		{name: "previous development revision", setup: "PRAGMA user_version = 9003"},
+		{name: "previous development revision", setup: "PRAGMA user_version = 9004"},
 		{name: "wrong revision", setup: "PRAGMA user_version = 42"},
 		{name: "nonempty version zero", setup: "CREATE TABLE existing (id INTEGER)"},
 	}
@@ -1153,6 +1189,58 @@ func TestDeleteReturnsSnapshotWithoutCompactingPositions(t *testing.T) {
 	}
 	if remaining.Position != second.Position {
 		t.Errorf("remaining position = %d, want unchanged %d", remaining.Position, second.Position)
+	}
+}
+
+func TestTaskTransactionUsesAmbientStateAndRollsBack(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	projects := NewProjects(storage)
+	tasks := NewTasks(storage)
+	container := addStoredProject(t, projects, project.AddFields{Title: "container"})
+
+	var added task.Task
+	err := tasks.WithinTransaction(ctx, func(transaction task.Store) error {
+		var operationErr error
+		added, operationErr = transaction.Add(
+			ctx,
+			task.AddFields{Title: "must roll back"},
+			"2026-01-02T00:00:00.000Z",
+		)
+		if operationErr != nil {
+			return operationErr
+		}
+
+		bound := transaction.(*Tasks)
+		var projectID int64
+		if operationErr = bound.executor.QueryRowContext(ctx, `
+UPDATE projects
+SET done_at = ?, updated_at = ?
+WHERE id = ?
+RETURNING id
+`, "2026-01-03T00:00:00.000Z", "2026-01-03T00:00:00.000Z", container.ID).Scan(&projectID); operationErr != nil {
+			return operationErr
+		}
+		_, operationErr = transaction.Add(
+			ctx,
+			task.AddFields{ProjectID: &container.ID, Title: "blocked by ambient resolve"},
+			"2026-01-04T00:00:00.000Z",
+		)
+		return operationErr
+	})
+	if errorCode(err) != apperr.Conflict {
+		t.Fatalf("WithinTransaction() error = %v, want conflict", err)
+	}
+	if _, findErr := tasks.Find(ctx, added.ID); errorCode(findErr) != apperr.NotFound {
+		t.Errorf("Find(rolled-back task) error = %v, want not_found", findErr)
+	}
+	persistedProject, findErr := projects.Find(ctx, container.ID)
+	if findErr != nil {
+		t.Fatalf("Find(project after rollback) error = %v", findErr)
+	}
+	if persistedProject.Status != "open" || persistedProject.UpdatedAt != container.UpdatedAt {
+		t.Errorf("project after rollback = %#v, want original %#v", persistedProject, container)
 	}
 }
 
