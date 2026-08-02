@@ -84,6 +84,7 @@ func (e ResolvedProjectsError) Error() string {
 	return fmt.Sprintf("resolved projects block this operation: %v", e.IDs)
 }
 
+// Store returns every project and task with a non-nil Tags slice.
 type Store interface {
 	Add(context.Context, AddFields, string) (Project, error)
 	Find(context.Context, int64) (Project, error)

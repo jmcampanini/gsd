@@ -199,8 +199,10 @@ row.
 ### Entity applications
 
 `task.Task`, `project.Project`, and `area.Area` gain
-`Tags []string` (`json:"tags"`, never null). Each service gains
-`Tag(ctx, id, names)` and `Untag(ctx, id, names)` owning the all-or-nothing
+`Tags []string` (`json:"tags"`, never null). Entity store interfaces guarantee
+that every returned entity carries a non-nil `Tags` slice, enforced by the
+concrete SQLite scanners. Each service gains `Tag(ctx, id, names)` and
+`Untag(ctx, id, names)` owning the all-or-nothing
 transaction: find the entity, resolve names, attach or detach, return the
 refreshed entity. Each `AddFields` gains `Tags []string`; the creation
 transaction inserts the entity, resolves names, and inserts join rows.
@@ -256,8 +258,9 @@ requirement it protects and why its layer is the cheapest faithful proof.
 - **Store tests with real temporary SQLite databases** own revision-`9005`
   bootstrap, the tags DDL (NOCASE uniqueness including case-only rename,
   composite-PK idempotency, CASCADE in both directions, reverse-lookup
-  indexes), view `tags` enrichment via raw-SQL fixtures, usage-count
-  aggregation across the three kinds, alphabetical NOCASE list ordering,
+  indexes), view `tags` enrichment via raw-SQL fixtures, non-nil `Tags` on
+  every returned entity, usage-count aggregation across the three kinds,
+  alphabetical NOCASE list ordering,
   case-insensitive resolution and filtering, read-then-validate semantics
   (typed `not_found`/`conflict` classification from in-transaction reads,
   multi-blocker gathering, and rollback proof: a failed resolve mid-attach
@@ -267,8 +270,8 @@ requirement it protects and why its layer is the cheapest faithful proof.
 - **Service tests with store fakes** own name/ID/title validation through
   `internal/domain`, multi-name normalization and case-insensitive
   duplicate collapse, all-or-nothing transaction scope ownership, the
-  delete-with-count envelope, error pass-through, and non-nil `tags` and
-  collection normalization. Fakes return canned values; they do not
+  delete-with-count envelope, error pass-through, and collection
+  normalization. Fakes return store-contract-valid canned values; they do not
   simulate transactions.
 - **Command tests** own flag adaptation (`--tag` accumulation, arity and
   usage errors with no database open), JSON envelope shapes (`tags` arrays

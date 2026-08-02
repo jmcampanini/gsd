@@ -14,6 +14,7 @@ type Entry struct {
 	Tags               []string `json:"tags"`
 }
 
+// Store returns every entry with a non-nil Tags slice.
 type Store interface {
 	List(context.Context) ([]Entry, error)
 }

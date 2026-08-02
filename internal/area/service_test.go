@@ -811,53 +811,6 @@ func TestRecursiveDeleteNormalizesNilCollections(t *testing.T) {
 	}
 }
 
-func TestServiceNormalizesAreaAndNestedEntityTags(t *testing.T) {
-	t.Parallel()
-
-	directStore := &recordingStore{
-		findResult: Area{ID: 1},
-		listResult: []Area{{ID: 2}},
-	}
-	service := NewService(directStore)
-	shown, err := service.Show(context.Background(), 1)
-	if err != nil {
-		t.Fatalf("Show() error = %v", err)
-	}
-	listed, err := service.List(context.Background(), ListOptions{})
-	if err != nil {
-		t.Fatalf("List() error = %v", err)
-	}
-	if shown.Tags == nil || listed[0].Tags == nil {
-		t.Errorf("direct/collection tags = %#v/%#v, want non-nil empty slices", shown.Tags, listed[0].Tags)
-	}
-
-	projectID := int64(3)
-	transactionStore := &recordingStore{
-		deleteResult:         Area{ID: 1},
-		deleteProjectsResult: []project.Project{{ID: projectID}},
-		projectTasksResult:   []task.Task{{ID: 4, ProjectID: &projectID}},
-		looseTasksResult:     []task.Task{{ID: 5}},
-	}
-	deletion, err := NewService(&recordingStore{transactionStore: transactionStore}).Delete(
-		context.Background(),
-		1,
-		true,
-	)
-	if err != nil {
-		t.Fatalf("Delete() error = %v", err)
-	}
-	if deletion.Area.Tags == nil || deletion.DeletedProjects[0].Tags == nil ||
-		deletion.DeletedTasks[0].Tags == nil || deletion.DeletedTasks[1].Tags == nil {
-		t.Errorf(
-			"deletion tags = %#v/%#v/%#v/%#v, want non-nil empty slices",
-			deletion.Area.Tags,
-			deletion.DeletedProjects[0].Tags,
-			deletion.DeletedTasks[0].Tags,
-			deletion.DeletedTasks[1].Tags,
-		)
-	}
-}
-
 func TestAreaLifecycleStoreAndTransactionErrorsPassThrough(t *testing.T) {
 	t.Parallel()
 

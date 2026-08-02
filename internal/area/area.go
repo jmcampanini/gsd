@@ -69,6 +69,7 @@ func (e ArchivedAreasError) Error() string {
 	return fmt.Sprintf("archived areas block this operation: %v", e.IDs)
 }
 
+// Store returns every area, project, and task with a non-nil Tags slice.
 type Store interface {
 	Add(context.Context, AddFields, string) (Area, error)
 	Find(context.Context, int64) (Area, error)

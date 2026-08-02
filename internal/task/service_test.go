@@ -559,34 +559,6 @@ func TestInboxNormalizesNil(t *testing.T) {
 	}
 }
 
-func TestServiceNormalizesTaskTagsAcrossDirectAndCollectionResults(t *testing.T) {
-	t.Parallel()
-
-	store := &recordingStore{
-		findResults: []Task{{ID: 1}},
-		listResult:  []Task{{ID: 2}},
-		inboxResult: []ViewTask{{Task: Task{ID: 3}}},
-	}
-	service := NewService(store)
-
-	shown, err := service.Show(context.Background(), 1)
-	if err != nil {
-		t.Fatalf("Show() error = %v", err)
-	}
-	listed, err := service.List(context.Background(), ListOptions{Status: ListStatusOpen})
-	if err != nil {
-		t.Fatalf("List() error = %v", err)
-	}
-	inbox, err := service.Inbox(context.Background())
-	if err != nil {
-		t.Fatalf("Inbox() error = %v", err)
-	}
-
-	if shown.Tags == nil || listed[0].Tags == nil || inbox[0].Tags == nil {
-		t.Errorf("normalized tags = %#v/%#v/%#v, want non-nil empty slices", shown.Tags, listed[0].Tags, inbox[0].Tags)
-	}
-}
-
 func TestAvailableNormalizesNil(t *testing.T) {
 	t.Parallel()
 

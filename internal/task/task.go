@@ -95,6 +95,7 @@ type Tagging struct {
 	TagTitles []string
 }
 
+// Store returns every task with a non-nil Tags slice.
 type Store interface {
 	Add(ctx context.Context, fields AddFields, timestamp string) (Task, error)
 	Inbox(ctx context.Context) ([]ViewTask, error)
