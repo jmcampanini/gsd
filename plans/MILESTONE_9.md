@@ -1,80 +1,86 @@
-# Milestone 9 — Search
+# Milestone 9 — Query
 
-Data mode: live. Depends on: Milestone 8.
+Data mode: throwaway. Depends on: Milestone 8.
 
-Written light; re-review at plan gate (see note in `MILESTONE_8.md`).
+Written light; re-review at plan gate (see note in `MILESTONE_7.md`).
 
 ## Capability
 
-Find the thing you half-remember: FTS5 full-text search over titles and
-notes of all three entity kinds, composing with the list filters. Also the
-first **live schema migration** — the FTS infrastructure ships as
-migration 0002+, proving the Milestone 7 machinery on real data.
+The escape hatch that makes gsd infinitely extendable without new
+features: `gsd query` runs arbitrary read-only SQL against the documented
+schema. This formally publishes `SCHEMA.md`'s query contract — tables
+stable, views only gain columns — as user-facing API. The v1 functional
+surface is complete at the end of this milestone; Go live then turns
+gsd into the system of record.
 
 ## Scope
 
-- FTS5 index over `title` + `note` of tasks, projects, areas, kept in
-  sync (triggers or equivalent — implementation detail). The index is
-  internal: not part of the `query` contract (COMMANDS.md § "Search and
-  query"), so its shape can change freely later.
 - Command:
 
 ```text
-gsd search "EXPR" [--project N] [--area N] [--tag NAME] [--status ...]
+gsd query "SELECT ..."
+gsd query -              # SQL from stdin
 ```
 
-- `EXPR` passes through FTS5 match syntax: `plumb*`, `"exact phrase"`,
-  `a OR b`. Malformed FTS expressions are `invalid_argument`, not a
-  panic.
-- Mixed-kind output prints the kind next to the ID (like `logbook`).
-  Filters compose: kinds that a filter can't apply to are excluded when
-  that filter is present (**proposed**: `--project N` restricts results
-  to tasks in that project).
+- Read-only by construction (COMMANDS.md § Search and query): a separate
+  read-only connection (`query_only` pragma and/or open-mode flag —
+  both, belt and suspenders). Any write attempt fails as
+  `invalid_argument`; so do non-SELECT statements.
+- Human output: aligned table of selected columns; `--json`: array of
+  row objects keyed by column name.
+- Documentation: `SCHEMA.md`'s contract section gets a short "recipes"
+  addendum (reverse tag lookup, per-project counts, area review) —
+  documented example queries, explicitly not schema.
 
 ## Chunks
 
-1. **Index migration** — FTS table + sync, migration applied to a copy
-   of the live db, backfill verified against existing rows.
-2. **Search command** — expression passthrough, filter composition,
-   mixed-kind output.
+1. **The whole command** — read-only connection, output modes, error
+   mapping, recipes doc. Single chunk.
 
 ## User stories
 
-### Half a memory is enough
+### Questions gsd never anticipated get answered anyway
 
 ```text
-$ gsd search "plumb*"
-  task     4   Call plumber
-  project  11  Bathroom plumbing
-$ gsd search '"pick up" OR errand' --status open
+$ gsd query "SELECT governing_area_title, COUNT(*) c
+             FROM available GROUP BY 1 ORDER BY c DESC"
+Home   7
+Work   4
 ```
 
-### Search narrows like list does
+### Agents get the whole database, safely
 
 ```text
-$ gsd search tile --project 11 --status done
-  task  23  Pick tiles   done
+$ echo "SELECT id, title FROM logbook LIMIT 3" | gsd query - --json
+[{"id": 41, "title": "..."}, ...]
+$ gsd query "DELETE FROM tasks"
+{"error": {"code": "invalid_argument", "message": "query is read-only"}}
 ```
 
 ## Agent-verified end-to-end workflow
 
-On a copy of the live database:
+On a seeded dev database:
 
-1. Migration applies cleanly; FTS rows == entity rows (backfill check).
-2. Prefix, phrase, and OR queries return expected known-data hits across
-   kinds; malformed expression → `invalid_argument`.
-3. Edit a note, re-search: change reflected (sync works).
-4. Filter composition matrix with `--status`, `--tag`, `--project`,
-   `--area`.
-5. On the real db: Javier searches for something he actually
-   half-remembers; it comes back.
+1. Every documented recipe runs and returns plausibly-shaped results.
+2. Write-attempt matrix: `DELETE`, `UPDATE`, `INSERT`, `PRAGMA
+   user_version = 9`, `ATTACH` — all refused, database file unchanged
+   (checksum before/after).
+3. The three contract views expose exactly the columns `SCHEMA.md`
+   promises (introspection check).
+4. Capstone: the agent answers a nontrivial question about the seeded
+   data ("what was finished last week, by area?") using only
+   `gsd query`.
 
 ## Exit criteria
 
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
-- [ ] Live db migrated with zero data loss (row counts by kind unchanged).
+- [ ] **Functional completeness audit**: every command and behavior
+      `COMMANDS.md` promises (excluding the forward-looking TUI section)
+      is demonstrated by the accumulated e2e and agent-verified
+      workflows; each gap is fixed or explicitly re-scoped before Go
+      live begins.
 
 ## Standards
 
-CLI-CMD-002/003, CLI-OUTPUT-003.
+CLI-CMD-002/003, CLI-OUTPUT-003, CLI-DOCS-004.

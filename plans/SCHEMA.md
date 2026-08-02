@@ -230,8 +230,8 @@ makes the schema itself public API. The contract:
   task-shaped views return `tasks.*` plus one fixed enrichment block —
   `project_title`, `governing_area_id`, `governing_area_title`
   ("governing" = own area, or the one inherited through the project), and
-  `tags` (JSON array of tag names, explicitly ordered by tag ID so creation
-  order is stable) — so the common queries need no joins, and the
+  `tags` (JSON array of tag names, ordered by title with `NOCASE` so
+  every tag listing is alphabetical) — so the common queries need no joins, and the
   governing-area COALESCE is done correctly once, in the view.
 - **CLI `--json` output for an entity is its table row** — same column
   names, same formats — plus the `tags` array.
@@ -253,7 +253,7 @@ SELECT t.*,
        p.title                        AS project_title,
        COALESCE(t.area_id, p.area_id) AS governing_area_id,
        a.title                        AS governing_area_title,
-       (SELECT json_group_array(g.title ORDER BY g.id)
+       (SELECT json_group_array(g.title ORDER BY g.title COLLATE NOCASE)
         FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
         WHERE tt.task_id = t.id)      AS tags
 FROM tasks t
@@ -274,7 +274,7 @@ SELECT t.*,
        p.title                        AS project_title,
        COALESCE(t.area_id, p.area_id) AS governing_area_id,
        a.title                        AS governing_area_title,
-       (SELECT json_group_array(g.title ORDER BY g.id)
+       (SELECT json_group_array(g.title ORDER BY g.title COLLATE NOCASE)
         FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
         WHERE tt.task_id = t.id)      AS tags
 FROM tasks t
@@ -298,7 +298,7 @@ SELECT 'task' AS kind, t.id, t.title, t.status,
        p.title                        AS project_title,
        COALESCE(t.area_id, p.area_id) AS governing_area_id,
        a.title                        AS governing_area_title,
-       (SELECT json_group_array(g.title ORDER BY g.id)
+       (SELECT json_group_array(g.title ORDER BY g.title COLLATE NOCASE)
         FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
         WHERE tt.task_id = t.id)      AS tags
 FROM tasks t
@@ -311,7 +311,7 @@ SELECT 'project', p.id, p.title, p.status,
        NULL,
        p.area_id,
        a.title,
-       (SELECT json_group_array(g.title ORDER BY g.id)
+       (SELECT json_group_array(g.title ORDER BY g.title COLLATE NOCASE)
         FROM project_tags pt JOIN tags g ON g.id = pt.tag_id
         WHERE pt.project_id = p.id)
 FROM projects p
