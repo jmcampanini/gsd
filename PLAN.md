@@ -19,7 +19,7 @@ Milestone 5 is three sequential chunks. This is the chunk progress checklist;
 check a chunk only after its implementation and verification items below are
 complete:
 
-- [ ] **Chunk 0 — Transaction seam** — review-only: guarded task and project
+- [x] **Chunk 0 — Transaction seam** — review-only: guarded task and project
       mutations move to read-then-validate transactions behind the `Tasks`
       executor seam, the duplicated classification stanzas and the
       sentinel-row listings are retired, and the triplicated service helpers
@@ -70,10 +70,12 @@ lock across read, validation, and write, so the read is authoritative.
 
 This applies to every mutation that carries container guards and a
 classification pass: task `add`, `edit`, `done`, `cancel`, `reopen` and
-project `add`, `edit`, `resolve` (done/cancel), `reopen`. Operations proven
-complete by one guarded atomic statement with a single self-classifying
-predicate — task delete, tag rename, area archive/unarchive/delete — keep
-that shape per `AGENTS.md`.
+project `add`, `edit`, `resolve` (done/cancel), `reopen`. Project `delete`
+keeps its guarded statement, but runs missing-versus-contained classification
+inside the same `BEGIN IMMEDIATE` transaction so that result is authoritative.
+Operations proven complete by one guarded atomic statement with a single
+self-classifying predicate — task delete, tag rename, area
+archive/unarchive/delete — keep that shape per `AGENTS.md`.
 
 ### Tag identity and namespace
 
@@ -161,7 +163,7 @@ and `gsd untag` without arguments are usage errors likewise.
   message, dissolve into the shared in-transaction validation.
 - The sentinel-row idiom in `Tasks.listContained` and the area-scoped
   project listing retires: each contained listing becomes a container `Find`
-  followed by the list query inside one transaction — same
+  followed by the list query inside one deferred read transaction — same
   missing-versus-empty semantics with snapshot consistency and no fabricated
   all-zero row.
 - The triplicated service helpers — title/note validation, positive-ID
@@ -280,27 +282,29 @@ review-only chunk when it is not consecutive with another. No chunk demo.
 
 ### Implementation
 
-- [ ] Give `store.Tasks` the executor + `WithinTransaction` shape and route
+- [x] Give `store.Tasks` the executor + `WithinTransaction` shape and route
       every mutation-supporting read, including container-state reads,
       through the executor.
-- [ ] Convert task `add`, `edit`, `done`, `cancel`, and `reopen` to
+- [x] Convert task `add`, `edit`, `done`, `cancel`, and `reopen` to
       read-then-validate transactions returning the existing typed errors;
       decompose `Tasks.Edit` (read task, compute destination, validate
       states, plain UPDATE) and delete the statement-guard predicates and
       the forensic classification pass they duplicated.
-- [ ] Convert project `add`, `edit`, `resolve`, and `reopen` likewise,
+- [x] Convert project `add`, `edit`, `resolve`, and `reopen` likewise,
       dissolving the duplicated classification stanzas and `Edit`'s
-      re-implemented blocker message into shared in-transaction validation.
-- [ ] Retire the sentinel-row idiom: contained task and project listings
-      become container `Find` plus list query inside one transaction with
-      identical missing-versus-empty semantics.
-- [ ] Extract the triplicated service helpers into `internal/domain`,
+      re-implemented blocker message into shared in-transaction validation;
+      run project `delete` classification in the guarded statement's
+      transaction as well.
+- [x] Retire the sentinel-row idiom: contained task and project listings
+      become container `Find` plus list query inside one deferred transaction
+      with identical missing-versus-empty semantics.
+- [x] Extract the triplicated service helpers into `internal/domain`,
       parameterized by entity noun with byte-identical messages, and point
       the task, project, and area services at it.
-- [ ] Prove no behavior change: existing store, service, command, and e2e
+- [x] Prove no behavior change: existing store, service, command, and e2e
       suites pass with only mechanical import updates; add rollback-proof
       store tests for the converted transactions.
-- [ ] Run `make check` and build the real binary before opening the chunk
+- [x] Run `make check` and build the real binary before opening the chunk
       pull request.
 
 ## Chunk 1 — Tag administration

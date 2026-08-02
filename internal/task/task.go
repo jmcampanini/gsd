@@ -94,6 +94,7 @@ type Store interface {
 	Cancel(ctx context.Context, id int64, timestamp string) (Task, error)
 	Reopen(ctx context.Context, id int64, timestamp string) (Task, error)
 	Delete(ctx context.Context, id int64) (Task, error)
+	WithinTransaction(context.Context, func(Store) error) error
 }
 
 type Application interface {

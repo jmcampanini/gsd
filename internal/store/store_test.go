@@ -116,6 +116,63 @@ WHERE t.status = 'open'
 	}
 }
 
+func TestContainedListingsDoNotReserveWriter(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "gsd.db")
+	reader, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open(reader) error = %v", err)
+	}
+	t.Cleanup(func() { _ = reader.Close() })
+	areas := NewAreas(reader)
+	projects := NewProjects(reader)
+	tasks := NewTasks(reader)
+	container := addStoredArea(t, areas, area.AddFields{Title: "area"})
+	contained := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "project"})
+	created := addStoredTask(t, tasks, task.AddFields{ProjectID: &contained.ID, Title: "task"})
+	if _, err := reader.database.ExecContext(ctx, "PRAGMA busy_timeout = 0"); err != nil {
+		t.Fatalf("disable reader busy timeout: %v", err)
+	}
+
+	writer, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open(writer) error = %v", err)
+	}
+	t.Cleanup(func() { _ = writer.Close() })
+	writerConnection, err := writer.database.Conn(ctx)
+	if err != nil {
+		t.Fatalf("reserve writer connection: %v", err)
+	}
+	defer func() { _ = writerConnection.Close() }()
+	if _, err := writerConnection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		t.Fatalf("reserve writer transaction: %v", err)
+	}
+	defer func() { _, _ = writerConnection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK") }()
+
+	listedProjects, err := projects.List(
+		ctx,
+		project.ListOptions{Status: project.ListStatusAll, AreaID: &container.ID},
+	)
+	if err != nil {
+		t.Fatalf("List(projects while writer reserved) error = %v", err)
+	}
+	if len(listedProjects) != 1 || listedProjects[0].ID != contained.ID {
+		t.Errorf("List(projects while writer reserved) = %#v, want project %d", listedProjects, contained.ID)
+	}
+	listedTasks, err := tasks.List(
+		ctx,
+		task.ListOptions{Status: task.ListStatusAll, ProjectID: &contained.ID},
+	)
+	if err != nil {
+		t.Fatalf("List(tasks while writer reserved) error = %v", err)
+	}
+	if len(listedTasks) != 1 || listedTasks[0].ID != created.ID {
+		t.Errorf("List(tasks while writer reserved) = %#v, want task %d", listedTasks, created.ID)
+	}
+}
+
 func TestDateColumnsEnforceCanonicalValuesAndRoundTripDates(t *testing.T) {
 	t.Parallel()
 
@@ -1153,6 +1210,58 @@ func TestDeleteReturnsSnapshotWithoutCompactingPositions(t *testing.T) {
 	}
 	if remaining.Position != second.Position {
 		t.Errorf("remaining position = %d, want unchanged %d", remaining.Position, second.Position)
+	}
+}
+
+func TestTaskTransactionUsesAmbientStateAndRollsBack(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	projects := NewProjects(storage)
+	tasks := NewTasks(storage)
+	container := addStoredProject(t, projects, project.AddFields{Title: "container"})
+
+	var added task.Task
+	err := tasks.WithinTransaction(ctx, func(transaction task.Store) error {
+		var operationErr error
+		added, operationErr = transaction.Add(
+			ctx,
+			task.AddFields{Title: "must roll back"},
+			"2026-01-02T00:00:00.000Z",
+		)
+		if operationErr != nil {
+			return operationErr
+		}
+
+		bound := transaction.(*Tasks)
+		var projectID int64
+		if operationErr = bound.executor.QueryRowContext(ctx, `
+UPDATE projects
+SET done_at = ?, updated_at = ?
+WHERE id = ?
+RETURNING id
+`, "2026-01-03T00:00:00.000Z", "2026-01-03T00:00:00.000Z", container.ID).Scan(&projectID); operationErr != nil {
+			return operationErr
+		}
+		_, operationErr = transaction.Add(
+			ctx,
+			task.AddFields{ProjectID: &container.ID, Title: "blocked by ambient resolve"},
+			"2026-01-04T00:00:00.000Z",
+		)
+		return operationErr
+	})
+	if errorCode(err) != apperr.Conflict {
+		t.Fatalf("WithinTransaction() error = %v, want conflict", err)
+	}
+	if _, findErr := tasks.Find(ctx, added.ID); errorCode(findErr) != apperr.NotFound {
+		t.Errorf("Find(rolled-back task) error = %v, want not_found", findErr)
+	}
+	persistedProject, findErr := projects.Find(ctx, container.ID)
+	if findErr != nil {
+		t.Fatalf("Find(project after rollback) error = %v", findErr)
+	}
+	if persistedProject.Status != "open" || persistedProject.UpdatedAt != container.UpdatedAt {
+		t.Errorf("project after rollback = %#v, want original %#v", persistedProject, container)
 	}
 }
 
