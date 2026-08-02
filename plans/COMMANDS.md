@@ -183,8 +183,10 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
   `{"project":{...},"cancelled_tasks":[{...},...]}`; recursive deletion
   mirrors it as `{"project":{...},"deleted_tasks":[...]}` and, for areas,
   `{"area":{...},"deleted_projects":[...],"deleted_tasks":[...]}` —
-  `deleted_tasks` holding both loose and project-contained tasks, its
-  arrays ordered by `position`, then `id`. All arrays may be `[]`.
+  `deleted_tasks` grouped by container: the area's loose tasks first,
+  then each deleted project's tasks following `deleted_projects` order,
+  with every group (and `deleted_projects` itself) ordered by
+  `position`, then `id`. All arrays may be `[]`.
 - **Collections are position-ordered**: `inbox` and `list` return rows
   ordered by `position`, then `id`, for every status filter, in both output
   modes.

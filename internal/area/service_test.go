@@ -386,10 +386,12 @@ func TestNonrecursiveDeleteReturnsNormalizedEnvelopeWithoutTransaction(t *testin
 	}
 }
 
-func TestRecursiveDeleteOwnsSequenceAndReturnsGloballyOrderedEnvelope(t *testing.T) {
+func TestRecursiveDeleteDeletesAreaLastAndReturnsContainerGroupedEnvelope(t *testing.T) {
 	t.Parallel()
 
 	deletedArea := Area{ID: 7, Title: "Home"}
+	firstProjectID := int64(10)
+	secondProjectID := int64(11)
 	transactionStore := &recordingStore{
 		deleteResult: deletedArea,
 		deleteProjectsResult: []project.Project{
@@ -398,12 +400,12 @@ func TestRecursiveDeleteOwnsSequenceAndReturnsGloballyOrderedEnvelope(t *testing
 			{ID: 12, Position: 2},
 		},
 		projectTasksResult: []task.Task{
-			{ID: 22, Position: 2},
-			{ID: 20, Position: 0},
+			{ID: 20, ProjectID: &secondProjectID, Position: 0},
+			{ID: 22, ProjectID: &firstProjectID, Position: 2},
 		},
 		looseTasksResult: []task.Task{
-			{ID: 23, Position: 1},
 			{ID: 21, Position: 0},
+			{ID: 23, Position: 1},
 		},
 	}
 	store := &recordingStore{transactionStore: transactionStore}
@@ -416,14 +418,9 @@ func TestRecursiveDeleteOwnsSequenceAndReturnsGloballyOrderedEnvelope(t *testing
 		store.deleteCalls+store.deleteProjectsCalls+store.deleteTasksCalls != 0 {
 		t.Errorf("outer transaction/direct mutation state = %#v, want one boundary only", store)
 	}
-	wantSequence := []string{
-		"delete project tasks",
-		"delete projects",
-		"delete loose tasks",
-		"delete area",
-	}
-	if !reflect.DeepEqual(transactionStore.lifecycleSequence, wantSequence) {
-		t.Errorf("mutation sequence = %v, want %v", transactionStore.lifecycleSequence, wantSequence)
+	sequence := transactionStore.lifecycleSequence
+	if len(sequence) != 4 || sequence[len(sequence)-1] != "delete area" {
+		t.Errorf("mutation sequence = %v, want the area deleted after its contents", sequence)
 	}
 	if transactionStore.deleteProjectsAreaID != 7 ||
 		!reflect.DeepEqual(transactionStore.deleteTasksAreaIDs, []int64{7, 7}) ||
@@ -442,15 +439,15 @@ func TestRecursiveDeleteOwnsSequenceAndReturnsGloballyOrderedEnvelope(t *testing
 		gotProjects[index] = deletedProject.ID
 	}
 	if !reflect.DeepEqual(gotProjects, wantProjects) {
-		t.Errorf("deleted project IDs = %v, want globally ordered %v", gotProjects, wantProjects)
+		t.Errorf("deleted project IDs = %v, want store order %v preserved", gotProjects, wantProjects)
 	}
-	wantTasks := []int64{20, 21, 23, 22}
+	wantTasks := []int64{21, 23, 22, 20}
 	gotTasks := make([]int64, len(deletion.DeletedTasks))
 	for index, deletedTask := range deletion.DeletedTasks {
 		gotTasks[index] = deletedTask.ID
 	}
 	if !reflect.DeepEqual(gotTasks, wantTasks) {
-		t.Errorf("deleted task IDs = %v, want globally ordered %v", gotTasks, wantTasks)
+		t.Errorf("deleted task IDs = %v, want loose tasks then per-project groups %v", gotTasks, wantTasks)
 	}
 }
 

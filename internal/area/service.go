@@ -3,7 +3,6 @@ package area
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -148,8 +147,17 @@ func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletio
 			return err
 		}
 
-		deletedTasks = append(deletedTasks, projectTasks...)
 		deletedTasks = append(deletedTasks, looseTasks...)
+		tasksByProject := make(map[int64][]task.Task, len(deletedProjects))
+		for _, projectTask := range projectTasks {
+			tasksByProject[*projectTask.ProjectID] = append(
+				tasksByProject[*projectTask.ProjectID],
+				projectTask,
+			)
+		}
+		for _, deletedProject := range deletedProjects {
+			deletedTasks = append(deletedTasks, tasksByProject[deletedProject.ID]...)
+		}
 		return nil
 	})
 	if err != nil {
@@ -158,11 +166,6 @@ func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletio
 	if deletedProjects == nil {
 		deletedProjects = []project.Project{}
 	}
-	sort.Slice(deletedTasks, func(i, j int) bool {
-		left := deletedTasks[i]
-		right := deletedTasks[j]
-		return left.Position < right.Position || left.Position == right.Position && left.ID < right.ID
-	})
 
 	return Deletion{
 		Area:            deletedArea,
