@@ -48,8 +48,7 @@ func (s *Service) Rename(ctx context.Context, oldName, newName string) (Renaming
 			return err
 		}
 
-		renaming.PreviousTitle = previous.Title
-		renaming.Tag = renamed
+		renaming = Renaming{PreviousTitle: previous.Title, Tag: renamed}
 		return nil
 	})
 	if err != nil {
@@ -80,8 +79,7 @@ func (s *Service) Delete(ctx context.Context, name string) (Deletion, error) {
 			return err
 		}
 
-		deletion.Tag = deletedTag
-		deletion.Detached = detached
+		deletion = Deletion{Tag: deletedTag, Detached: detached}
 		return nil
 	})
 	if err != nil {

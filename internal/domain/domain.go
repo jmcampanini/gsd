@@ -79,18 +79,13 @@ func FormatTimestamp(value time.Time) string {
 	return value.UTC().Format("2006-01-02T15:04:05.000Z")
 }
 
-func NormalizeSlice[T any](values []T) []T {
-	if values == nil {
-		return []T{}
-	}
-
-	return values
-}
-
 func NormalizeSliceResult[T any](values []T, err error) ([]T, error) {
 	if err != nil {
 		return nil, err
 	}
+	if values == nil {
+		return []T{}, nil
+	}
 
-	return NormalizeSlice(values), nil
+	return values, nil
 }
