@@ -2,8 +2,12 @@ package cmd
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"os"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
@@ -181,11 +185,37 @@ func normalizeApplicationError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if _, ok := apperr.CodeOf(err); ok {
+	if code, ok := apperr.CodeOf(err); ok {
+		var archivedAreas *area.ArchivedAreasError
+		if errors.As(err, &archivedAreas) {
+			return apperr.New(code, appendUnarchiveGuidance(err.Error(), archivedAreas.IDs), err)
+		}
 		return err
 	}
 
 	return apperr.New(apperr.Internal, err.Error(), err)
+}
+
+func appendUnarchiveGuidance(message string, ids []int64) string {
+	unique := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		unique[id] = struct{}{}
+	}
+	ordered := make([]int64, 0, len(unique))
+	for id := range unique {
+		ordered = append(ordered, id)
+	}
+	sort.Slice(ordered, func(left, right int) bool { return ordered[left] < ordered[right] })
+
+	commands := make([]string, 0, len(ordered))
+	for _, id := range ordered {
+		commands = append(commands, fmt.Sprintf("gsd area unarchive %d", id))
+	}
+	if len(commands) == 0 {
+		return message
+	}
+
+	return message + "; unarchive first: " + strings.Join(commands, "; ")
 }
 
 func exitCodeForError(err error) int {

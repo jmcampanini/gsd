@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -951,6 +952,132 @@ func TestTaskLifecycleTransitionsAreBlockedByResolvedProject(t *testing.T) {
 	}
 	if !reflect.DeepEqual(deleted, deleteCandidate) {
 		t.Errorf("Delete(task in resolved project) = %#v, want snapshot %#v", deleted, deleteCandidate)
+	}
+}
+
+func TestTaskArchivedAreaLifecycleGuardsAndDeleteAllowance(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	areas := NewAreas(storage)
+	projects := NewProjects(storage)
+	tasks := NewTasks(storage)
+
+	directArea := addStoredArea(t, areas, area.AddFields{Title: "direct"})
+	inheritedArea := addStoredArea(t, areas, area.AddFields{Title: "inherited"})
+	openProject := addStoredProject(
+		t,
+		projects,
+		project.AddFields{AreaID: &inheritedArea.ID, Title: "open project"},
+	)
+	resolvedProject := addStoredProject(
+		t,
+		projects,
+		project.AddFields{AreaID: &inheritedArea.ID, Title: "resolved project"},
+	)
+	doneCandidate := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{AreaID: &directArea.ID, Title: "done candidate"},
+	)
+	cancelCandidate := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{ProjectID: &openProject.ID, Title: "cancel candidate"},
+	)
+	reopenCandidate := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{ProjectID: &openProject.ID, Title: "reopen candidate"},
+	)
+	combinedCandidate := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{ProjectID: &resolvedProject.ID, Title: "combined candidate"},
+	)
+	deleteInherited := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{ProjectID: &openProject.ID, Title: "delete inherited"},
+	)
+	var err error
+	reopenCandidate, err = tasks.Done(
+		ctx,
+		reopenCandidate.ID,
+		"2026-01-02T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Done(reopen candidate fixture) error = %v", err)
+	}
+	if _, err := projects.Resolve(
+		ctx,
+		resolvedProject.ID,
+		project.ExitDone,
+		"2026-01-03T00:00:00.000Z",
+	); err != nil {
+		t.Fatalf("Resolve(project fixture) error = %v", err)
+	}
+	archiveStoredAreas(t, storage, directArea.ID, inheritedArea.ID)
+
+	operations := []struct {
+		name      string
+		areaID    int64
+		projectID int64
+		apply     func() error
+	}{
+		{
+			name:   "done direct",
+			areaID: directArea.ID,
+			apply: func() error {
+				_, operationErr := tasks.Done(ctx, doneCandidate.ID, "2026-01-04T00:00:00.000Z")
+				return operationErr
+			},
+		},
+		{
+			name:   "cancel inherited",
+			areaID: inheritedArea.ID,
+			apply: func() error {
+				_, operationErr := tasks.Cancel(ctx, cancelCandidate.ID, "2026-01-04T00:00:00.000Z")
+				return operationErr
+			},
+		},
+		{
+			name:   "reopen inherited",
+			areaID: inheritedArea.ID,
+			apply: func() error {
+				_, operationErr := tasks.Reopen(ctx, reopenCandidate.ID, "2026-01-04T00:00:00.000Z")
+				return operationErr
+			},
+		},
+		{
+			name:      "resolved project and archived inherited area",
+			areaID:    inheritedArea.ID,
+			projectID: resolvedProject.ID,
+			apply: func() error {
+				_, operationErr := tasks.Done(ctx, combinedCandidate.ID, "2026-01-04T00:00:00.000Z")
+				return operationErr
+			},
+		},
+	}
+	for _, operation := range operations {
+		err := operation.apply()
+		if errorCode(err) != apperr.Conflict {
+			t.Errorf("%s error = %v, want conflict", operation.name, err)
+			continue
+		}
+		assertArchivedAreaIDs(t, err, []int64{operation.areaID})
+		if !strings.Contains(err.Error(), fmt.Sprintf("area %d", operation.areaID)) {
+			t.Errorf("%s error = %v, want area ID %d", operation.name, err, operation.areaID)
+		}
+		if operation.projectID != 0 &&
+			!strings.Contains(err.Error(), fmt.Sprintf("project %d", operation.projectID)) {
+			t.Errorf("%s error = %v, want project ID %d", operation.name, err, operation.projectID)
+		}
+	}
+
+	deleted, err := tasks.Delete(ctx, deleteInherited.ID)
+	if err != nil || !reflect.DeepEqual(deleted, deleteInherited) {
+		t.Errorf("Delete(task under archived area) = %#v, %v; want %#v", deleted, err, deleteInherited)
 	}
 }
 

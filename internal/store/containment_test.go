@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -151,6 +152,84 @@ func TestTaskAddClassifiesMissingAndResolvedProjects(t *testing.T) {
 	}
 	if taskCount != 0 {
 		t.Errorf("task count = %d, want no inserts from rejected additions", taskCount)
+	}
+}
+
+func TestTaskAddRejectsArchivedGoverningAreasAtomically(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	areas := NewAreas(storage)
+	projects := NewProjects(storage)
+	tasks := NewTasks(storage)
+
+	directArea := addStoredArea(t, areas, area.AddFields{Title: "direct"})
+	inheritedArea := addStoredArea(t, areas, area.AddFields{Title: "inherited"})
+	openProject := addStoredProject(
+		t,
+		projects,
+		project.AddFields{AreaID: &inheritedArea.ID, Title: "open project"},
+	)
+	resolvedProject := addStoredProject(
+		t,
+		projects,
+		project.AddFields{AreaID: &inheritedArea.ID, Title: "resolved project"},
+	)
+	if _, err := projects.Resolve(
+		ctx,
+		resolvedProject.ID,
+		project.ExitDone,
+		"2026-01-02T00:00:00.000Z",
+	); err != nil {
+		t.Fatalf("Resolve(project) error = %v", err)
+	}
+	archiveStoredAreas(t, storage, directArea.ID, inheritedArea.ID)
+
+	tests := []struct {
+		name          string
+		fields        task.AddFields
+		wantAreaID    int64
+		wantProjectID int64
+	}{
+		{
+			name:       "direct area",
+			fields:     task.AddFields{AreaID: &directArea.ID, Title: "direct blocked"},
+			wantAreaID: directArea.ID,
+		},
+		{
+			name:       "inherited area",
+			fields:     task.AddFields{ProjectID: &openProject.ID, Title: "inherited blocked"},
+			wantAreaID: inheritedArea.ID,
+		},
+		{
+			name:          "resolved project in archived area",
+			fields:        task.AddFields{ProjectID: &resolvedProject.ID, Title: "both blocked"},
+			wantAreaID:    inheritedArea.ID,
+			wantProjectID: resolvedProject.ID,
+		},
+	}
+	for _, test := range tests {
+		_, err := tasks.Add(ctx, test.fields, "2026-01-03T00:00:00.000Z")
+		if errorCode(err) != apperr.Conflict {
+			t.Errorf("Add(%s) error = %v, want conflict", test.name, err)
+			continue
+		}
+		assertArchivedAreaIDs(t, err, []int64{test.wantAreaID})
+		if !strings.Contains(err.Error(), fmt.Sprintf("area %d", test.wantAreaID)) {
+			t.Errorf("Add(%s) error = %v, want governing area ID %d", test.name, err, test.wantAreaID)
+		}
+		if test.wantProjectID != 0 &&
+			!strings.Contains(err.Error(), fmt.Sprintf("project %d", test.wantProjectID)) {
+			t.Errorf("Add(%s) error = %v, want resolved project ID %d", test.name, err, test.wantProjectID)
+		}
+	}
+
+	var taskCount int
+	if err := storage.database.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks").Scan(&taskCount); err != nil {
+		t.Fatalf("count tasks: %v", err)
+	}
+	if taskCount != 0 {
+		t.Errorf("task count = %d, want rejected additions not persisted", taskCount)
 	}
 }
 
@@ -306,6 +385,155 @@ func TestTaskEditReparentsBetweenProjectAreaAndInbox(t *testing.T) {
 	}
 	if !reflect.DeepEqual(persisted, movedToInbox) {
 		t.Errorf("task after missing-area move = %#v, want unchanged %#v", persisted, movedToInbox)
+	}
+}
+
+func TestTaskEditArchivedAreaGuardsAllowNoOpsAndGatherMoveBlockers(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	areas := NewAreas(storage)
+	projects := NewProjects(storage)
+	tasks := NewTasks(storage)
+
+	sharedArea := addStoredArea(t, areas, area.AddFields{Title: "shared"})
+	otherArea := addStoredArea(t, areas, area.AddFields{Title: "other"})
+	sharedProject := addStoredProject(
+		t,
+		projects,
+		project.AddFields{AreaID: &sharedArea.ID, Title: "shared project"},
+	)
+	blockedProject := addStoredProject(
+		t,
+		projects,
+		project.AddFields{AreaID: &otherArea.ID, Title: "blocked project"},
+	)
+	direct := addStoredTask(t, tasks, task.AddFields{AreaID: &sharedArea.ID, Title: "direct"})
+	inherited := addStoredTask(
+		t,
+		tasks,
+		task.AddFields{ProjectID: &sharedProject.ID, Title: "inherited"},
+	)
+	inbox := addStoredTask(t, tasks, task.AddFields{Title: "inbox"})
+	if _, err := projects.Resolve(
+		ctx,
+		blockedProject.ID,
+		project.ExitCancelled,
+		"2026-01-02T00:00:00.000Z",
+	); err != nil {
+		t.Fatalf("Resolve(blocked project) error = %v", err)
+	}
+	archiveStoredAreas(t, storage, otherArea.ID, sharedArea.ID)
+
+	directTitle := "direct content allowed"
+	directEdited, err := tasks.Edit(
+		ctx,
+		direct.ID,
+		task.EditFields{Title: &directTitle},
+		"2026-01-03T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Edit(content in direct archived area) error = %v", err)
+	}
+	directRestated, err := tasks.Edit(
+		ctx,
+		direct.ID,
+		task.EditFields{Area: task.AreaChange{Set: &sharedArea.ID}},
+		"2026-01-04T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Edit(restate direct archived area) error = %v", err)
+	}
+	if !reflect.DeepEqual(directRestated, directEdited) {
+		t.Errorf("restated direct task = %#v, want no-op %#v", directRestated, directEdited)
+	}
+
+	inheritedTitle := "inherited content allowed"
+	inheritedEdited, err := tasks.Edit(
+		ctx,
+		inherited.ID,
+		task.EditFields{
+			Project: task.ProjectChange{Set: &sharedProject.ID},
+			Title:   &inheritedTitle,
+		},
+		"2026-01-04T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Edit(content with restated inherited container) error = %v", err)
+	}
+	if inheritedEdited.Title != inheritedTitle || inheritedEdited.Position != inherited.Position {
+		t.Errorf("inherited content edit = %#v, want content change without movement", inheritedEdited)
+	}
+
+	_, err = tasks.Edit(
+		ctx,
+		direct.ID,
+		task.EditFields{Project: task.ProjectChange{Set: &sharedProject.ID}},
+		"2026-01-05T00:00:00.000Z",
+	)
+	if errorCode(err) != apperr.Conflict {
+		t.Errorf("Edit(between containers under same archived area) error = %v, want conflict", err)
+	} else {
+		assertArchivedAreaIDs(t, err, []int64{sharedArea.ID})
+	}
+
+	_, err = tasks.Edit(
+		ctx,
+		direct.ID,
+		task.EditFields{Area: task.AreaChange{Clear: true}},
+		"2026-01-05T00:00:00.000Z",
+	)
+	if errorCode(err) != apperr.Conflict {
+		t.Errorf("Edit(move out of archived area) error = %v, want conflict", err)
+	} else {
+		assertArchivedAreaIDs(t, err, []int64{sharedArea.ID})
+	}
+
+	_, err = tasks.Edit(
+		ctx,
+		inbox.ID,
+		task.EditFields{Area: task.AreaChange{Set: &sharedArea.ID}},
+		"2026-01-05T00:00:00.000Z",
+	)
+	if errorCode(err) != apperr.Conflict {
+		t.Errorf("Edit(move into archived area) error = %v, want conflict", err)
+	} else {
+		assertArchivedAreaIDs(t, err, []int64{sharedArea.ID})
+	}
+
+	blockedTitle := "must not persist"
+	_, err = tasks.Edit(
+		ctx,
+		direct.ID,
+		task.EditFields{
+			Project: task.ProjectChange{Set: &blockedProject.ID},
+			Title:   &blockedTitle,
+		},
+		"2026-01-06T00:00:00.000Z",
+	)
+	if errorCode(err) != apperr.Conflict ||
+		!strings.Contains(err.Error(), fmt.Sprintf("project %d", blockedProject.ID)) {
+		t.Errorf("Edit(multi-block move) error = %v, want resolved project and archived areas conflict", err)
+	} else {
+		assertArchivedAreaIDs(t, err, []int64{sharedArea.ID, otherArea.ID})
+	}
+	persisted, err := tasks.Find(ctx, direct.ID)
+	if err != nil {
+		t.Fatalf("Find(after rejected moves) error = %v", err)
+	}
+	if !reflect.DeepEqual(persisted, directRestated) {
+		t.Errorf("task after rejected moves = %#v, want unchanged %#v", persisted, directRestated)
+	}
+
+	missingAreaID := int64(999)
+	_, err = tasks.Edit(
+		ctx,
+		direct.ID,
+		task.EditFields{Area: task.AreaChange{Set: &missingAreaID}},
+		"2026-01-07T00:00:00.000Z",
+	)
+	if errorCode(err) != apperr.NotFound {
+		t.Errorf("Edit(archived source to missing destination) error = %v, want not_found first", err)
 	}
 }
 
@@ -475,6 +703,34 @@ func TestTaskMoveReportsBothResolvedProjectsTogether(t *testing.T) {
 	if moved.ProjectID == nil || *moved.ProjectID != destination.ID ||
 		moved.Position != destinationAnchor.Position+1 {
 		t.Errorf("Edit(after reopening both projects) = %#v, want append to destination project", moved)
+	}
+}
+
+func assertArchivedAreaIDs(t *testing.T, err error, want []int64) {
+	t.Helper()
+
+	var marker *area.ArchivedAreasError
+	if !errors.As(err, &marker) {
+		t.Errorf("error = %v, want archived-area marker", err)
+		return
+	}
+	if !reflect.DeepEqual(marker.IDs, want) {
+		t.Errorf("archived area IDs = %v, want %v", marker.IDs, want)
+	}
+}
+
+func archiveStoredAreas(t *testing.T, storage *DB, ids ...int64) {
+	t.Helper()
+
+	for _, id := range ids {
+		if _, err := storage.database.ExecContext(
+			context.Background(),
+			"UPDATE areas SET archived_at = ? WHERE id = ?",
+			"2026-01-10T00:00:00.000Z",
+			id,
+		); err != nil {
+			t.Fatalf("archive area %d fixture: %v", id, err)
+		}
 	}
 }
 

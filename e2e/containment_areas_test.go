@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -136,6 +137,171 @@ func TestAreaContainmentAcrossBinaryInvocations(t *testing.T) {
 	standalone := decodeProject(t, runJSON("project", "edit", fmt.Sprint(project.ID), "--no-area"))
 	if standalone.AreaID != nil {
 		t.Errorf("standalone project = %#v, want area cleared", standalone)
+	}
+}
+
+func TestAreaArchiveAndDeletionAcrossBinaryInvocations(t *testing.T) {
+	databasePath := filepath.Join(workDir, "area-archive-delete", "gsd.db")
+	runJSON := func(args ...string) processResult {
+		return runGSD(t, append(args, "--db", databasePath, "--json")...)
+	}
+
+	home := decodeAreaRow(t, runJSON("areas", "add", "Home"))
+	work := decodeAreaRow(t, runJSON("areas", "add", "Work"))
+	homeLoose := decodeTask(t, runJSON("add", "Change furnace filter", "--area", fmt.Sprint(home.ID)))
+	homeProject := decodeProject(t, runJSON(
+		"projects", "add", "Kitchen reno", "--area", fmt.Sprint(home.ID),
+	))
+	projectTask := decodeTask(t, runJSON("add", "Get quotes", "--project", fmt.Sprint(homeProject.ID)))
+	deletedWhileArchived := decodeTask(t, runJSON(
+		"add", "Choose fixtures", "--project", fmt.Sprint(homeProject.ID),
+	))
+	workLoose := decodeTask(t, runJSON("add", "Submit expenses", "--area", fmt.Sprint(work.ID)))
+	inboxTask := decodeTask(t, runJSON("add", "Buy milk"))
+	resolvedTask := decodeTask(t, runJSON("add", "Retired reminder", "--area", fmt.Sprint(home.ID)))
+	decodeTask(t, runJSON("done", fmt.Sprint(resolvedTask.ID)))
+	resolvedProject := decodeProject(t, runJSON(
+		"projects", "add", "Finished room", "--area", fmt.Sprint(home.ID),
+	))
+	decodeProjectResolution(t, runJSON("project", "done", fmt.Sprint(resolvedProject.ID)))
+
+	availableBeforeArchive := decodeJSON[[]task.ViewTask](t, runJSON("available"), "available")
+	if len(availableBeforeArchive) != 5 {
+		t.Fatalf("available before archive = %#v, want five open tasks", availableBeforeArchive)
+	}
+	archiveResult := runGSD(
+		t,
+		"area", "archive", fmt.Sprint(home.ID), "--db", databasePath,
+	)
+	if archiveResult.exitCode != 0 || archiveResult.stderr != "" ||
+		archiveResult.stdout != fmt.Sprintf("Archived: area %d  Home\n", home.ID) {
+		t.Fatalf("human archive = %#v, want concise archive mutation", archiveResult)
+	}
+	archivedHome := decodeAreaRow(t, runJSON("area", "show", fmt.Sprint(home.ID)))
+	if archivedHome.ArchivedAt == nil || archivedHome.Position != home.Position {
+		t.Errorf("archived Home = %#v, want archived with original position %d", archivedHome, home.Position)
+	}
+
+	availableWhileArchived := decodeJSON[[]task.ViewTask](t, runJSON("available"), "available")
+	if len(availableWhileArchived) != 2 || availableWhileArchived[0].ID != workLoose.ID ||
+		availableWhileArchived[1].ID != inboxTask.ID {
+		t.Errorf(
+			"available while Home archived = %#v, want only Work and inbox tasks",
+			availableWhileArchived,
+		)
+	}
+	directList := decodeTasks(t, runJSON("list", "--area", fmt.Sprint(home.ID)))
+	if len(directList) != 1 || directList[0].ID != homeLoose.ID {
+		t.Errorf("archived Home direct list = %#v, want loose open task %#v", directList, homeLoose)
+	}
+	activeAreas := decodeAreaRows(t, runJSON("areas", "list"))
+	archivedAreas := decodeAreaRows(t, runJSON("areas", "list", "--archived"))
+	allAreas := decodeAreaRows(t, runJSON("areas", "list", "--all"))
+	if len(activeAreas) != 1 || activeAreas[0].ID != work.ID ||
+		len(archivedAreas) != 1 || archivedAreas[0].ID != home.ID ||
+		len(allAreas) != 2 || allAreas[0].ID != home.ID || allAreas[1].ID != work.ID {
+		t.Errorf(
+			"area partitions active/archived/all = %#v/%#v/%#v, want Work/Home/Home then Work",
+			activeAreas,
+			archivedAreas,
+			allAreas,
+		)
+	}
+	for _, args := range [][]string{
+		{"add", "Late idea", "--area", fmt.Sprint(home.ID)},
+		{"edit", fmt.Sprint(homeLoose.ID), "--area", fmt.Sprint(work.ID)},
+		{"edit", fmt.Sprint(workLoose.ID), "--area", fmt.Sprint(home.ID)},
+		{"done", fmt.Sprint(projectTask.ID)},
+		{"project", "done", fmt.Sprint(homeProject.ID)},
+	} {
+		assertJSONError(t, runJSON(args...), apperr.Conflict)
+	}
+	guardGuidance := runGSD(
+		t,
+		"done", fmt.Sprint(projectTask.ID), "--db", databasePath,
+	)
+	if guardGuidance.exitCode != 1 || guardGuidance.stdout != "" ||
+		!strings.Contains(guardGuidance.stderr, "area unarchive") ||
+		!strings.Contains(guardGuidance.stderr, fmt.Sprint(home.ID)) {
+		t.Errorf("human archived guard = %#v, want unarchive-first guidance", guardGuidance)
+	}
+
+	editedTask := decodeTask(t, runJSON(
+		"edit", fmt.Sprint(projectTask.ID), "--title", "Get contractor quotes",
+	))
+	if editedTask.Title != "Get contractor quotes" || editedTask.Position != projectTask.Position {
+		t.Errorf("content-edited archived task = %#v, want title change without movement", editedTask)
+	}
+	deletedTask := decodeTask(t, runJSON("delete", fmt.Sprint(deletedWhileArchived.ID)))
+	if deletedTask.ID != deletedWhileArchived.ID {
+		t.Errorf("deleted archived-area task = %#v, want %#v", deletedTask, deletedWhileArchived)
+	}
+
+	unarchivedHome := decodeAreaRow(t, runJSON("area", "unarchive", fmt.Sprint(home.ID)))
+	if unarchivedHome.ArchivedAt != nil || unarchivedHome.Position != home.Position {
+		t.Errorf("unarchived Home = %#v, want active at original position %d", unarchivedHome, home.Position)
+	}
+	assertJSONError(
+		t,
+		runJSON("area", "unarchive", fmt.Sprint(home.ID)),
+		apperr.Conflict,
+	)
+	restoredAvailable := decodeJSON[[]task.ViewTask](t, runJSON("available"), "available")
+	if len(restoredAvailable) != 4 {
+		t.Fatalf("available after unarchive = %#v, want four remaining open tasks", restoredAvailable)
+	}
+	wantRestoredIDs := []int64{homeLoose.ID, editedTask.ID, workLoose.ID, inboxTask.ID}
+	for index, wantID := range wantRestoredIDs {
+		if restoredAvailable[index].ID != wantID {
+			t.Errorf("available after unarchive = %#v, want IDs %v", restoredAvailable, wantRestoredIDs)
+			break
+		}
+	}
+	if restoredAvailable[0].Position != homeLoose.Position ||
+		restoredAvailable[1].Position != projectTask.Position ||
+		restoredAvailable[1].Title != editedTask.Title {
+		t.Errorf("restored governed tasks = %#v, want original positions and edited title", restoredAvailable[:2])
+	}
+	assertJSONError(t, runJSON("area", "delete", fmt.Sprint(home.ID)), apperr.Conflict)
+
+	empty := decodeAreaRow(t, runJSON("areas", "add", "Empty"))
+	emptyDeletion := decodeAreaRow(t, runJSON("area", "delete", fmt.Sprint(empty.ID)))
+	if emptyDeletion.ID != empty.ID {
+		t.Errorf("empty area deletion = %#v, want deleted Empty area %#v", emptyDeletion, empty)
+	}
+	assertJSONError(t, runJSON("area", "show", fmt.Sprint(empty.ID)), apperr.NotFound)
+
+	deletionResult := runJSON("area", "delete", fmt.Sprint(home.ID), "--recursive")
+	deletion := decodeJSON[area.Deletion](t, deletionResult, "recursive area deletion")
+	if deletion.Area.ID != home.ID || len(deletion.DeletedProjects) != 2 || len(deletion.DeletedTasks) != 3 {
+		t.Errorf("recursive deletion = %#v, want Home, two projects, and three tasks", deletion)
+	}
+	assertJSONError(t, runJSON("area", "show", fmt.Sprint(home.ID)), apperr.NotFound)
+
+	narrated := decodeAreaRow(t, runJSON("areas", "add", "Narrated"))
+	narratedProject := decodeProject(t, runJSON(
+		"projects", "add", "Narrated project", "--area", fmt.Sprint(narrated.ID),
+	))
+	decodeTask(t, runJSON("add", "Narrated project task", "--project", fmt.Sprint(narratedProject.ID)))
+	decodeTask(t, runJSON("add", "Narrated loose task", "--area", fmt.Sprint(narrated.ID)))
+	narration := runGSD(
+		t,
+		"area", "delete", fmt.Sprint(narrated.ID), "--recursive", "--db", databasePath,
+	)
+	for _, want := range []string{
+		fmt.Sprintf("Deleted: area %d  Narrated", narrated.ID),
+		"Deleted 1 project:",
+		"Narrated project",
+		"Deleted 2 tasks:",
+		"Narrated project task",
+		"Narrated loose task",
+	} {
+		if !strings.Contains(narration.stdout, want) {
+			t.Errorf("human recursive deletion = %#v, want %q", narration, want)
+		}
+	}
+	if narration.exitCode != 0 || narration.stderr != "" || strings.Contains(narration.stdout, "\x1b[") {
+		t.Errorf("human recursive deletion = %#v, want plain stdout-only success", narration)
 	}
 }
 

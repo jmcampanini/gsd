@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"context"
 	"errors"
+	"io"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
@@ -53,13 +55,23 @@ func newAreasAddCommand(options *rootOptions, factory applicationFactory) *cobra
 }
 
 func newAreasListCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	return &cobra.Command{
+	var archived bool
+	var all bool
+	command := &cobra.Command{
 		Use:   "list",
 		Short: "List areas",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			slice := area.ListSliceActive
+			if archived {
+				slice = area.ListSliceArchived
+			}
+			if all {
+				slice = area.ListSliceAll
+			}
+
 			return withAreaApplication(command, options, factory, func(application area.Application) error {
-				areas, err := application.List(command.Context(), area.ListOptions{Slice: area.ListSliceActive})
+				areas, err := application.List(command.Context(), area.ListOptions{Slice: slice})
 				if err != nil {
 					return err
 				}
@@ -67,6 +79,11 @@ func newAreasListCommand(options *rootOptions, factory applicationFactory) *cobr
 			})
 		},
 	}
+	command.Flags().BoolVar(&archived, "archived", false, "list archived areas")
+	command.Flags().BoolVar(&all, "all", false, "list active and archived areas")
+	command.MarkFlagsMutuallyExclusive("archived", "all")
+
+	return command
 }
 
 func newAreaCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
@@ -79,8 +96,11 @@ func newAreaCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 		},
 	}
 	command.AddCommand(
+		newAreaArchiveCommand(options, factory),
+		newAreaDeleteCommand(options, factory),
 		newAreaEditCommand(options, factory),
 		newAreaShowCommand(options, factory),
+		newAreaUnarchiveCommand(options, factory),
 	)
 
 	return command
@@ -106,6 +126,110 @@ func newAreaShowCommand(options *rootOptions, factory applicationFactory) *cobra
 			})
 		},
 	}
+}
+
+type areaMutation func(context.Context, area.Application, int64) (area.Area, error)
+
+func newAreaArchiveCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	return newAreaMutationCommand(
+		options,
+		factory,
+		"archive ID",
+		"Archive an area",
+		"Archived",
+		func(ctx context.Context, application area.Application, id int64) (area.Area, error) {
+			return application.Archive(ctx, id)
+		},
+	)
+}
+
+func newAreaUnarchiveCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	return newAreaMutationCommand(
+		options,
+		factory,
+		"unarchive ID",
+		"Unarchive an area",
+		"Unarchived",
+		func(ctx context.Context, application area.Application, id int64) (area.Area, error) {
+			return application.Unarchive(ctx, id)
+		},
+	)
+}
+
+func newAreaMutationCommand(
+	options *rootOptions,
+	factory applicationFactory,
+	use string,
+	short string,
+	action string,
+	mutate areaMutation,
+) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			id, err := area.ParseID(args[0])
+			if err != nil {
+				return err
+			}
+
+			return withAreaApplication(command, options, factory, func(application area.Application) error {
+				affected, mutationErr := mutate(command.Context(), application, id)
+				if mutationErr != nil {
+					return mutationErr
+				}
+				return writeCommandOutput(
+					command.OutOrStdout(),
+					options.json,
+					affected,
+					func(writer io.Writer, current area.Area) error {
+						return writeAreaMutation(writer, action, current)
+					},
+				)
+			})
+		},
+	}
+}
+
+func newAreaDeleteCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	var recursive bool
+	command := &cobra.Command{
+		Use:   "delete ID",
+		Short: "Delete an area",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			id, err := area.ParseID(args[0])
+			if err != nil {
+				return err
+			}
+
+			return withAreaApplication(command, options, factory, func(application area.Application) error {
+				deletion, deleteErr := application.Delete(command.Context(), id, recursive)
+				if deleteErr != nil {
+					if code, ok := apperr.CodeOf(deleteErr); ok && code == apperr.Conflict && !recursive {
+						return apperr.New(
+							apperr.Conflict,
+							deleteErr.Error()+"; use --recursive to delete the area and its contents",
+							deleteErr,
+						)
+					}
+					return deleteErr
+				}
+				if options.json {
+					if recursive {
+						return writeJSON(command.OutOrStdout(), deletion)
+					}
+					return writeJSON(command.OutOrStdout(), deletion.Area)
+				}
+
+				return writeAreaDeletion(command.OutOrStdout(), deletion)
+			})
+		},
+	}
+	command.Flags().BoolVar(&recursive, "recursive", false, "delete contained projects and tasks")
+
+	return command
 }
 
 func newAreaEditCommand(options *rootOptions, factory applicationFactory) *cobra.Command {

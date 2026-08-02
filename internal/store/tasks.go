@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -38,6 +39,11 @@ type taskDestinationExpression struct {
 	arguments []any
 }
 
+type taskContainerState struct {
+	project *project.Project
+	area    *area.Area
+}
+
 func NewTasks(database *DB) *Tasks {
 	return &Tasks{db: database}
 }
@@ -63,10 +69,21 @@ SELECT ?, ?, ?, ?, ?, ?,
 WHERE (
         ? IS NULL
         OR EXISTS (
-            SELECT 1 FROM projects WHERE id = ? AND status = 'open'
+            SELECT 1
+            FROM projects AS destination_project
+            LEFT JOIN areas AS governing_area ON governing_area.id = destination_project.area_id
+            WHERE destination_project.id = ?
+              AND destination_project.status = 'open'
+              AND governing_area.archived_at IS NULL
         )
       )
-  AND (? IS NULL OR EXISTS (SELECT 1 FROM areas WHERE id = ?))
+  AND (
+      ? IS NULL
+      OR EXISTS (
+          SELECT 1 FROM areas
+          WHERE id = ? AND archived_at IS NULL
+      )
+  )
 RETURNING ` + taskColumns
 
 	row := s.db.database.QueryRowContext(
@@ -94,23 +111,7 @@ RETURNING ` + taskColumns
 	if !errors.Is(err, sql.ErrNoRows) {
 		return task.Task{}, fmt.Errorf("insert task: %w", err)
 	}
-	if fields.AreaID != nil {
-		if _, findErr := NewAreas(s.db).Find(ctx, *fields.AreaID); findErr != nil {
-			return task.Task{}, findErr
-		}
-	}
-	if fields.ProjectID != nil {
-		if classification := s.classifyOpenProject(
-			ctx,
-			*fields.ProjectID,
-			fmt.Sprintf("add task to project %d", *fields.ProjectID),
-			err,
-		); classification != nil {
-			return task.Task{}, classification
-		}
-	}
-
-	return task.Task{}, fmt.Errorf("insert task: %w", err)
+	return task.Task{}, s.classifyAdd(ctx, fields, err)
 }
 
 func (s *Tasks) Inbox(ctx context.Context) ([]task.ViewTask, error) {
@@ -378,6 +379,32 @@ END`,
                 WHERE destination_area.id = ` + destinationArea + `
             )
         )
+        AND NOT EXISTS (
+            SELECT 1
+            FROM areas AS source_area
+            WHERE source_area.id = COALESCE(
+                tasks.area_id,
+                (
+                    SELECT source_project.area_id
+                    FROM projects AS source_project
+                    WHERE source_project.id = tasks.project_id
+                )
+            )
+              AND source_area.archived_at IS NOT NULL
+        )
+        AND NOT EXISTS (
+            SELECT 1
+            FROM areas AS destination_governing_area
+            WHERE destination_governing_area.id = COALESCE(
+                ` + destinationArea + `,
+                (
+                    SELECT destination_project.area_id
+                    FROM projects AS destination_project
+                    WHERE destination_project.id = ` + destinationProject + `
+                )
+            )
+              AND destination_governing_area.archived_at IS NOT NULL
+        )
     )
 )`
 	}
@@ -440,6 +467,15 @@ WHERE id = ?
           WHERE projects.id = tasks.project_id AND projects.status = 'open'
       )
   )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM areas
+      WHERE areas.id = COALESCE(
+          tasks.area_id,
+          (SELECT projects.area_id FROM projects WHERE projects.id = tasks.project_id)
+      )
+        AND areas.archived_at IS NOT NULL
+  )
 RETURNING `+taskColumns,
 		timestamp,
 		timestamp,
@@ -464,6 +500,15 @@ WHERE id = ?
           WHERE projects.id = tasks.project_id AND projects.status = 'open'
       )
   )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM areas
+      WHERE areas.id = COALESCE(
+          tasks.area_id,
+          (SELECT projects.area_id FROM projects WHERE projects.id = tasks.project_id)
+      )
+        AND areas.archived_at IS NOT NULL
+  )
 RETURNING `+taskColumns,
 		timestamp,
 		timestamp,
@@ -486,6 +531,15 @@ WHERE id = ?
           SELECT 1 FROM projects
           WHERE projects.id = tasks.project_id AND projects.status = 'open'
       )
+  )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM areas
+      WHERE areas.id = COALESCE(
+          tasks.area_id,
+          (SELECT projects.area_id FROM projects WHERE projects.id = tasks.project_id)
+      )
+        AND areas.archived_at IS NOT NULL
   )
 RETURNING `+taskColumns,
 		timestamp,
@@ -525,24 +579,18 @@ func (s *Tasks) transition(
 	if findErr != nil {
 		return task.Task{}, findErr
 	}
-	if current.ProjectID != nil {
-		container, projectErr := NewProjects(s.db).Find(ctx, *current.ProjectID)
-		if projectErr != nil {
-			return task.Task{}, projectErr
-		}
-		if container.Status != "open" {
-			return task.Task{}, apperr.New(
-				apperr.Conflict,
-				fmt.Sprintf(
-					"cannot %s task %d while project %d is resolved; reopen project %d first",
-					action,
-					id,
-					container.ID,
-					container.ID,
-				),
-				err,
-			)
-		}
+	state, stateErr := s.findContainerState(ctx, taskContainerOf(current))
+	if stateErr != nil {
+		return task.Task{}, stateErr
+	}
+	resolvedProjectIDs, archivedAreaIDs := taskContainerBlockers(state)
+	if len(resolvedProjectIDs) > 0 || len(archivedAreaIDs) > 0 {
+		return task.Task{}, taskBlockersConflict(
+			fmt.Sprintf("%s task %d", action, id),
+			resolvedProjectIDs,
+			archivedAreaIDs,
+			err,
+		)
 	}
 
 	return task.Task{}, apperr.New(
@@ -569,66 +617,29 @@ func (s *Tasks) classifyMembershipEdit(
 		return fmt.Errorf("edit task: %w", cause)
 	}
 
-	var destinationProject *project.Project
-	switch destination.kind {
-	case taskContainerProject:
-		found, findErr := NewProjects(s.db).Find(ctx, destination.id)
-		if findErr != nil {
-			return findErr
-		}
-		destinationProject = &found
-	case taskContainerArea:
-		if _, findErr := NewAreas(s.db).Find(ctx, destination.id); findErr != nil {
-			return findErr
-		}
+	destinationState, err := s.findContainerState(ctx, destination)
+	if err != nil {
+		return err
+	}
+	sourceState, err := s.findContainerState(ctx, source)
+	if err != nil {
+		return err
 	}
 
-	var sourceProject *project.Project
-	if source.kind == taskContainerProject {
-		found, findErr := NewProjects(s.db).Find(ctx, source.id)
-		if findErr != nil {
-			return findErr
-		}
-		sourceProject = &found
+	destinationResolved, destinationArchived := taskContainerBlockers(destinationState)
+	sourceResolved, sourceArchived := taskContainerBlockers(sourceState)
+	resolvedProjectIDs := append(sourceResolved, destinationResolved...)
+	archivedAreaIDs := append(sourceArchived, destinationArchived...)
+	if len(resolvedProjectIDs) > 0 || len(archivedAreaIDs) > 0 {
+		return taskBlockersConflict(
+			fmt.Sprintf("move task %d", taskID),
+			resolvedProjectIDs,
+			archivedAreaIDs,
+			cause,
+		)
 	}
 
-	destinationResolved := destinationProject != nil && destinationProject.Status != "open"
-	sourceResolved := sourceProject != nil && sourceProject.Status != "open"
-	switch {
-	case sourceResolved && destinationResolved:
-		return apperr.New(
-			apperr.Conflict,
-			fmt.Sprintf(
-				"cannot move task %d from project %d to project %d while both projects are resolved; reopen both projects first",
-				taskID,
-				sourceProject.ID,
-				destinationProject.ID,
-			),
-			cause,
-		)
-	case destinationResolved:
-		return apperr.New(
-			apperr.Conflict,
-			fmt.Sprintf(
-				"cannot move task %d into project %d while the project is resolved; reopen the project first",
-				taskID,
-				destinationProject.ID,
-			),
-			cause,
-		)
-	case sourceResolved:
-		return apperr.New(
-			apperr.Conflict,
-			fmt.Sprintf(
-				"cannot move task %d out of project %d while the project is resolved; reopen the project first",
-				taskID,
-				sourceProject.ID,
-			),
-			cause,
-		)
-	default:
-		return fmt.Errorf("edit task: %w", cause)
-	}
+	return fmt.Errorf("edit task: %w", cause)
 }
 
 func taskContainerOf(current task.Task) taskContainer {
@@ -657,25 +668,76 @@ func taskContainerAfterChange(current taskContainer, fields task.EditFields) tas
 	return current
 }
 
-func (s *Tasks) classifyOpenProject(
-	ctx context.Context,
-	projectID int64,
-	action string,
-	cause error,
-) error {
-	found, err := NewProjects(s.db).Find(ctx, projectID)
+func (s *Tasks) classifyAdd(ctx context.Context, fields task.AddFields, cause error) error {
+	var container taskContainer
+	var action string
+	switch {
+	case fields.ProjectID != nil:
+		container = taskContainer{kind: taskContainerProject, id: *fields.ProjectID}
+		action = fmt.Sprintf("add task to project %d", *fields.ProjectID)
+	case fields.AreaID != nil:
+		container = taskContainer{kind: taskContainerArea, id: *fields.AreaID}
+		action = fmt.Sprintf("add task to area %d", *fields.AreaID)
+	default:
+		return fmt.Errorf("insert task: %w", cause)
+	}
+
+	state, err := s.findContainerState(ctx, container)
 	if err != nil {
 		return err
 	}
-	if found.Status != "open" {
-		return apperr.New(
-			apperr.Conflict,
-			fmt.Sprintf("cannot %s while the project is resolved; reopen the project first", action),
-			cause,
-		)
+	resolvedProjectIDs, archivedAreaIDs := taskContainerBlockers(state)
+	if len(resolvedProjectIDs) > 0 || len(archivedAreaIDs) > 0 {
+		return taskBlockersConflict(action, resolvedProjectIDs, archivedAreaIDs, cause)
 	}
 
-	return nil
+	return fmt.Errorf("insert task: %w", cause)
+}
+
+func (s *Tasks) findContainerState(
+	ctx context.Context,
+	container taskContainer,
+) (taskContainerState, error) {
+	var state taskContainerState
+	switch container.kind {
+	case taskContainerInbox:
+	case taskContainerProject:
+		found, err := NewProjects(s.db).Find(ctx, container.id)
+		if err != nil {
+			return taskContainerState{}, err
+		}
+		state.project = &found
+		if found.AreaID != nil {
+			governingArea, areaErr := NewAreas(s.db).Find(ctx, *found.AreaID)
+			if areaErr != nil {
+				return taskContainerState{}, areaErr
+			}
+			state.area = &governingArea
+		}
+	case taskContainerArea:
+		found, err := NewAreas(s.db).Find(ctx, container.id)
+		if err != nil {
+			return taskContainerState{}, err
+		}
+		state.area = &found
+	default:
+		return taskContainerState{}, fmt.Errorf("invalid task container kind %d", container.kind)
+	}
+
+	return state, nil
+}
+
+func taskContainerBlockers(state taskContainerState) ([]int64, []int64) {
+	resolvedProjectIDs := make([]int64, 0, 1)
+	if state.project != nil && state.project.Status != "open" {
+		resolvedProjectIDs = append(resolvedProjectIDs, state.project.ID)
+	}
+	archivedAreaIDs := make([]int64, 0, 1)
+	if state.area != nil && state.area.ArchivedAt != nil {
+		archivedAreaIDs = append(archivedAreaIDs, state.area.ID)
+	}
+
+	return resolvedProjectIDs, archivedAreaIDs
 }
 
 type rowScanner interface {
