@@ -28,15 +28,35 @@ func (s *Service) List(ctx context.Context) ([]ListedTag, error) {
 	return domain.NormalizeSliceResult(s.store.List(ctx))
 }
 
-func (s *Service) Rename(ctx context.Context, oldName, newName string) (Tag, error) {
+func (s *Service) Rename(ctx context.Context, oldName, newName string) (Renaming, error) {
 	if err := domain.ValidateTitle(oldName); err != nil {
-		return Tag{}, err
+		return Renaming{}, err
 	}
 	if err := domain.ValidateTitle(newName); err != nil {
-		return Tag{}, err
+		return Renaming{}, err
 	}
 
-	return s.store.Rename(ctx, oldName, newName, domain.FormatTimestamp(s.now()))
+	var renaming Renaming
+	err := s.store.WithinTransaction(ctx, func(store Store) error {
+		previous, err := store.Find(ctx, oldName)
+		if err != nil {
+			return err
+		}
+
+		renamed, err := store.Rename(ctx, oldName, newName, domain.FormatTimestamp(s.now()))
+		if err != nil {
+			return err
+		}
+
+		renaming.PreviousTitle = previous.Title
+		renaming.Tag = renamed
+		return nil
+	})
+	if err != nil {
+		return Renaming{}, err
+	}
+
+	return renaming, nil
 }
 
 func (s *Service) Delete(ctx context.Context, name string) (Deletion, error) {

@@ -172,10 +172,10 @@ CREATE INDEX idx_tasks_area    ON tasks(area_id);
 
 ## `tags` and the join tables
 
-Flat namespace, attaches to tasks, projects, and areas. Uniqueness is
-case-insensitive (`COLLATE NOCASE` — ASCII folding only; if Unicode case
-ever matters, the CLI normalizes on insert). Tags are pure labels: no note,
-no position (tag lists display alphabetically).
+Flat namespace, attaches to tasks, projects, and areas. Uniqueness uses
+SQLite `COLLATE NOCASE`, which folds ASCII only; non-ASCII case variants
+remain distinct. Tags are pure labels: no note, no position (tag lists
+display alphabetically).
 
 One join table per taggable entity rather than one polymorphic table: three
 identical small tables keep real foreign keys on both sides, where a

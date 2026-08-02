@@ -14,6 +14,11 @@ type ListedTag struct {
 	UsageCount int64 `json:"usage_count"`
 }
 
+type Renaming struct {
+	PreviousTitle string
+	Tag           Tag
+}
+
 type Deletion struct {
 	Tag      Tag   `json:"tag"`
 	Detached int64 `json:"detached"`
@@ -32,6 +37,6 @@ type Store interface {
 type Application interface {
 	Add(context.Context, string) (Tag, error)
 	List(context.Context) ([]ListedTag, error)
-	Rename(context.Context, string, string) (Tag, error)
+	Rename(context.Context, string, string) (Renaming, error)
 	Delete(context.Context, string) (Deletion, error)
 }

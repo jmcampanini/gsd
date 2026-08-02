@@ -85,9 +85,9 @@ authoritative.
 Tags are addressed by name, never ID; the name is the identity everywhere a
 tag appears on the command line. Names follow title validation: valid UTF-8,
 nonblank after surrounding-space inspection, stored unchanged. Uniqueness is
-case-insensitive (`UNIQUE COLLATE NOCASE`): creating `Errands` when
-`errands` exists is `conflict`, and the conflict message names the stored
-spelling. The first-created spelling is what displays; attach, detach,
+case-insensitive through SQLite `NOCASE`, which folds ASCII only: creating
+`Errands` when `errands` exists is `conflict`, while non-ASCII case variants
+remain distinct. The conflict message names the stored spelling. The first-created spelling is what displays; attach, detach,
 filter, rename-source, and delete-target matching are all case-insensitive.
 Renaming a tag to a different casing of itself succeeds; renaming onto a
 different existing tag is `conflict`. Tags must pre-exist: `tag`, `untag`,
@@ -130,9 +130,9 @@ area JSON row — mutations, `show`, lists, and view output — gains `tags`, an
 array of tag names and the output contract's final field. Entity `tags`
 arrays are produced by the same correlated `json_group_array` subquery the
 `SCHEMA.md` views use, so direct output and view output agree; aggregate input
-is explicitly ordered by tag ID, making array order tag-creation order. Tag
-rows are their table row (`id`, `title`, `created_at`, `updated_at`); `tags list` rows additionally carry
-`usage_count`, the total attachment count across all three entity kinds.
+is explicitly ordered by tag ID, making array order tag-creation order. Tag rows are their table row (`id`, `title`, `created_at`, `updated_at`);
+`tags list` rows additionally carry `usage_count`, the total attachment count
+across all three entity kinds.
 Envelopes: `tag`/`untag` and the three `add` commands echo the affected
 entity row (with `tags`); `tags add` and `tags rename` echo the tag row;
 `tags delete` returns `{"tag":{...},"detached":N}`.
@@ -141,8 +141,10 @@ Human output: `tags list` is a headerless aligned table of name and usage
 count, ordered alphabetically case-insensitively — no IDs, because tags are
 never addressed by ID. Task, project, and area `show` gain a `Tags` row with
 comma-separated names, blank when untagged; human collection rows gain no
-tags column. Mutation lines stay concise and action-prefixed:
-`Added tag errands`, `Renamed tag errands to out-and-about`,
+tags column. Tag mutation lines use stored spelling after case-insensitive
+resolution; rename renders both the stored previous title and the stored new
+title rather than echoing command arguments. Mutation lines stay concise and
+action-prefixed: `Added tag errands`, `Renamed tag errands to out-and-about`,
 `Deleted tag out-and-about (detached from 3 items)`,
 `Tagged: task 7  errands`, `Untagged: task 7  errands`. Bare `gsd tags` is a
 usage error with exit code 2 and must not open the database; bare `gsd tag`
@@ -186,11 +188,13 @@ New `internal/tag` package following the entity package shape: a `Tag` value
 `tag.Store` interface: `Add`, `Find` (by name, case-insensitive), `List`
 (with usage counts), `Rename`, `CountUsage`, `Delete`, plus
 `WithinTransaction(context.Context, func(Store) error) error`. The service
-owns name validation through `internal/domain`, timestamping, and the
-delete-with-count transaction (find → count usage → delete). `Add` and
-`Rename` each keep one guarded mutation statement; a store-owned immediate
-transaction makes their simple find-based conflict classification authoritative
-and names the stored spelling.
+owns name validation through `internal/domain`, timestamping, the rename
+transaction (find stored source → rename), and the delete-with-count
+transaction (find → count usage → delete). `Add` and `Rename` each keep one
+guarded mutation statement; immediate transactions make their simple
+find-based conflict classification authoritative. The rename result carries
+the stored previous title for human output while JSON remains the updated tag
+row.
 
 ### Entity applications
 

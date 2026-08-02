@@ -68,16 +68,16 @@ func newTagsRenameCommand(options *rootOptions, factory applicationFactory) *cob
 		Args:  cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, args []string) error {
 			return withTagApplication(command, options, factory, func(application tag.Application) error {
-				renamed, err := application.Rename(command.Context(), args[0], args[1])
+				renaming, err := application.Rename(command.Context(), args[0], args[1])
 				if err != nil {
 					return err
 				}
 				return writeCommandOutput(
 					command.OutOrStdout(),
 					options.json,
-					renamed,
+					renaming.Tag,
 					func(writer io.Writer, _ tag.Tag) error {
-						return writeRenamedTag(writer, args[0], args[1])
+						return writeRenamedTag(writer, renaming.PreviousTitle, renaming.Tag.Title)
 					},
 				)
 			})

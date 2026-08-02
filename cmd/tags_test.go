@@ -16,7 +16,7 @@ type fakeTagApplication struct {
 	addError     error
 	listResult   []tag.ListedTag
 	listError    error
-	renameResult tag.Tag
+	renameResult tag.Renaming
 	renameError  error
 	deleteResult tag.Deletion
 	deleteError  error
@@ -37,7 +37,7 @@ func (f *fakeTagApplication) List(context.Context) ([]tag.ListedTag, error) {
 	return f.listResult, f.listError
 }
 
-func (f *fakeTagApplication) Rename(_ context.Context, oldName, newName string) (tag.Tag, error) {
+func (f *fakeTagApplication) Rename(_ context.Context, oldName, newName string) (tag.Renaming, error) {
 	f.renameOld = oldName
 	f.renameNew = newName
 	return f.renameResult, f.renameError
@@ -169,7 +169,10 @@ func TestTagsRenameAndDeleteAdaptArgumentsAndOutputShapes(t *testing.T) {
 	t.Parallel()
 
 	renamed := tag.Tag{ID: 3, Title: "out-and-about", CreatedAt: "a", UpdatedAt: "b"}
-	renameApplication := &fakeTagApplication{renameResult: renamed}
+	renameApplication := &fakeTagApplication{renameResult: tag.Renaming{
+		PreviousTitle: "errands",
+		Tag:           renamed,
+	}}
 	rename := runTagCommand(t, renameApplication, "tags", "rename", "errands", "out-and-about", "--json")
 	if rename.exitCode != 0 || rename.stderr != "" || renameApplication.renameOld != "errands" ||
 		renameApplication.renameNew != "out-and-about" {
@@ -180,11 +183,14 @@ func TestTagsRenameAndDeleteAdaptArgumentsAndOutputShapes(t *testing.T) {
 	}
 	renameHuman := runTagCommand(
 		t,
-		&fakeTagApplication{renameResult: renamed},
-		"tags", "rename", "old\rname", "new\x1bname",
+		&fakeTagApplication{renameResult: tag.Renaming{
+			PreviousTitle: "old\rstored",
+			Tag:           tag.Tag{Title: "new\x1bstored"},
+		}},
+		"tags", "rename", "OLD-TYPED", "new-typed",
 	)
-	if renameHuman.exitCode != 0 || renameHuman.stderr != "" || renameHuman.stdout != "Renamed tag old\\rname to new\\x1bname\n" {
-		t.Errorf("rename human = %#v, want escaped concise line", renameHuman)
+	if renameHuman.exitCode != 0 || renameHuman.stderr != "" || renameHuman.stdout != "Renamed tag old\\rstored to new\\x1bstored\n" {
+		t.Errorf("rename human = %#v, want escaped stored spellings", renameHuman)
 	}
 
 	deletion := tag.Deletion{Tag: renamed, Detached: 3}

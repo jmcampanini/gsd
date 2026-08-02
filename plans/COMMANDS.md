@@ -123,7 +123,9 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
 - **Reorder is sibling-relative**; referencing an entity in a different
   container is an error.
 - **Tags must pre-exist**: `tag`/`untag` with an unknown name is an error.
-  `gsd tags add` is the only way tags come into existence.
+  `gsd tags add` is the only way tags come into existence. Tag matching uses
+  SQLite `NOCASE`, which folds ASCII only; non-ASCII case variants remain
+  distinct.
 - **Cascades narrate**: completing/cancelling a project cancels its open
   tasks and reports each one.
 - **Reopening a project is not un-cascade**: it clears only the project's
@@ -206,8 +208,10 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
   error. Fine distinctions live in the JSON error code.
 - Human collections are headerless aligned tables, `show` is a field/value
   table, mutations use concise action-prefixed payloads, and empty collections
-  print nothing. Human tables are unstyled until color support arrives in
-  Milestone 6.
+  print nothing. Successful tag mutation lines use stored spelling after
+  case-insensitive resolution, including both the previous and new titles for
+  rename. Human tables are unstyled until color support arrives in Milestone
+  6.
 - Human output escapes ASCII control characters (`show` preserves note line
   breaks) so stored text cannot inject terminal control sequences.
 

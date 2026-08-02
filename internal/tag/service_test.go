@@ -76,6 +76,7 @@ func (r *recordingStore) Rename(
 	r.renameOldName = oldName
 	r.renameNewName = newName
 	r.renameTimestamp = timestamp
+	r.sequence = append(r.sequence, "rename")
 	return r.renameResult, r.renameError
 }
 
@@ -113,7 +114,11 @@ func TestAddAndRenamePreserveNamesAndUseUTCMillisecondTimestamps(t *testing.T) {
 
 	addResult := Tag{ID: 1, Title: "  Errands  "}
 	renameResult := Tag{ID: 1, Title: "  Out and About  "}
-	store := &recordingStore{addResult: addResult, renameResult: renameResult}
+	store := &recordingStore{
+		addResult:    addResult,
+		findResult:   Tag{ID: 1, Title: "  Errands  "},
+		renameResult: renameResult,
+	}
 	service := NewService(store)
 	clockCalls := 0
 	service.now = func() time.Time {
@@ -139,8 +144,9 @@ func TestAddAndRenamePreserveNamesAndUseUTCMillisecondTimestamps(t *testing.T) {
 		t.Fatalf("Rename() error = %v", err)
 	}
 
-	if added != addResult || renamed != renameResult {
-		t.Errorf("Add()/Rename() = %#v/%#v, want %#v/%#v", added, renamed, addResult, renameResult)
+	wantRenaming := Renaming{PreviousTitle: "  Errands  ", Tag: renameResult}
+	if added != addResult || renamed != wantRenaming {
+		t.Errorf("Add()/Rename() = %#v/%#v, want %#v/%#v", added, renamed, addResult, wantRenaming)
 	}
 	if store.addCalls != 1 || store.addName != "  Errands  " || store.renameCalls != 1 ||
 		store.renameOldName != "  Errands  " || store.renameNewName != "  Out and About  " {
@@ -157,6 +163,37 @@ func TestAddAndRenamePreserveNamesAndUseUTCMillisecondTimestamps(t *testing.T) {
 			wantTimestamp,
 			wantTimestamp,
 		)
+	}
+}
+
+func TestRenameReturnsStoredPreviousSpellingFromOneTransaction(t *testing.T) {
+	t.Parallel()
+
+	previous := Tag{ID: 7, Title: "Errands", CreatedAt: "created", UpdatedAt: "before"}
+	renamed := Tag{ID: 7, Title: "out-and-about", CreatedAt: "created", UpdatedAt: "after"}
+	transactionStore := &recordingStore{findResult: previous, renameResult: renamed}
+	store := &recordingStore{transactionStore: transactionStore}
+	service := NewService(store)
+	service.now = func() time.Time {
+		return time.Date(2026, time.July, 27, 12, 34, 56, 0, time.UTC)
+	}
+
+	result, err := service.Rename(context.Background(), "ERRANDS", "out-and-about")
+	if err != nil {
+		t.Fatalf("Rename() error = %v", err)
+	}
+	if result != (Renaming{PreviousTitle: previous.Title, Tag: renamed}) {
+		t.Errorf("Rename() = %#v, want stored previous spelling and renamed tag", result)
+	}
+	if store.transactionCalls != 1 || store.findCalls+store.renameCalls != 0 {
+		t.Errorf("outer calls = %#v, want one transaction boundary only", store)
+	}
+	if !reflect.DeepEqual(transactionStore.sequence, []string{"find", "rename"}) {
+		t.Errorf("transaction sequence = %v, want find then rename", transactionStore.sequence)
+	}
+	if transactionStore.findName != "ERRANDS" || transactionStore.renameOldName != "ERRANDS" ||
+		transactionStore.renameNewName != "out-and-about" {
+		t.Errorf("transaction names = %#v, want caller identities delegated exactly", transactionStore)
 	}
 }
 
