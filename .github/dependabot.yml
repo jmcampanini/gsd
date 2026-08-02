@@ -6,28 +6,39 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-      day: "monday"
-      time: "09:00"
+      day: "friday"
+      time: "16:00"
       timezone: "America/New_York"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "go"
     commit-message:
       prefix: "deps(go)"
     groups:
-      go-modules:
+      go-minor-and-patch:
+        applies-to: "version-updates"
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-      day: "monday"
-      time: "09:30"
+      day: "friday"
+      time: "16:00"
       timezone: "America/New_York"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "github-actions"
     commit-message:
       prefix: "deps(actions)"
     groups:
       actions:
+        applies-to: "version-updates"
         patterns:
           - "*"
