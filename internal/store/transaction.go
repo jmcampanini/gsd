@@ -25,6 +25,25 @@ func withinImmediateTransaction(
 	return withinTransaction(ctx, database, noun, "BEGIN IMMEDIATE", apply)
 }
 
+func runInTransaction[S, T any](
+	ctx context.Context,
+	within func(context.Context, func(S) error) error,
+	apply func(S) (T, error),
+) (T, error) {
+	var result T
+	err := within(ctx, func(store S) error {
+		var err error
+		result, err = apply(store)
+		return err
+	})
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+
+	return result, nil
+}
+
 func withinTransaction(
 	ctx context.Context,
 	database *DB,

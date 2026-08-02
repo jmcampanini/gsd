@@ -54,16 +54,9 @@ func (s *Tasks) Add(ctx context.Context, fields task.AddFields, timestamp string
 		return task.Task{}, errors.New("task cannot have both project and area")
 	}
 	if s.database != nil {
-		var created task.Task
-		err := s.WithinTransaction(ctx, func(transaction task.Store) error {
-			var operationErr error
-			created, operationErr = transaction.Add(ctx, fields, timestamp)
-			return operationErr
+		return runInTransaction(ctx, s.WithinTransaction, func(transaction task.Store) (task.Task, error) {
+			return transaction.Add(ctx, fields, timestamp)
 		})
-		if err != nil {
-			return task.Task{}, err
-		}
-		return created, nil
 	}
 
 	container := taskContainerForAdd(fields)
@@ -275,16 +268,9 @@ func (s *Tasks) Edit(
 		return task.Task{}, errors.New("edit requires at least one field")
 	}
 	if s.database != nil {
-		var edited task.Task
-		err := s.WithinTransaction(ctx, func(transaction task.Store) error {
-			var operationErr error
-			edited, operationErr = transaction.Edit(ctx, id, fields, timestamp)
-			return operationErr
+		return runInTransaction(ctx, s.WithinTransaction, func(transaction task.Store) (task.Task, error) {
+			return transaction.Edit(ctx, id, fields, timestamp)
 		})
-		if err != nil {
-			return task.Task{}, err
-		}
-		return edited, nil
 	}
 
 	current, err := s.Find(ctx, id)
@@ -393,25 +379,18 @@ func (s *Tasks) applyTransition(
 	timestamp string,
 ) (task.Task, error) {
 	if s.database != nil {
-		var updated task.Task
-		err := s.WithinTransaction(ctx, func(transaction task.Store) error {
-			var operationErr error
+		return runInTransaction(ctx, s.WithinTransaction, func(transaction task.Store) (task.Task, error) {
 			switch action {
 			case "complete":
-				updated, operationErr = transaction.Done(ctx, id, timestamp)
+				return transaction.Done(ctx, id, timestamp)
 			case "cancel":
-				updated, operationErr = transaction.Cancel(ctx, id, timestamp)
+				return transaction.Cancel(ctx, id, timestamp)
 			case "reopen":
-				updated, operationErr = transaction.Reopen(ctx, id, timestamp)
+				return transaction.Reopen(ctx, id, timestamp)
 			default:
-				operationErr = fmt.Errorf("invalid task transition %q", action)
+				return task.Task{}, fmt.Errorf("invalid task transition %q", action)
 			}
-			return operationErr
 		})
-		if err != nil {
-			return task.Task{}, err
-		}
-		return updated, nil
 	}
 
 	current, err := s.Find(ctx, id)

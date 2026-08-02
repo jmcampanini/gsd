@@ -36,16 +36,9 @@ func (s *Projects) Add(
 	timestamp string,
 ) (project.Project, error) {
 	if s.database != nil {
-		var created project.Project
-		err := s.WithinTransaction(ctx, func(transaction project.Store) error {
-			var err error
-			created, err = transaction.Add(ctx, fields, timestamp)
-			return err
+		return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Store) (project.Project, error) {
+			return transaction.Add(ctx, fields, timestamp)
 		})
-		if err != nil {
-			return project.Project{}, err
-		}
-		return created, nil
 	}
 
 	if fields.AreaID != nil {
@@ -151,16 +144,9 @@ func (s *Projects) Edit(
 		return project.Project{}, errors.New("edit requires at least one field")
 	}
 	if s.database != nil {
-		var edited project.Project
-		err := s.WithinTransaction(ctx, func(transaction project.Store) error {
-			var err error
-			edited, err = transaction.Edit(ctx, id, fields, timestamp)
-			return err
+		return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Store) (project.Project, error) {
+			return transaction.Edit(ctx, id, fields, timestamp)
 		})
-		if err != nil {
-			return project.Project{}, err
-		}
-		return edited, nil
 	}
 
 	current, err := s.Find(ctx, id)
@@ -247,16 +233,9 @@ func (s *Projects) Resolve(
 		return project.Project{}, fmt.Errorf("invalid project exit %q", exit)
 	}
 	if s.database != nil {
-		var resolved project.Project
-		err := s.WithinTransaction(ctx, func(transaction project.Store) error {
-			var err error
-			resolved, err = transaction.Resolve(ctx, id, exit, timestamp)
-			return err
+		return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Store) (project.Project, error) {
+			return transaction.Resolve(ctx, id, exit, timestamp)
 		})
-		if err != nil {
-			return project.Project{}, err
-		}
-		return resolved, nil
 	}
 
 	current, err := s.Find(ctx, id)
@@ -318,16 +297,9 @@ func (s *Projects) Reopen(
 	timestamp string,
 ) (project.Project, error) {
 	if s.database != nil {
-		var reopened project.Project
-		err := s.WithinTransaction(ctx, func(transaction project.Store) error {
-			var err error
-			reopened, err = transaction.Reopen(ctx, id, timestamp)
-			return err
+		return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Store) (project.Project, error) {
+			return transaction.Reopen(ctx, id, timestamp)
 		})
-		if err != nil {
-			return project.Project{}, err
-		}
-		return reopened, nil
 	}
 
 	current, err := s.Find(ctx, id)
@@ -365,16 +337,9 @@ RETURNING `+projectColumns, timestamp, id))
 
 func (s *Projects) Delete(ctx context.Context, id int64) (project.Project, error) {
 	if s.database != nil {
-		var deleted project.Project
-		err := s.WithinTransaction(ctx, func(transaction project.Store) error {
-			var operationErr error
-			deleted, operationErr = transaction.Delete(ctx, id)
-			return operationErr
+		return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Store) (project.Project, error) {
+			return transaction.Delete(ctx, id)
 		})
-		if err != nil {
-			return project.Project{}, err
-		}
-		return deleted, nil
 	}
 
 	deleted, err := scanProject(s.executor.QueryRowContext(ctx, `
