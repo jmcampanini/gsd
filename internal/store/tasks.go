@@ -511,11 +511,10 @@ WITH snapshot AS MATERIALIZED (
     WHERE id = ?
 )
 DELETE FROM tasks
-WHERE id = ?
-  AND EXISTS (SELECT 1 FROM snapshot WHERE snapshot.id = tasks.id)
+WHERE id IN (SELECT id FROM snapshot)
 RETURNING `+taskColumns+`,
           (SELECT tags FROM snapshot WHERE snapshot.id = tasks.id)
-`, id, id)
+`, id)
 	deleted, err := scanTask(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return task.Task{}, apperr.New(apperr.NotFound, fmt.Sprintf("no task %d", id), err)

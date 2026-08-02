@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"errors"
-	"io"
 
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/spf13/cobra"
@@ -72,13 +71,14 @@ func newTagsRenameCommand(options *rootOptions, factory applicationFactory) *cob
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(
+				if options.json {
+					return writeJSON(command.OutOrStdout(), renaming.Tag)
+				}
+
+				return writeRenamedTag(
 					command.OutOrStdout(),
-					options.json,
-					renaming.Tag,
-					func(writer io.Writer, _ tag.Tag) error {
-						return writeRenamedTag(writer, renaming.PreviousTitle, renaming.Tag.Title)
-					},
+					renaming.PreviousTitle,
+					renaming.Tag.Title,
 				)
 			})
 		},
