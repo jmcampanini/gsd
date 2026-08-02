@@ -5,11 +5,10 @@ import (
 	"database/sql"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 )
 
-func TestMilestoneFourSchemaColumnsConstraintsAndIndexes(t *testing.T) {
+func TestMilestoneFiveSchemaColumnsConstraintsAndIndexes(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -29,6 +28,10 @@ func TestMilestoneFourSchemaColumnsConstraintsAndIndexes(t *testing.T) {
 		"tasks": {
 			"id", "project_id", "area_id", "title", "note", "defer_until", "due_on", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at",
 		},
+		"tags":         {"id", "title", "created_at", "updated_at"},
+		"task_tags":    {"task_id", "tag_id"},
+		"project_tags": {"project_id", "tag_id"},
+		"area_tags":    {"area_id", "tag_id"},
 	}
 	for object, want := range columns {
 		if got := schemaColumnNames(t, storage.database, object); !reflect.DeepEqual(got, want) {
@@ -37,8 +40,11 @@ func TestMilestoneFourSchemaColumnsConstraintsAndIndexes(t *testing.T) {
 	}
 
 	for tableName, indexNames := range map[string][]string{
-		"projects": {"idx_projects_area"},
-		"tasks":    {"idx_tasks_project", "idx_tasks_area"},
+		"projects":     {"idx_projects_area"},
+		"tasks":        {"idx_tasks_project", "idx_tasks_area"},
+		"task_tags":    {"idx_task_tags_tag"},
+		"project_tags": {"idx_project_tags_tag"},
+		"area_tags":    {"idx_area_tags_tag"},
 	} {
 		for _, indexName := range indexNames {
 			var count int
@@ -132,6 +138,175 @@ INSERT INTO tasks (area_id, title, position) VALUES (?, 'Loose task', 0)
 	}
 }
 
+func TestTagJoinTablesEnforceIdentityRelationshipsAndStorageShape(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	for table, wantPK := range map[string][]string{
+		"task_tags":    {"task_id", "tag_id"},
+		"project_tags": {"project_id", "tag_id"},
+		"area_tags":    {"area_id", "tag_id"},
+	} {
+		var strict, withoutRowID int
+		if err := storage.database.QueryRowContext(ctx, `
+SELECT strict, wr FROM pragma_table_list WHERE name = ?
+`, table).Scan(&strict, &withoutRowID); err != nil {
+			t.Fatalf("inspect %s storage: %v", table, err)
+		}
+		if strict != 1 || withoutRowID != 1 {
+			t.Errorf("%s strict/without-rowid = %d/%d, want 1/1", table, strict, withoutRowID)
+		}
+
+		rows, err := storage.database.QueryContext(ctx, `
+SELECT name FROM pragma_table_info(?) WHERE pk > 0 ORDER BY pk
+`, table)
+		if err != nil {
+			t.Fatalf("inspect %s primary key: %v", table, err)
+		}
+		gotPK := make([]string, 0, 2)
+		for rows.Next() {
+			var column string
+			if err := rows.Scan(&column); err != nil {
+				_ = rows.Close()
+				t.Fatalf("scan %s primary key: %v", table, err)
+			}
+			gotPK = append(gotPK, column)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatalf("close %s primary key rows: %v", table, err)
+		}
+		if !reflect.DeepEqual(gotPK, wantPK) {
+			t.Errorf("%s primary key = %v, want %v", table, gotPK, wantPK)
+		}
+
+		var cascadeCount int
+		if err := storage.database.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM pragma_foreign_key_list(?) WHERE on_delete = 'CASCADE'
+`, table).Scan(&cascadeCount); err != nil {
+			t.Fatalf("inspect %s foreign keys: %v", table, err)
+		}
+		if cascadeCount != 2 {
+			t.Errorf("%s CASCADE foreign keys = %d, want 2", table, cascadeCount)
+		}
+	}
+
+	for indexName := range map[string]struct{}{
+		"idx_task_tags_tag":    {},
+		"idx_project_tags_tag": {},
+		"idx_area_tags_tag":    {},
+	} {
+		var indexedColumn string
+		if err := storage.database.QueryRowContext(ctx, `
+SELECT name FROM pragma_index_info(?) WHERE seqno = 0
+`, indexName).Scan(&indexedColumn); err != nil {
+			t.Fatalf("inspect %s columns: %v", indexName, err)
+		}
+		if indexedColumn != "tag_id" {
+			t.Errorf("%s first column = %q, want tag_id", indexName, indexedColumn)
+		}
+	}
+
+	if _, err := storage.database.ExecContext(ctx, "INSERT INTO tags DEFAULT VALUES"); err == nil {
+		t.Error("insert tag without title error = nil, want required-column failure")
+	}
+	if _, err := storage.database.ExecContext(ctx, "INSERT INTO tags (id, title) VALUES ('wrong', 'typed')"); err == nil {
+		t.Error("insert non-integer tag ID error = nil, want STRICT failure")
+	}
+	tagID := insertFixture(t, storage.database, "INSERT INTO tags (title) VALUES ('Errands')")
+	if _, err := storage.database.ExecContext(ctx, "INSERT INTO tags (title) VALUES ('errands')"); err == nil {
+		t.Error("insert case-duplicate tag error = nil, want NOCASE uniqueness failure")
+	}
+	taskID := insertFixture(t, storage.database, "INSERT INTO tasks (title, position) VALUES ('task', 0)")
+	if _, err := storage.database.ExecContext(ctx, "INSERT INTO task_tags (task_id, tag_id) VALUES (?, ?)", taskID, tagID); err != nil {
+		t.Fatalf("insert task tag: %v", err)
+	}
+	if _, err := storage.database.ExecContext(ctx, "INSERT INTO task_tags (task_id, tag_id) VALUES (?, ?)", taskID, tagID); err == nil {
+		t.Error("insert duplicate task tag error = nil, want composite-PK failure")
+	}
+	if _, err := storage.database.ExecContext(ctx, "INSERT INTO task_tags (task_id, tag_id) VALUES (999, ?)", tagID); err == nil {
+		t.Error("insert tag for missing task error = nil, want FK failure")
+	}
+	if _, err := storage.database.ExecContext(ctx, "INSERT INTO task_tags (task_id, tag_id) VALUES (?, 999)", taskID); err == nil {
+		t.Error("insert missing tag error = nil, want FK failure")
+	}
+}
+
+func TestTagJoinRowsCascadeFromTagsAndEveryEntityKind(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	seedAttachments := func(tagTitle, suffix string) (int64, map[string]int64) {
+		t.Helper()
+		tagID := insertFixture(t, storage.database, "INSERT INTO tags (title) VALUES (?)", tagTitle)
+		ids := map[string]int64{
+			"task":    insertFixture(t, storage.database, "INSERT INTO tasks (title, position) VALUES (?, 0)", "task "+suffix),
+			"project": insertFixture(t, storage.database, "INSERT INTO projects (title, position) VALUES (?, 0)", "project "+suffix),
+			"area":    insertFixture(t, storage.database, "INSERT INTO areas (title, position) VALUES (?, 0)", "area "+suffix),
+		}
+		for _, fixture := range []struct {
+			table  string
+			column string
+			id     int64
+		}{
+			{table: "task_tags", column: "task_id", id: ids["task"]},
+			{table: "project_tags", column: "project_id", id: ids["project"]},
+			{table: "area_tags", column: "area_id", id: ids["area"]},
+		} {
+			if _, err := storage.database.ExecContext(
+				ctx,
+				"INSERT INTO "+fixture.table+" ("+fixture.column+", tag_id) VALUES (?, ?)",
+				fixture.id,
+				tagID,
+			); err != nil {
+				t.Fatalf("attach %s: %v", fixture.table, err)
+			}
+		}
+		return tagID, ids
+	}
+
+	firstTagID, firstEntities := seedAttachments("first", "first")
+	if _, err := storage.database.ExecContext(ctx, "DELETE FROM tags WHERE id = ?", firstTagID); err != nil {
+		t.Fatalf("delete tag: %v", err)
+	}
+	for _, table := range []string{"task_tags", "project_tags", "area_tags"} {
+		if count := fixtureCount(t, storage.database, "SELECT COUNT(*) FROM "+table); count != 0 {
+			t.Errorf("%s rows after tag deletion = %d, want 0", table, count)
+		}
+	}
+	for table, id := range firstEntities {
+		if count := fixtureCount(t, storage.database, "SELECT COUNT(*) FROM "+table+"s WHERE id = ?", id); count != 1 {
+			t.Errorf("%s %d after tag deletion count = %d, want 1", table, id, count)
+		}
+	}
+
+	secondTagID, secondEntities := seedAttachments("second", "second")
+	for table, id := range secondEntities {
+		if _, err := storage.database.ExecContext(ctx, "DELETE FROM "+table+"s WHERE id = ?", id); err != nil {
+			t.Fatalf("delete %s: %v", table, err)
+		}
+	}
+	for _, table := range []string{"task_tags", "project_tags", "area_tags"} {
+		if count := fixtureCount(t, storage.database, "SELECT COUNT(*) FROM "+table); count != 0 {
+			t.Errorf("%s rows after entity deletion = %d, want 0", table, count)
+		}
+	}
+	if count := fixtureCount(t, storage.database, "SELECT COUNT(*) FROM tags WHERE id = ?", secondTagID); count != 1 {
+		t.Errorf("tag after entity deletion count = %d, want 1", count)
+	}
+}
+
 func TestAutomaticallyAllocatedEntityIDsAreNotReusedAfterDeletion(t *testing.T) {
 	t.Parallel()
 
@@ -176,9 +351,155 @@ func TestAutomaticallyAllocatedEntityIDsAreNotReusedAfterDeletion(t *testing.T) 
 			)
 		}
 	}
+
+	firstTagID := insertFixture(t, storage.database, "INSERT INTO tags (title) VALUES ('first')")
+	if _, err := storage.database.ExecContext(ctx, "DELETE FROM tags WHERE id = ?", firstTagID); err != nil {
+		t.Fatalf("delete first tag: %v", err)
+	}
+	secondTagID := insertFixture(t, storage.database, "INSERT INTO tags (title) VALUES ('second')")
+	if secondTagID <= firstTagID {
+		t.Errorf("tag ID after deletion = %d, want greater than %d", secondTagID, firstTagID)
+	}
 }
 
-func TestMilestoneFourViewsApplyAreaPredicatesAndExposeEnrichment(t *testing.T) {
+func TestMilestoneFiveViewsExposeTagsInCreationOrder(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	storage, err := Open(ctx, filepath.Join(t.TempDir(), "gsd.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	tagIDs := []int64{
+		insertFixture(t, storage.database, "INSERT INTO tags (title) VALUES ('Zulu')"),
+		insertFixture(t, storage.database, "INSERT INTO tags (title) VALUES ('alpha')"),
+		insertFixture(t, storage.database, "INSERT INTO tags (title) VALUES ('Middle')"),
+	}
+	inboxTaskID := insertFixture(t, storage.database, "INSERT INTO tasks (title, position) VALUES ('inbox', 0)")
+	_ = insertFixture(t, storage.database, "INSERT INTO tasks (title, position) VALUES ('untagged', 1)")
+	resolvedTaskID := insertFixture(t, storage.database, `
+INSERT INTO tasks (title, done_at, position) VALUES ('resolved task', '2026-01-01T00:00:00.000Z', 2)
+`)
+	resolvedProjectID := insertFixture(t, storage.database, `
+INSERT INTO projects (title, cancelled_at, position) VALUES ('resolved project', '2026-01-02T00:00:00.000Z', 0)
+`)
+	for _, attachment := range []struct {
+		table  string
+		column string
+		id     int64
+		tagID  int64
+	}{
+		{table: "task_tags", column: "task_id", id: inboxTaskID, tagID: tagIDs[2]},
+		{table: "task_tags", column: "task_id", id: inboxTaskID, tagID: tagIDs[0]},
+		{table: "task_tags", column: "task_id", id: inboxTaskID, tagID: tagIDs[1]},
+		{table: "task_tags", column: "task_id", id: resolvedTaskID, tagID: tagIDs[1]},
+		{table: "task_tags", column: "task_id", id: resolvedTaskID, tagID: tagIDs[0]},
+		{table: "project_tags", column: "project_id", id: resolvedProjectID, tagID: tagIDs[2]},
+		{table: "project_tags", column: "project_id", id: resolvedProjectID, tagID: tagIDs[0]},
+	} {
+		if _, err := storage.database.ExecContext(
+			ctx,
+			"INSERT INTO "+attachment.table+" ("+attachment.column+", tag_id) VALUES (?, ?)",
+			attachment.id,
+			attachment.tagID,
+		); err != nil {
+			t.Fatalf("insert raw %s fixture: %v", attachment.table, err)
+		}
+	}
+
+	for _, query := range []struct {
+		name string
+		sql  string
+		args []any
+		want string
+	}{
+		{name: "inbox", sql: "SELECT tags FROM inbox WHERE id = ?", args: []any{inboxTaskID}, want: `["Zulu","alpha","Middle"]`},
+		{name: "available", sql: "SELECT tags FROM available WHERE id = ?", args: []any{inboxTaskID}, want: `["Zulu","alpha","Middle"]`},
+		{name: "untagged", sql: "SELECT tags FROM inbox WHERE title = 'untagged'", want: `[]`},
+		{name: "logbook task", sql: "SELECT tags FROM logbook WHERE kind = 'task' AND id = ?", args: []any{resolvedTaskID}, want: `["Zulu","alpha"]`},
+		{name: "logbook project", sql: "SELECT tags FROM logbook WHERE kind = 'project' AND id = ?", args: []any{resolvedProjectID}, want: `["Zulu","Middle"]`},
+	} {
+		var got string
+		if err := storage.database.QueryRowContext(ctx, query.sql, query.args...).Scan(&got); err != nil {
+			t.Fatalf("query %s tags: %v", query.name, err)
+		}
+		if got != query.want {
+			t.Errorf("%s tags = %s, want %s", query.name, got, query.want)
+		}
+	}
+
+	wantViews := map[string]string{
+		"inbox": `CREATE VIEW inbox AS
+SELECT t.*,
+       p.title                        AS project_title,
+       COALESCE(t.area_id, p.area_id) AS governing_area_id,
+       a.title                        AS governing_area_title,
+       (SELECT json_group_array(g.title ORDER BY g.id)
+        FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
+        WHERE tt.task_id = t.id)      AS tags
+FROM tasks t
+LEFT JOIN projects p ON p.id = t.project_id
+LEFT JOIN areas    a ON a.id = COALESCE(t.area_id, p.area_id)
+WHERE t.project_id IS NULL AND t.area_id IS NULL AND t.status = 'open'`,
+		"available": `CREATE VIEW available AS
+SELECT t.*,
+       p.title                        AS project_title,
+       COALESCE(t.area_id, p.area_id) AS governing_area_id,
+       a.title                        AS governing_area_title,
+       (SELECT json_group_array(g.title ORDER BY g.id)
+        FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
+        WHERE tt.task_id = t.id)      AS tags
+FROM tasks t
+LEFT JOIN projects p ON p.id = t.project_id
+LEFT JOIN areas    a ON a.id = COALESCE(t.area_id, p.area_id)
+WHERE t.status = 'open'
+  AND (t.project_id IS NULL OR p.status = 'open')
+  AND a.archived_at IS NULL
+  AND (t.defer_until IS NULL OR t.defer_until <= date('now', 'localtime'))`,
+		"logbook": `CREATE VIEW logbook AS
+SELECT 'task' AS kind, t.id, t.title, t.status,
+       COALESCE(t.done_at, t.cancelled_at) AS resolved_at,
+       p.title                        AS project_title,
+       COALESCE(t.area_id, p.area_id) AS governing_area_id,
+       a.title                        AS governing_area_title,
+       (SELECT json_group_array(g.title ORDER BY g.id)
+        FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
+        WHERE tt.task_id = t.id)      AS tags
+FROM tasks t
+LEFT JOIN projects p ON p.id = t.project_id
+LEFT JOIN areas    a ON a.id = COALESCE(t.area_id, p.area_id)
+WHERE t.status IN ('done', 'cancelled')
+UNION ALL
+SELECT 'project', p.id, p.title, p.status,
+       COALESCE(p.done_at, p.cancelled_at),
+       NULL,
+       p.area_id,
+       a.title,
+       (SELECT json_group_array(g.title ORDER BY g.id)
+        FROM project_tags pt JOIN tags g ON g.id = pt.tag_id
+        WHERE pt.project_id = p.id)
+FROM projects p
+LEFT JOIN areas a ON a.id = p.area_id
+WHERE p.status IN ('done', 'cancelled')`,
+	}
+	for name, want := range wantViews {
+		var got string
+		if err := storage.database.QueryRowContext(
+			ctx,
+			"SELECT sql FROM sqlite_schema WHERE type = 'view' AND name = ?",
+			name,
+		).Scan(&got); err != nil {
+			t.Fatalf("read %s view SQL: %v", name, err)
+		}
+		if got != want {
+			t.Errorf("%s view SQL = %q, want canonical definition %q", name, got, want)
+		}
+	}
+}
+
+func TestMilestoneFiveViewsApplyAreaPredicatesAndExposeEnrichment(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -234,7 +555,7 @@ VALUES (?, 'Cancelled project task', '2026-01-04T00:00:00.000Z', 1)
 `, activeProjectID)
 
 	wantTaskViewColumns := []string{
-		"id", "project_id", "area_id", "title", "note", "defer_until", "due_on", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at", "project_title", "governing_area_id", "governing_area_title",
+		"id", "project_id", "area_id", "title", "note", "defer_until", "due_on", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at", "project_title", "governing_area_id", "governing_area_title", "tags",
 	}
 	for _, view := range []string{"inbox", "available"} {
 		if got := schemaColumnNames(t, storage.database, view); !reflect.DeepEqual(got, wantTaskViewColumns) {
@@ -266,22 +587,11 @@ ORDER BY id
 	assertViewFixture(t, availableRows[2], activeProjectTaskID, stringPointer("Kitchen"), &activeAreaID, stringPointer("Home"))
 
 	wantLogbookColumns := []string{
-		"kind", "id", "title", "status", "resolved_at", "project_title", "governing_area_id", "governing_area_title",
+		"kind", "id", "title", "status", "resolved_at", "project_title", "governing_area_id", "governing_area_title", "tags",
 	}
 	if got := schemaColumnNames(t, storage.database, "logbook"); !reflect.DeepEqual(got, wantLogbookColumns) {
 		t.Errorf("logbook columns = %v, want %v", got, wantLogbookColumns)
 	}
-	var logbookSQL string
-	if err := storage.database.QueryRowContext(
-		ctx,
-		"SELECT sql FROM sqlite_schema WHERE type = 'view' AND name = 'logbook'",
-	).Scan(&logbookSQL); err != nil {
-		t.Fatalf("read logbook SQL: %v", err)
-	}
-	if strings.Contains(strings.ToUpper(logbookSQL), "ORDER BY") {
-		t.Errorf("logbook SQL = %q, want no ORDER BY", logbookSQL)
-	}
-
 	rows, err := storage.database.QueryContext(ctx, `
 SELECT kind, id, project_title, governing_area_id, governing_area_title
 FROM logbook
@@ -422,6 +732,16 @@ func sameInt64Pointer(got *int64, want int64) bool {
 
 func sameStringPointer(got *string, want string) bool {
 	return got != nil && *got == want
+}
+
+func fixtureCount(t *testing.T, database *sql.DB, query string, arguments ...any) int {
+	t.Helper()
+
+	var count int
+	if err := database.QueryRow(query, arguments...).Scan(&count); err != nil {
+		t.Fatalf("count fixture: %v", err)
+	}
+	return count
 }
 
 func schemaColumnNames(t *testing.T, database *sql.DB, objectName string) []string {

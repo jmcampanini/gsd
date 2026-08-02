@@ -229,13 +229,15 @@ makes the schema itself public API. The contract:
   task-shaped views return `tasks.*` plus one fixed enrichment block —
   `project_title`, `governing_area_id`, `governing_area_title`
   ("governing" = own area, or the one inherited through the project), and
-  `tags` (JSON array of tag names) — so the common queries need no joins,
-  and the governing-area COALESCE is done correctly once, in the view.
+  `tags` (JSON array of tag names, explicitly ordered by tag ID so creation
+  order is stable) — so the common queries need no joins, and the
+  governing-area COALESCE is done correctly once, in the view.
 - **CLI `--json` output for an entity is its table row** — same column
   names, same formats — plus the `tags` array.
-- **Views carry no ORDER BY.** Ordering is presentation and belongs to the
-  caller (the CLI orders inbox by `position`, logbook by `resolved_at`
-  descending).
+- **Views carry no top-level ORDER BY.** Result-row ordering is presentation
+  and belongs to the caller (the CLI orders inbox by `position`, logbook by
+  `resolved_at` descending). The `ORDER BY` clauses inside the tag aggregates
+  order array elements, not view rows.
 - **Everything else is a recipe, not schema.** Reverse tag lookups across
   kinds, per-project counts, area reviews: documented example queries.
   Views may be added over time; existing ones only gain columns.
@@ -250,7 +252,7 @@ SELECT t.*,
        p.title                        AS project_title,
        COALESCE(t.area_id, p.area_id) AS governing_area_id,
        a.title                        AS governing_area_title,
-       (SELECT json_group_array(g.title)
+       (SELECT json_group_array(g.title ORDER BY g.id)
         FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
         WHERE tt.task_id = t.id)      AS tags
 FROM tasks t
@@ -271,7 +273,7 @@ SELECT t.*,
        p.title                        AS project_title,
        COALESCE(t.area_id, p.area_id) AS governing_area_id,
        a.title                        AS governing_area_title,
-       (SELECT json_group_array(g.title)
+       (SELECT json_group_array(g.title ORDER BY g.id)
         FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
         WHERE tt.task_id = t.id)      AS tags
 FROM tasks t
@@ -295,7 +297,7 @@ SELECT 'task' AS kind, t.id, t.title, t.status,
        p.title                        AS project_title,
        COALESCE(t.area_id, p.area_id) AS governing_area_id,
        a.title                        AS governing_area_title,
-       (SELECT json_group_array(g.title)
+       (SELECT json_group_array(g.title ORDER BY g.id)
         FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
         WHERE tt.task_id = t.id)      AS tags
 FROM tasks t
@@ -308,7 +310,7 @@ SELECT 'project', p.id, p.title, p.status,
        NULL,
        p.area_id,
        a.title,
-       (SELECT json_group_array(g.title)
+       (SELECT json_group_array(g.title ORDER BY g.id)
         FROM project_tags pt JOIN tags g ON g.id = pt.tag_id
         WHERE pt.project_id = p.id)
 FROM projects p
