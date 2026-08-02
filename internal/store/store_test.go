@@ -1156,6 +1156,58 @@ func TestDeleteReturnsSnapshotWithoutCompactingPositions(t *testing.T) {
 	}
 }
 
+func TestTaskTransactionUsesAmbientStateAndRollsBack(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	projects := NewProjects(storage)
+	tasks := NewTasks(storage)
+	container := addStoredProject(t, projects, project.AddFields{Title: "container"})
+
+	var added task.Task
+	err := tasks.WithinTransaction(ctx, func(transaction task.Store) error {
+		var operationErr error
+		added, operationErr = transaction.Add(
+			ctx,
+			task.AddFields{Title: "must roll back"},
+			"2026-01-02T00:00:00.000Z",
+		)
+		if operationErr != nil {
+			return operationErr
+		}
+
+		bound := transaction.(*Tasks)
+		var projectID int64
+		if operationErr = bound.executor.QueryRowContext(ctx, `
+UPDATE projects
+SET done_at = ?, updated_at = ?
+WHERE id = ?
+RETURNING id
+`, "2026-01-03T00:00:00.000Z", "2026-01-03T00:00:00.000Z", container.ID).Scan(&projectID); operationErr != nil {
+			return operationErr
+		}
+		_, operationErr = transaction.Add(
+			ctx,
+			task.AddFields{ProjectID: &container.ID, Title: "blocked by ambient resolve"},
+			"2026-01-04T00:00:00.000Z",
+		)
+		return operationErr
+	})
+	if errorCode(err) != apperr.Conflict {
+		t.Fatalf("WithinTransaction() error = %v, want conflict", err)
+	}
+	if _, findErr := tasks.Find(ctx, added.ID); errorCode(findErr) != apperr.NotFound {
+		t.Errorf("Find(rolled-back task) error = %v, want not_found", findErr)
+	}
+	persistedProject, findErr := projects.Find(ctx, container.ID)
+	if findErr != nil {
+		t.Fatalf("Find(project after rollback) error = %v", findErr)
+	}
+	if persistedProject.Status != "open" || persistedProject.UpdatedAt != container.UpdatedAt {
+		t.Errorf("project after rollback = %#v, want original %#v", persistedProject, container)
+	}
+}
+
 func TestConcurrentDoneAndCancelExactlyOneSucceeds(t *testing.T) {
 	t.Parallel()
 

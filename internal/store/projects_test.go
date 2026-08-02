@@ -295,6 +295,10 @@ func TestProjectArchivedAreaGuardsCreationAndMovement(t *testing.T) {
 		project.AddFields{AreaID: &sourceArea.ID, Title: "blocked"},
 		"2026-01-04T00:00:00.000Z",
 	)
+	wantAddError := fmt.Sprintf("cannot add project to area %d while it is archived", sourceArea.ID)
+	if err == nil || err.Error() != wantAddError {
+		t.Errorf("Add(archived area) error = %v, want %q", err, wantAddError)
+	}
 	assertArchivedAreaConflict(t, err, sourceArea.ID)
 
 	restated, err := projects.Edit(

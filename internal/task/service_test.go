@@ -124,6 +124,13 @@ func (r *recordingStore) Delete(_ context.Context, id int64) (Task, error) {
 	return Task{ID: id}, nil
 }
 
+func (r *recordingStore) WithinTransaction(
+	ctx context.Context,
+	operation func(Store) error,
+) error {
+	return operation(r)
+}
+
 func (r *recordingStore) recordLifecycle(id int64, timestamp string) {
 	r.lifecycleID = id
 	r.lifecycleTimestamp = timestamp
