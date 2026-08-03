@@ -42,7 +42,9 @@ defaults → config file → env → flags):
   `GSD_DB` and explicit `--db ""` fall through as key-specific legacy
   behavior, not a general rule for future settings. Relative file values are
   anchored to the config file's directory; relative env and flag values
-  remain working-directory-relative.
+  remain working-directory-relative at runtime. The config report renders
+  the resulting runtime location as an absolute path so its TOML round-trips
+  from any snapshot directory.
 - New keys require a demonstrated need — every key is permanent API.
 - Color is deliberately **not** configuration: no TOML key, no
   application env var. Its entire surface is the `--color` flag and the
@@ -52,10 +54,17 @@ defaults → config file → env → flags):
 
 ```text
 gsd config                # valid, redirectable TOML of effective config
-gsd config --provenance   # adds per-field source (default/file/env/flag)
+gsd config --provenance   # adds inline per-field source comments
 gsd --config PATH ...     # explicit config file (required if given)
 gsd --color=auto|always|never ...
 ```
+
+TOML is the config command's machine-readable format. It renders `db_path`
+as the absolute effective runtime location so relative environment and flag
+values round-trip from any snapshot directory. Provenance comments keep the
+report valid TOML and use normalized, actionable sources:
+`default`, `file: PATH`, `env: GSD_DB`, or `flag: --db`. Although `--json`
+is a global persistent flag, `gsd config --json` is a usage error (exit 2).
 
 Color resolution (CLI-OUTPUT-001/002): explicit `--color` flag > nonempty
 `NO_COLOR` > destination-aware auto-detection, evaluated per stream;
@@ -63,9 +72,9 @@ Color resolution (CLI-OUTPUT-001/002): explicit `--color` flag > nonempty
 `CLICOLOR_FORCE` are not consulted. `--json` output never carries ANSI
 regardless (CLI-OUTPUT-003).
 
-No secrets exist in this surface; redaction hooks are structurally present
-via configreporter but redact nothing in v1 (CLI-CONFIG-004 satisfied
-trivially — noted so the review checks the structure, not the absence).
+`db_path` is intentionally reportable and non-sensitive. There is no
+redaction code or hook in v1; the reporting contract must be revisited before
+any future sensitive key is added.
 
 ## Styled human output
 
@@ -98,8 +107,10 @@ style guide. The acceptance boundary:
    loaders in precedence order, `--config`, db-path resolution moved onto
    the loaded config; existing `--db`/`GSD_DB` behavior proven unchanged
    by e2e.
-2. **Report** — `gsd config` (+ `--provenance`, `--json`) via
-   configreporter.
+2. **Report** — `gsd config` emits TOML via configreporter;
+   `--provenance` adds normalized inline source comments, while `--json` is a
+   usage error. No redaction layer is added for the intentionally reportable
+   `db_path`; reporting must be revisited before any sensitive key.
 3. **Color + styled output** — the `--color` flag and full resolution
    chain wired into per-stream lipgloss profile selection,
    background-adaptive accents, and the styled shared writers.
@@ -192,14 +203,17 @@ $ gsd show 12          # • headline, faint field labels, #tags
 1. Precedence matrix for `db_path`: default only; file; file+env;
    file+env+flag — each layer wins over the previous, verified by
    `gsd config --provenance` and by where the db file actually appears.
-2. `gsd config` output round-trips: feed it back as `--config`, effective
-   config identical.
+2. `gsd config` output round-trips from another directory, including when
+   the original winning env value was relative: feed its TOML back as
+   `--config`; effective config identical. `gsd config --json` is rejected as
+   usage (exit 2).
 3. Explicit `--config /nonexistent` fails loud, exit 1; absent discovered
    file is silently fine.
 4. Color matrix (piped): default redirect clean; `--color=always` emits
    ANSI into a pipe and beats nonempty `NO_COLOR`; `NO_COLOR` yields clean
-   output; `TERM=dumb` clean in auto; `--json` carries no ANSI under
-   `--color=always`. Structure (headers, glyphs) identical across modes.
+   output; `TERM=dumb` clean in auto; supported `--json` output carries no
+   ANSI under `--color=always`. Structure (headers, glyphs) is identical
+   across modes.
 5. `make check` proves existing e2e workflows still pass with config in
    the loading path (no behavior regressions).
 

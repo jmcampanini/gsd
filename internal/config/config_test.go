@@ -15,18 +15,57 @@ import (
 )
 
 func TestLoadAppliesDatabasePathPrecedenceAndProvenance(t *testing.T) {
+	type paths struct {
+		config string
+		data   string
+	}
+	type expectation struct {
+		path   string
+		source string
+	}
 	tests := []struct {
 		name        string
 		fileValue   string
 		environment string
 		flag        string
-		want        string
-		wantSource  string
+		want        func(paths) expectation
 	}{
-		{name: "default", wantSource: configloader.SourceDefault},
-		{name: "file", fileValue: "file.db"},
-		{name: "environment", fileValue: "file.db", environment: "environment.db", want: "environment.db", wantSource: configloader.SourceEnv},
-		{name: "flag", fileValue: "file.db", environment: "environment.db", flag: "flag.db", want: "flag.db", wantSource: pflagloader.SourcePFlag},
+		{
+			name: "default",
+			want: func(current paths) expectation {
+				return expectation{
+					path:   filepath.Join(current.data, "gsd", "gsd.db"),
+					source: configloader.SourceDefault,
+				}
+			},
+		},
+		{
+			name:      "file",
+			fileValue: "file.db",
+			want: func(current paths) expectation {
+				return expectation{
+					path:   filepath.Join(filepath.Dir(current.config), "file.db"),
+					source: current.config,
+				}
+			},
+		},
+		{
+			name:        "environment",
+			fileValue:   "file.db",
+			environment: "environment.db",
+			want: func(paths) expectation {
+				return expectation{path: "environment.db", source: configloader.SourceEnv}
+			},
+		},
+		{
+			name:        "flag",
+			fileValue:   "file.db",
+			environment: "environment.db",
+			flag:        "flag.db",
+			want: func(paths) expectation {
+				return expectation{path: "flag.db", source: pflagloader.SourcePFlag}
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -50,20 +89,12 @@ func TestLoadAppliesDatabasePathPrecedenceAndProvenance(t *testing.T) {
 				t.Fatalf("Load() error = %v", err)
 			}
 
-			want := test.want
-			wantSource := test.wantSource
-			if want == "" {
-				want = filepath.Join(dataHome, "gsd", "gsd.db")
+			want := test.want(paths{config: configPath, data: dataHome})
+			if loaded.DBPath != want.path {
+				t.Errorf("Load() DBPath = %q, want %q", loaded.DBPath, want.path)
 			}
-			if test.fileValue != "" && test.environment == "" && test.flag == "" {
-				want = filepath.Join(filepath.Dir(configPath), test.fileValue)
-				wantSource = configPath
-			}
-			if loaded.DBPath != want {
-				t.Errorf("Load() DBPath = %q, want %q", loaded.DBPath, want)
-			}
-			if report.Updates["dbpath"] != wantSource {
-				t.Errorf("Load() source = %q, want %q", report.Updates["dbpath"], wantSource)
+			if report.Updates["dbpath"] != want.source {
+				t.Errorf("Load() source = %q, want %q", report.Updates["dbpath"], want.source)
 			}
 		})
 	}
@@ -183,6 +214,20 @@ func TestLoadRejectsEmptyFilePathBeforeHigherPriorityOverrides(t *testing.T) {
 				t.Errorf("Load() error = %v, want invalid_argument", err)
 			}
 		})
+	}
+}
+
+func TestLoadFailsWhenDefaultHomeIsUnavailableWithoutOverride(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("GSD_DB", "")
+
+	_, _, err := config.Load("", false, newFlags(t))
+	if err == nil {
+		t.Fatal("Load() error = nil, want unavailable default home error")
 	}
 }
 

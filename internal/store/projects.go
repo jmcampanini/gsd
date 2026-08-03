@@ -54,16 +54,9 @@ func (s *Projects) List(ctx context.Context, options project.ListOptions) ([]pro
 		return s.poolCore().List(ctx, options)
 	}
 
-	var listed []project.Project
-	err := withinDeferredTransaction(ctx, s.database, "project", func(connection *sql.Conn) error {
-		var operationErr error
-		listed, operationErr = (&projectsCore{executor: connection}).List(ctx, options)
-		return operationErr
+	return runInTransaction(ctx, s.withinReadTransaction, func(transaction project.Transaction) ([]project.Project, error) {
+		return transaction.List(ctx, options)
 	})
-	if err != nil {
-		return nil, err
-	}
-	return listed, nil
 }
 
 func (s *Projects) Edit(
@@ -123,16 +116,9 @@ func (s *Projects) ResolveTags(ctx context.Context, names []string) ([]tag.Tag, 
 		return s.poolCore().ResolveTags(ctx, names)
 	}
 
-	var resolved []tag.Tag
-	err := withinDeferredTransaction(ctx, s.database, "project", func(connection *sql.Conn) error {
-		var operationErr error
-		resolved, operationErr = (&projectsCore{executor: connection}).ResolveTags(ctx, names)
-		return operationErr
+	return runInTransaction(ctx, s.withinReadTransaction, func(transaction project.Transaction) ([]tag.Tag, error) {
+		return transaction.ResolveTags(ctx, names)
 	})
-	if err != nil {
-		return nil, err
-	}
-	return resolved, nil
 }
 
 func (s *Projects) AttachTags(ctx context.Context, projectID int64, tags []tag.Tag) error {
@@ -158,6 +144,15 @@ func (s *Projects) WithinTransaction(
 	apply func(project.Transaction) error,
 ) error {
 	return withinImmediateTransaction(ctx, s.database, "project", func(connection *sql.Conn) error {
+		return apply(&projectsCore{executor: connection})
+	})
+}
+
+func (s *Projects) withinReadTransaction(
+	ctx context.Context,
+	apply func(project.Transaction) error,
+) error {
+	return withinDeferredTransaction(ctx, s.database, "project", func(connection *sql.Conn) error {
 		return apply(&projectsCore{executor: connection})
 	})
 }

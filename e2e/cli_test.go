@@ -321,6 +321,90 @@ func TestDatabaseConfigPrecedenceAndFailures(t *testing.T) {
 	}
 }
 
+func TestConfigReportRoundTripsWithoutOpeningDatabase(t *testing.T) {
+	t.Parallel()
+
+	dir, err := os.MkdirTemp(workDir, "config-report-")
+	if err != nil {
+		t.Fatalf("create config report workflow directory: %v", err)
+	}
+	configPath := filepath.Join(dir, "original", "config.toml")
+	writeE2EConfig(t, configPath, "db_path = 'nested/gsd.db'\n")
+	environment := map[string]string{
+		"XDG_CONFIG_HOME": filepath.Join(dir, "config-home"),
+		"XDG_DATA_HOME":   filepath.Join(dir, "data-home"),
+	}
+
+	first := runGSDWithEnv(t, environment, "config", "--config", configPath)
+	wantDatabase := filepath.Join(filepath.Dir(configPath), "nested", "gsd.db")
+	wantReport := fmt.Sprintf("db_path = %q\n", wantDatabase)
+	if first.exitCode != 0 || first.stdout != wantReport || first.stderr != "" {
+		t.Fatalf("first config report = %#v, want %q", first, wantReport)
+	}
+	relativeEnvironmentDatabase := filepath.Join("relative", filepath.Base(dir), "environment.db")
+	environmentDatabase, err := filepath.Abs(relativeEnvironmentDatabase)
+	if err != nil {
+		t.Fatalf("resolve expected environment database: %v", err)
+	}
+	withEnvironment := map[string]string{
+		"XDG_CONFIG_HOME": environment["XDG_CONFIG_HOME"],
+		"XDG_DATA_HOME":   environment["XDG_DATA_HOME"],
+		"GSD_DB":          relativeEnvironmentDatabase,
+	}
+	provenance := runGSDWithEnv(
+		t,
+		withEnvironment,
+		"config",
+		"--config",
+		configPath,
+		"--provenance",
+	)
+	wantProvenance := fmt.Sprintf("db_path = %q # env: GSD_DB\n", environmentDatabase)
+	if provenance.exitCode != 0 || provenance.stdout != wantProvenance || provenance.stderr != "" {
+		t.Errorf("provenance report = %#v, want %q", provenance, wantProvenance)
+	}
+	environmentSnapshotPath := filepath.Join(dir, "environment-snapshot", "config.toml")
+	writeE2EConfig(t, environmentSnapshotPath, provenance.stdout)
+	environmentRoundTrip := runGSDWithEnv(t, environment, "config", "--config", environmentSnapshotPath)
+	wantEnvironmentReport := fmt.Sprintf("db_path = %q\n", environmentDatabase)
+	if environmentRoundTrip.exitCode != 0 || environmentRoundTrip.stdout != wantEnvironmentReport ||
+		environmentRoundTrip.stderr != "" {
+		t.Errorf("relative environment round-trip = %#v, want %q", environmentRoundTrip, wantEnvironmentReport)
+	}
+
+	snapshotPath := filepath.Join(dir, "snapshot", "config.toml")
+	writeE2EConfig(t, snapshotPath, first.stdout)
+	roundTrip := runGSDWithEnv(t, environment, "config", "--config", snapshotPath)
+	if roundTrip.exitCode != 0 || roundTrip.stdout != first.stdout || roundTrip.stderr != "" {
+		t.Errorf("round-trip report = %#v, want identical output %q", roundTrip, first.stdout)
+	}
+
+	missingPath := filepath.Join(dir, "missing.toml")
+	missing := runGSDWithEnv(t, environment, "config", "--config", missingPath)
+	if missing.exitCode != 1 || missing.stdout != "" || !strings.Contains(missing.stderr, "invalid configuration") {
+		t.Errorf("missing explicit config = %#v, want fail-loud application error", missing)
+	}
+
+	unsupportedJSON := runGSDWithEnv(
+		t,
+		environment,
+		"config",
+		"--config",
+		missingPath,
+		"--json",
+	)
+	if unsupportedJSON.exitCode != 2 || unsupportedJSON.stdout != "" ||
+		!strings.Contains(unsupportedJSON.stderr, "--json is not supported by gsd config") {
+		t.Errorf("config JSON = %#v, want usage error before loading config", unsupportedJSON)
+	}
+
+	for _, databasePath := range []string{wantDatabase, environmentDatabase} {
+		if _, err := os.Stat(databasePath); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("reported database %q stat error = %v, want not created", databasePath, err)
+		}
+	}
+}
+
 func TestTaskWorkflow(t *testing.T) {
 	t.Parallel()
 

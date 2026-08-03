@@ -71,6 +71,14 @@ func newRootCommandWithFactoryAndLocation(
 	factory applicationFactory,
 	location *time.Location,
 ) *cobra.Command {
+	return newRootCommandWithDependencies(factory, config.Load, location)
+}
+
+func newRootCommandWithDependencies(
+	factory applicationFactory,
+	loadConfiguration configurationLoader,
+	location *time.Location,
+) *cobra.Command {
 	options := &rootOptions{}
 	root := &cobra.Command{
 		Use:           "gsd",
@@ -95,6 +103,7 @@ func newRootCommandWithFactoryAndLocation(
 		newAreasCommand(options, factory),
 		newAvailableCommand(options, factory),
 		newCancelCommand(options, factory),
+		newConfigCommand(options, loadConfiguration),
 		newDeleteCommand(options, factory),
 		newDoneCommand(options, factory),
 		newEditCommand(options, factory),

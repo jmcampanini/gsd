@@ -10,7 +10,7 @@ acceptance boundary. Both artifacts are retired at consolidation.
 
 - [x] Chunk 0 — Milestone 5 consolidation
 - [x] Chunk 1 — Config loader integration
-- [ ] Chunk 2 — `gsd config` report
+- [x] Chunk 2 — `gsd config` report
 - [ ] Chunk 3 — Color resolution and styled human output
 
 ## Settled contract deltas
@@ -26,7 +26,18 @@ styling tests, already reconciled into `plans/MILESTONE_6.md`,
   `GSD_COLOR` and the `color` TOML key do not exist.
 - **Structure is mode-independent; SGR is mode-dependent.** Headers, glyphs,
   and layout appear in every color mode; `never`/`NO_COLOR` strip only ANSI
-  styling. `--json` output never contains ANSI under any mode.
+  styling. Supported `--json` output never contains ANSI under any mode.
+- **The config report is TOML-only.** Its default output is valid,
+  redirectable TOML; `db_path` is rendered as its absolute effective runtime
+  location so relative env/flag values round-trip from any snapshot location.
+  `--provenance` keeps it valid TOML by adding inline comments normalized to
+  `default`, `file: PATH`, `env: GSD_DB`, or `flag: --db`. Despite the
+  inherited global `--json` flag, `gsd config --json` is a usage error (exit
+  2); TOML is this command's machine-readable
+  format.
+- **`db_path` is intentionally reportable and non-sensitive.** Chunk 2 adds
+  no redaction code or hooks. The reporting contract must be revisited before
+  any future sensitive key is added.
 - **The visual system** (blind-test verdicts, rounds 1–3) is specified in the
   style guide below.
 
@@ -181,25 +192,31 @@ loud.
 
 Human outcome: you can always see what config is in effect and why.
 
-- [ ] `gsd config`: valid, redirectable TOML of the effective config via
-      configreporter; `--provenance` adds per-field source
-      (default/file/env/flag); `--json` emits the compact JSON envelope;
-      never opens the database.
-- [ ] Redaction hooks structurally present through configreporter but
-      redacting nothing in v1 (CLI-CONFIG-004 satisfied trivially — review
-      checks the structure, not the absence).
-- [ ] Test owners: cmd tests own the TOML/JSON/provenance rendering, stream
-      routing, and exit mapping (config report is presentation over
-      `internal/config` data); `internal/config` tests own provenance
-      correctness and make the file-precedence row's expected path/source
-      declarative while extending that matrix; e2e owns the round-trip (`gsd
-      config` output fed back via `--config` yields an identical effective
+- [x] `gsd config`: valid, redirectable TOML of the effective config via
+      configreporter; `db_path` is rendered as its absolute effective runtime
+      location so relative env/flag values remain stable when reloaded from
+      another directory; `--provenance` adds an inline source comment
+      normalized to `default`, `file: PATH`, `env: GSD_DB`, or `flag: --db`;
+      the command never opens the database. `gsd config --json` is a usage
+      error (exit 2) despite the inherited global flag; TOML is its
+      machine-readable format.
+- [x] No redaction code or hooks: `db_path` is intentionally reportable and
+      non-sensitive. Revisit the reporting contract before adding any future
+      sensitive key.
+- [x] Test owners: cmd tests own TOML/provenance rendering, `--json`
+      rejection, stream routing, and exit mapping (config report is
+      presentation over `internal/config` data); `internal/config` tests own
+      provenance correctness and make the file-precedence row's expected
+      path/source declarative while extending that matrix; e2e owns the
+      round-trip (`gsd config` output, including a relative env value, fed
+      back via `--config` from another directory yields an identical effective
       config).
-- [ ] Human proof (demo `milestone-6-chunk-2.html`): `gsd config`;
+- [x] Human proof (demo `milestone-6-chunk-2.html`): `gsd config`;
       `GSD_DB=... gsd config --provenance`; `gsd config > snap.toml && gsd
-      config --config snap.toml`; `gsd config --json`.
-- [ ] Agent verification: `make check` green; round-trip and fail-loud
-      `--config` exercised via the built binary.
+      config --config snap.toml`; `gsd config --json` rejected with exit 2.
+- [x] Agent verification: `make check` green; round-trip, fail-loud
+      `--config`, and `gsd config --json` rejection exercised via the built
+      binary.
 
 ## Chunk 3 — Color resolution and styled human output
 
@@ -225,8 +242,8 @@ redirected and JSON output stay byte-clean.
       rendered structure and ANSI presence/absence per mode for
       representative fixtures; e2e owns piped reality: default pipe clean,
       `--color=always` pipe carries ANSI, `--color=always` beats `NO_COLOR`,
-      `NO_COLOR` clean, `--json` clean under `--color=always`, `TERM=dumb`
-      clean.
+      `NO_COLOR` clean, supported `--json` clean under `--color=always`,
+      `TERM=dumb` clean.
 - [ ] Human proof (demo `milestone-6-chunk-3.html`, ANSI converted to HTML
       spans by the demo generator): `gsd available`, `gsd list --status all`,
       `gsd show N`, `gsd logbook`, `gsd tags`, a done/cancel/delete
@@ -243,15 +260,16 @@ equivalent lives in `e2e/` inside `make check`.
 1. `db_path` precedence matrix: default only; file; file+env; file+env+flag —
    each layer wins over the previous, verified by `gsd config --provenance`
    and by where the database file actually appears.
-2. `gsd config` output round-trips: feed it back via `--config`; effective
-   config identical.
+2. `gsd config` output round-trips: feed its TOML back via `--config`;
+   effective config identical. `gsd config --json` is rejected as usage
+   (exit 2).
 3. Explicit `--config /nonexistent` fails loud, exit 1; absent discovered
    file is silently fine.
 4. Color matrix (piped): default redirect clean; `--color=always` emits ANSI
    into a pipe; `--color=always` beats nonempty `NO_COLOR`; `NO_COLOR`
-   yields clean output; `TERM=dumb` clean in auto; `--json` carries no ANSI
-   under `--color=always`. (TTY-only auto branches are owned by resolver
-   unit tests; no pty in e2e.)
+   yields clean output; `TERM=dumb` clean in auto; supported `--json` output
+   carries no ANSI under `--color=always`. (TTY-only auto branches are owned
+   by resolver unit tests; no pty in e2e.)
 5. Structure is mode-independent: `--color=never` output contains headers
    and glyphs, differing from `--color=always` only in ANSI bytes.
 6. `make check` proves all pre-existing e2e workflows still pass with config
