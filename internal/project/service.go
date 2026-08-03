@@ -31,11 +31,11 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Project, error) {
 		return Project{}, err
 	}
 
-	normalizedTags, err := domain.NormalizeTagNames(fields.Tags)
+	var err error
+	fields.Tags, err = domain.NormalizeTagNames(fields.Tags)
 	if err != nil {
 		return Project{}, err
 	}
-	fields.Tags = normalizedTags
 	timestamp := domain.FormatTimestamp(s.now())
 	if len(fields.Tags) == 0 {
 		return s.store.Add(ctx, fields, timestamp)
@@ -48,11 +48,11 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Project, error) {
 			return err
 		}
 
-		resolvedTags, resolveErr := store.ResolveTags(ctx, fields.Tags)
-		if resolveErr != nil {
-			return resolveErr
+		resolved, err := store.ResolveTags(ctx, fields.Tags)
+		if err != nil {
+			return err
 		}
-		if err = store.AttachTags(ctx, created.ID, resolvedTags); err != nil {
+		if err := store.AttachTags(ctx, created.ID, resolved); err != nil {
 			return err
 		}
 
