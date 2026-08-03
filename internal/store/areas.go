@@ -110,16 +110,9 @@ func (s *Areas) ResolveTags(ctx context.Context, names []string) ([]tag.Tag, err
 		return s.poolCore().ResolveTags(ctx, names)
 	}
 
-	var resolved []tag.Tag
-	err := withinDeferredTransaction(ctx, s.database, "area", func(connection *sql.Conn) error {
-		var resolveErr error
-		resolved, resolveErr = (&areasCore{executor: connection}).ResolveTags(ctx, names)
-		return resolveErr
+	return runInTransaction(ctx, s.withinReadTransaction, func(transaction area.Transaction) ([]tag.Tag, error) {
+		return transaction.ResolveTags(ctx, names)
 	})
-	if err != nil {
-		return nil, err
-	}
-	return resolved, nil
 }
 
 func (s *Areas) AttachTags(ctx context.Context, areaID int64, tags []tag.Tag) error {
@@ -145,6 +138,15 @@ func (s *Areas) WithinTransaction(
 	apply func(area.Transaction) error,
 ) error {
 	return withinImmediateTransaction(ctx, s.database, "area", func(connection *sql.Conn) error {
+		return apply(&areasCore{executor: connection})
+	})
+}
+
+func (s *Areas) withinReadTransaction(
+	ctx context.Context,
+	apply func(area.Transaction) error,
+) error {
+	return withinDeferredTransaction(ctx, s.database, "area", func(connection *sql.Conn) error {
 		return apply(&areasCore{executor: connection})
 	})
 }

@@ -217,6 +217,20 @@ func TestLoadRejectsEmptyFilePathBeforeHigherPriorityOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadFailsWhenDefaultHomeIsUnavailableWithoutOverride(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("GSD_DB", "")
+
+	_, _, err := config.Load("", false, newFlags(t))
+	if err == nil {
+		t.Fatal("Load() error = nil, want unavailable default home error")
+	}
+}
+
 func TestLoadDoesNotRequireDefaultHomeWhenLegacyOverrideExists(t *testing.T) {
 	tests := []struct {
 		name        string
