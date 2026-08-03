@@ -15,6 +15,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
+	"github.com/spf13/pflag"
 )
 
 type fakeApplication struct {
@@ -138,12 +139,14 @@ func (f *fakeApplication) Delete(_ context.Context, id int64) (task.Task, error)
 }
 
 type commandResult struct {
-	stdout   string
-	stderr   string
-	exitCode int
-	openPath string
-	opens    int
-	closes   int
+	stdout         string
+	stderr         string
+	exitCode       int
+	openPath       string
+	configPath     string
+	configExplicit bool
+	opens          int
+	closes         int
 }
 
 func runCommand(t *testing.T, application task.Application, args ...string) commandResult {
@@ -187,9 +190,16 @@ func runCommandWithApplications(
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	result := commandResult{}
-	factory := func(_ context.Context, path string) (applications, io.Closer, error) {
+	factory := func(
+		_ context.Context,
+		configPath string,
+		configExplicit bool,
+		flags *pflag.FlagSet,
+	) (applications, io.Closer, error) {
 		result.opens++
-		result.openPath = path
+		result.configPath = configPath
+		result.configExplicit = configExplicit
+		result.openPath, _ = flags.GetString("db")
 		return available, closeRecorder{close: func() { result.closes++ }}, nil
 	}
 	root := newRootCommandWithFactory(factory)
@@ -1319,8 +1329,8 @@ func TestUsageErrorsAreHumanReadableEvenWithJSON(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "json unparsed", args: []string{"--unknown", "--json"}},
-		{name: "json parsed", args: []string{"--json", "--unknown"}},
+		{name: "json unparsed", args: []string{"--unknown", "--json", "--config", "/nonexistent.toml"}},
+		{name: "json parsed", args: []string{"--json", "--config", "/nonexistent.toml", "--unknown"}},
 	}
 
 	for _, test := range tests {
@@ -1330,6 +1340,9 @@ func TestUsageErrorsAreHumanReadableEvenWithJSON(t *testing.T) {
 			result := runCommand(t, &fakeApplication{}, test.args...)
 			if result.exitCode != 2 {
 				t.Errorf("exit code = %d, want 2", result.exitCode)
+			}
+			if result.opens != 0 {
+				t.Errorf("factory opens = %d, want 0", result.opens)
 			}
 			if result.stdout != "" {
 				t.Errorf("stdout = %q, want empty", result.stdout)
@@ -1344,6 +1357,26 @@ func TestUsageErrorsAreHumanReadableEvenWithJSON(t *testing.T) {
 	}
 }
 
+func TestPersistentConfigFlagsReachApplicationFactory(t *testing.T) {
+	t.Parallel()
+
+	result := runCommand(
+		t,
+		&fakeApplication{inboxResult: []task.ViewTask{}},
+		"inbox",
+		"--config",
+		"chosen.toml",
+		"--db",
+		"chosen.db",
+	)
+	if result.exitCode != 0 || result.stderr != "" || result.opens != 1 || result.closes != 1 {
+		t.Fatalf("result = %#v, want one successful factory lifecycle", result)
+	}
+	if result.configPath != "chosen.toml" || !result.configExplicit || result.openPath != "chosen.db" {
+		t.Errorf("factory config inputs = %#v, want explicit chosen.toml and chosen.db", result)
+	}
+}
+
 func TestHelpAndVersionDoNotOpenDatabase(t *testing.T) {
 	t.Parallel()
 
@@ -1352,8 +1385,8 @@ func TestHelpAndVersionDoNotOpenDatabase(t *testing.T) {
 		args []string
 	}{
 		{name: "bare root"},
-		{name: "help", args: []string{"--db", "/unusable/path/gsd.db", "--help"}},
-		{name: "version", args: []string{"--db", "/unusable/path/gsd.db", "--version"}},
+		{name: "help", args: []string{"--config", "/nonexistent.toml", "--db", "/unusable/path/gsd.db", "--help"}},
+		{name: "version", args: []string{"--config", "/nonexistent.toml", "--db", "/unusable/path/gsd.db", "--version"}},
 	}
 
 	for _, test := range tests {

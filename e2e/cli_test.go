@@ -132,9 +132,19 @@ func filteredEnvironment(overrides map[string]string) []string {
 	environment := make([]string, 0, len(os.Environ())+len(overrides))
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
+		switch key {
+		case "GSD_DB", "XDG_CONFIG_HOME", "XDG_DATA_HOME":
+			continue
+		}
 		if _, overridden := overrides[key]; !overridden {
 			environment = append(environment, entry)
 		}
+	}
+	if _, overridden := overrides["XDG_CONFIG_HOME"]; !overridden {
+		environment = append(environment, "XDG_CONFIG_HOME="+filepath.Join(workDir, "environment", "config"))
+	}
+	if _, overridden := overrides["XDG_DATA_HOME"]; !overridden {
+		environment = append(environment, "XDG_DATA_HOME="+filepath.Join(workDir, "environment", "data"))
 	}
 	for key, value := range overrides {
 		environment = append(environment, key+"="+value)
@@ -146,7 +156,7 @@ func filteredEnvironment(overrides map[string]string) []string {
 func TestVersion(t *testing.T) {
 	t.Parallel()
 
-	result := runGSD(t, "--version")
+	result := runGSD(t, "--config", "/nonexistent.toml", "--version")
 	if result.exitCode != 0 {
 		t.Errorf("exit code = %d, want 0", result.exitCode)
 	}
@@ -166,7 +176,7 @@ func TestHelp(t *testing.T) {
 		args []string
 	}{
 		{name: "bare root"},
-		{name: "help flag", args: []string{"--help"}},
+		{name: "help flag", args: []string{"--config", "/nonexistent.toml", "--help"}},
 	}
 
 	for _, test := range tests {
@@ -205,7 +215,7 @@ func TestUnknownCommand(t *testing.T) {
 func TestParseError(t *testing.T) {
 	t.Parallel()
 
-	result := runGSD(t, "--unknown")
+	result := runGSD(t, "--config", "/nonexistent.toml", "--unknown")
 	if result.exitCode != 2 {
 		t.Errorf("exit code = %d, want 2", result.exitCode)
 	}
@@ -214,6 +224,100 @@ func TestParseError(t *testing.T) {
 	}
 	if !strings.Contains(result.stderr, "Error: unknown flag: --unknown") {
 		t.Errorf("stderr = %q, want parse diagnostic", result.stderr)
+	}
+}
+
+func TestDatabaseConfigPrecedenceAndFailures(t *testing.T) {
+	t.Parallel()
+
+	dir, err := os.MkdirTemp(workDir, "config-")
+	if err != nil {
+		t.Fatalf("create config workflow directory: %v", err)
+	}
+	configHome := filepath.Join(dir, "config-home")
+	dataHome := filepath.Join(dir, "data-home")
+	configPath := filepath.Join(configHome, "gsd", "config.toml")
+	writeE2EConfig(t, configPath, "db_path = 'configured.db'\n")
+	baseEnvironment := map[string]string{
+		"XDG_CONFIG_HOME": configHome,
+		"XDG_DATA_HOME":   dataHome,
+	}
+
+	fromFile := decodeTask(t, runGSDWithEnv(t, baseEnvironment, "add", "from file", "--json"))
+	fileDatabase := filepath.Join(configHome, "gsd", "configured.db")
+	if fromFile.ID != 1 {
+		t.Errorf("file task ID = %d, want 1 in configured database", fromFile.ID)
+	}
+	if _, err := os.Stat(fileDatabase); err != nil {
+		t.Errorf("configured database stat error = %v", err)
+	}
+
+	environmentDatabase := filepath.Join(dir, "environment.db")
+	environment := map[string]string{
+		"XDG_CONFIG_HOME": configHome,
+		"XDG_DATA_HOME":   dataHome,
+		"GSD_DB":          environmentDatabase,
+	}
+	fromEnvironment := decodeTask(t, runGSDWithEnv(t, environment, "add", "from environment", "--json"))
+	if fromEnvironment.ID != 1 {
+		t.Errorf("environment task ID = %d, want 1 in overridden database", fromEnvironment.ID)
+	}
+	if _, err := os.Stat(environmentDatabase); err != nil {
+		t.Errorf("environment database stat error = %v", err)
+	}
+
+	flagDatabase := filepath.Join(dir, "flag.db")
+	fromFlag := decodeTask(t, runGSDWithEnv(
+		t,
+		environment,
+		"add",
+		"from flag",
+		"--db",
+		flagDatabase,
+		"--json",
+	))
+	if fromFlag.ID != 1 {
+		t.Errorf("flag task ID = %d, want 1 in flag database", fromFlag.ID)
+	}
+	if _, err := os.Stat(flagDatabase); err != nil {
+		t.Errorf("flag database stat error = %v", err)
+	}
+
+	explicitConfig := filepath.Join(dir, "explicit", "config.toml")
+	writeE2EConfig(t, explicitConfig, "db_path = 'explicit.db'\n")
+	fromExplicit := decodeTask(t, runGSDWithEnv(
+		t,
+		baseEnvironment,
+		"add",
+		"from explicit file",
+		"--config",
+		explicitConfig,
+		"--json",
+	))
+	if fromExplicit.ID != 1 {
+		t.Errorf("explicit task ID = %d, want 1 in explicit database", fromExplicit.ID)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(explicitConfig), "explicit.db")); err != nil {
+		t.Errorf("explicit database stat error = %v", err)
+	}
+
+	assertJSONError(
+		t,
+		runGSDWithEnv(t, baseEnvironment, "inbox", "--config", filepath.Join(dir, "missing.toml"), "--json"),
+		apperr.InvalidArgument,
+	)
+
+	absentConfigHome := filepath.Join(dir, "absent-config")
+	absentDataHome := filepath.Join(dir, "absent-data")
+	absent := decodeTasks(t, runGSDWithEnv(t, map[string]string{
+		"XDG_CONFIG_HOME": absentConfigHome,
+		"XDG_DATA_HOME":   absentDataHome,
+	}, "inbox", "--json"))
+	if len(absent) != 0 {
+		t.Errorf("absent discovered config inbox = %#v, want empty", absent)
+	}
+	if _, err := os.Stat(filepath.Join(absentDataHome, "gsd", "gsd.db")); err != nil {
+		t.Errorf("default database stat error = %v", err)
 	}
 }
 
@@ -364,8 +468,8 @@ func TestTaskWorkflow(t *testing.T) {
 		t.Fatalf("create blocked path: %v", err)
 	}
 	for _, args := range [][]string{
-		{"--db", filepath.Join(blockedPath, "gsd.db"), "--help"},
-		{"--db", filepath.Join(blockedPath, "gsd.db"), "--version"},
+		{"--config", "/nonexistent.toml", "--db", filepath.Join(blockedPath, "gsd.db"), "--help"},
+		{"--config", "/nonexistent.toml", "--db", filepath.Join(blockedPath, "gsd.db"), "--version"},
 	} {
 		result := runGSD(t, args...)
 		if result.exitCode != 0 || result.stderr != "" {
@@ -702,6 +806,16 @@ func calendarDate(reference time.Time, days int) string {
 	return time.Date(year, month, day, 0, 0, 0, 0, reference.Location()).
 		AddDate(0, 0, days).
 		Format("2006-01-02")
+}
+
+func writeE2EConfig(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create config directory: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
 }
 
 func decodeTask(t *testing.T, result processResult) task.Task {

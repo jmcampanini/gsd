@@ -12,19 +12,21 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/config"
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/store"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var Version = "dev"
 
 type rootOptions struct {
-	databasePath string
-	json         bool
+	configPath string
+	json       bool
 }
 
 type applications struct {
@@ -35,7 +37,12 @@ type applications struct {
 	logbook  logbook.Application
 }
 
-type applicationFactory func(context.Context, string) (applications, io.Closer, error)
+type applicationFactory func(
+	context.Context,
+	string,
+	bool,
+	*pflag.FlagSet,
+) (applications, io.Closer, error)
 
 func Execute() int {
 	return execute(newRootCommand(), os.Args[1:])
@@ -77,7 +84,10 @@ func newRootCommandWithFactoryAndLocation(
 		},
 	}
 
-	root.PersistentFlags().StringVar(&options.databasePath, "db", "", "path to the SQLite database")
+	root.PersistentFlags().StringVar(&options.configPath, "config", "", "path to a TOML config file")
+	if err := config.RegisterFlags(root.PersistentFlags()); err != nil {
+		panic(fmt.Sprintf("register config flags: %v", err))
+	}
 	root.PersistentFlags().BoolVar(&options.json, "json", false, "emit JSON output")
 	root.AddCommand(
 		newAddCommand(options, factory),
@@ -105,14 +115,16 @@ func newRootCommandWithFactoryAndLocation(
 
 func defaultApplicationFactory(
 	ctx context.Context,
-	requestedPath string,
+	configPath string,
+	configPathExplicit bool,
+	flags *pflag.FlagSet,
 ) (applications, io.Closer, error) {
-	path, err := store.ResolvePath(requestedPath)
+	loaded, _, err := config.Load(configPath, configPathExplicit, flags)
 	if err != nil {
 		return applications{}, nil, err
 	}
 
-	database, err := store.Open(ctx, path)
+	database, err := store.Open(ctx, loaded.DBPath)
 	if err != nil {
 		return applications{}, nil, err
 	}
@@ -132,7 +144,13 @@ func withApplications(
 	factory applicationFactory,
 	run func(applications) error,
 ) error {
-	available, closer, err := factory(command.Context(), options.databasePath)
+	flags := command.Root().PersistentFlags()
+	available, closer, err := factory(
+		command.Context(),
+		options.configPath,
+		flags.Changed("config"),
+		flags,
+	)
 	if err != nil {
 		return normalizeApplicationError(err)
 	}
