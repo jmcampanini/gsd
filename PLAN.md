@@ -8,7 +8,7 @@ acceptance boundary. Both artifacts are retired at consolidation.
 
 ## Progress
 
-- [ ] Chunk 0 — Milestone 5 consolidation
+- [x] Chunk 0 — Milestone 5 consolidation
 - [ ] Chunk 1 — Config loader integration
 - [ ] Chunk 2 — `gsd config` report
 - [ ] Chunk 3 — Color resolution and styled human output
@@ -108,28 +108,28 @@ decisions from the Milestone 5 foundation review before Config work begins.
 Behavior-preserving except the tag-ordering schema delta (`ORDER BY g.title
 COLLATE NOCASE`, `user_version` → `9006`). No demo.
 
-- [ ] Root/core store split: executor-bound core types; root type owns the
+- [x] Root/core store split: executor-bound core types; root type owns the
       handle and each verb's visible atomicity decision; `database == nil`
       mode flag, re-entry preambles, and `Tasks.List`'s wrap predicate die;
       `applyTransition` retains a single action switch.
-- [ ] Read-then-delete: the six `WITH snapshot AS MATERIALIZED` deletes
+- [x] Read-then-delete: the six `WITH snapshot AS MATERIALIZED` deletes
       become tag-enriched reads plus plain deletes inside the existing
       immediate-transaction machinery.
-- [ ] Service-owned tag resolution on the read path: `list --tag` resolves in
+- [x] Service-owned tag resolution on the read path: `list --tag` resolves in
       the service; the store filter loses its resolution half.
-- [ ] Sibling alignment: tag service flows and cmd tagging factories
+- [x] Sibling alignment: tag service flows and cmd tagging factories
       byte-parallel modulo entity nouns; `<noun>TaggingMutation` /
       `new<Noun>TaggingCommand` naming.
-- [ ] Tag delete drops the redundant leading `Find`; sequence assertion
+- [x] Tag delete drops the redundant leading `Find`; sequence assertion
       narrows to `CountUsage` before `Delete`.
-- [ ] Shared `tagUsageCountExpression`; `collectRows[T]` replaces the five
+- [x] Shared `tagUsageCountExpression`; `collectRows[T]` replaces the five
       rows→slice collectors.
-- [ ] `domain.TagNames` becomes the `Tags` field type everywhere (nil
+- [x] `domain.TagNames` becomes the `Tags` field type everywhere (nil
       marshals `[]`).
-- [ ] Alphabetical tag arrays: views and `tagJSONExpression` move to
+- [x] Alphabetical tag arrays: views and `tagJSONExpression` move to
       `ORDER BY g.title COLLATE NOCASE`; `user_version` → `9006`;
       order-asserting tests updated.
-- [ ] Verification: full `make check`; schema convergence audit re-run
+- [x] Verification: full `make check`; schema convergence audit re-run
       (dev database byte-comparable to `SCHEMA.md`).
 
 ## Chunk 1 — Config loader integration

@@ -9,15 +9,27 @@ import (
 )
 
 type Logbook struct {
-	db *DB
+	database *DB
+}
+
+type logbookCore struct {
+	executor logbookExecutor
+}
+
+type logbookExecutor interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }
 
 func NewLogbook(database *DB) *Logbook {
-	return &Logbook{db: database}
+	return &Logbook{database: database}
 }
 
 func (s *Logbook) List(ctx context.Context) ([]logbook.Entry, error) {
-	rows, err := s.db.database.QueryContext(ctx, `
+	return (&logbookCore{executor: s.database.database}).List(ctx)
+}
+
+func (s *logbookCore) List(ctx context.Context) ([]logbook.Entry, error) {
+	rows, err := s.executor.QueryContext(ctx, `
 SELECT kind, id, title, status, resolved_at, project_title,
        governing_area_id, governing_area_title, tags
 FROM logbook
@@ -29,35 +41,22 @@ ORDER BY resolved_at DESC,
 		return nil, fmt.Errorf("query logbook: %w", err)
 	}
 
-	return collectLogbookEntries(rows)
+	return collectRows(rows, scanLogbookEntry, "scan logbook entry", "iterate logbook")
 }
 
-func collectLogbookEntries(rows *sql.Rows) ([]logbook.Entry, error) {
-	defer func() {
-		_ = rows.Close()
-	}()
+func scanLogbookEntry(scanner rowScanner) (logbook.Entry, error) {
+	var entry logbook.Entry
+	err := scanner.Scan(
+		&entry.Kind,
+		&entry.ID,
+		&entry.Title,
+		&entry.Status,
+		&entry.ResolvedAt,
+		&entry.ProjectTitle,
+		&entry.GoverningAreaID,
+		&entry.GoverningAreaTitle,
+		scanTagTitles(&entry.Tags),
+	)
 
-	entries := make([]logbook.Entry, 0)
-	for rows.Next() {
-		var entry logbook.Entry
-		if err := rows.Scan(
-			&entry.Kind,
-			&entry.ID,
-			&entry.Title,
-			&entry.Status,
-			&entry.ResolvedAt,
-			&entry.ProjectTitle,
-			&entry.GoverningAreaID,
-			&entry.GoverningAreaTitle,
-			scanTagTitles(&entry.Tags),
-		); err != nil {
-			return nil, fmt.Errorf("scan logbook entry: %w", err)
-		}
-		entries = append(entries, entry)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate logbook: %w", err)
-	}
-
-	return entries, nil
+	return entry, err
 }

@@ -237,7 +237,7 @@ func TestTagAttachmentWorkflowAcrossBinaryInvocations(t *testing.T) {
 	assertTags("task after rename", persistedTodo.Tags, []string{renamed.Title})
 	assertTags("project after rename", persistedKitchen.Tags, []string{renamed.Title})
 	assertTags("area after rename", persistedPlace.Tags, []string{renamed.Title})
-	wantRenamedBoth := []string{renamed.Title, home.Title}
+	wantRenamedBoth := []string{home.Title, renamed.Title}
 	assertTags("pre-tagged task after rename", persistedTaggedTask.Tags, wantRenamedBoth)
 	assertTags("pre-tagged project after rename", persistedTaggedProject.Tags, wantRenamedBoth)
 	assertTags("pre-tagged area after rename", persistedTaggedArea.Tags, wantRenamedBoth)

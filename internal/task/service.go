@@ -59,7 +59,7 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Task, error) {
 	}
 
 	var added Task
-	err = s.store.WithinTransaction(ctx, func(store Store) error {
+	err = s.store.WithinTransaction(ctx, func(store Transaction) error {
 		added, err = store.Add(ctx, fields, timestamp)
 		if err != nil {
 			return err
@@ -121,7 +121,45 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Task, error)
 		}
 	}
 
-	return domain.NormalizeSliceResult(s.store.List(ctx, options))
+	filter := ListFilter{
+		Status:    options.Status,
+		Date:      options.Date,
+		ProjectID: options.ProjectID,
+		AreaID:    options.AreaID,
+	}
+	if options.ProjectID == nil && options.AreaID == nil && options.Tag == nil {
+		return domain.NormalizeSliceResult(s.store.List(ctx, filter))
+	}
+
+	var listed []Task
+	err := s.store.WithinReadTransaction(ctx, func(transaction Transaction) error {
+		if options.ProjectID != nil {
+			if err := transaction.ProjectExists(ctx, *options.ProjectID); err != nil {
+				return err
+			}
+		}
+		if options.AreaID != nil {
+			if err := transaction.AreaExists(ctx, *options.AreaID); err != nil {
+				return err
+			}
+		}
+		if options.Tag != nil {
+			resolved, err := transaction.ResolveTags(ctx, []string{*options.Tag})
+			if err != nil {
+				return err
+			}
+			filter.TagID = &resolved[0].ID
+		}
+
+		var err error
+		listed, err = transaction.List(ctx, filter)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return domain.NormalizeSliceResult(listed, nil)
 }
 
 func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, error) {
@@ -240,7 +278,7 @@ func (s *Service) changeTags(
 	}
 
 	var result Tagging
-	transactionErr := s.store.WithinTransaction(ctx, func(store Store) error {
+	transactionErr := s.store.WithinTransaction(ctx, func(store Transaction) error {
 		if _, err := store.Find(ctx, id); err != nil {
 			return err
 		}

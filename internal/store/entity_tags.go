@@ -97,20 +97,20 @@ func detachEntityTags(
 }
 
 func tagJSONExpression(spec entityTagSpec, entityReference string) string {
-	return `(SELECT json_group_array(g.title ORDER BY g.id)
+	return `(SELECT json_group_array(g.title ORDER BY g.title COLLATE NOCASE)
         FROM ` + spec.joinTable + ` et JOIN tags g ON g.id = et.tag_id
         WHERE et.` + spec.entityColumn + ` = ` + entityReference + `)`
 }
 
-type tagTitlesScanner struct {
-	destination *[]string
+type tagTitlesScanner[T ~[]string] struct {
+	destination *T
 }
 
-func scanTagTitles(destination *[]string) *tagTitlesScanner {
-	return &tagTitlesScanner{destination: destination}
+func scanTagTitles[T ~[]string](destination *T) *tagTitlesScanner[T] {
+	return &tagTitlesScanner[T]{destination: destination}
 }
 
-func (s *tagTitlesScanner) Scan(source any) error {
+func (s *tagTitlesScanner[T]) Scan(source any) error {
 	var encoded []byte
 	switch value := source.(type) {
 	case string:
@@ -118,7 +118,7 @@ func (s *tagTitlesScanner) Scan(source any) error {
 	case []byte:
 		encoded = value
 	case nil:
-		*s.destination = []string{}
+		*s.destination = make(T, 0)
 		return nil
 	default:
 		return fmt.Errorf("scan tag titles from %T", source)
@@ -131,6 +131,6 @@ func (s *tagTitlesScanner) Scan(source any) error {
 	if titles == nil {
 		titles = []string{}
 	}
-	*s.destination = titles
+	*s.destination = T(titles)
 	return nil
 }

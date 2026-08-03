@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
@@ -71,7 +72,7 @@ type recordingStore struct {
 	detachedTags         []tag.Tag
 	detachTagsError      error
 	transactionCalls     int
-	transactionStore     Store
+	transactionStore     Transaction
 	transactionError     error
 }
 
@@ -183,7 +184,7 @@ func (r *recordingStore) DetachTags(_ context.Context, areaID int64, tags []tag.
 
 func (r *recordingStore) WithinTransaction(
 	ctx context.Context,
-	operation func(Store) error,
+	operation func(Transaction) error,
 ) error {
 	r.transactionCalls++
 	if r.transactionError != nil {
@@ -200,7 +201,7 @@ func TestAddPreservesAcceptedTextAndUsesOneUTCMillisecondTimestamp(t *testing.T)
 	t.Parallel()
 
 	fields := AddFields{Title: "  Home  ", Note: "line one\nline two\n"}
-	want := Area{ID: 1, Title: fields.Title, Note: fields.Note, Tags: []string{}}
+	want := Area{ID: 1, Title: fields.Title, Note: fields.Note, Tags: domain.TagNames{}}
 	store := &recordingStore{addResult: want}
 	service := NewService(store)
 	clockCalls := 0
@@ -237,7 +238,7 @@ func TestAddWithTagsNormalizesAndRefreshesWithinOneTransaction(t *testing.T) {
 		{ID: 3, Title: "Café"},
 		{ID: 4, Title: "CAFÉ"},
 	}
-	refreshed := Area{ID: 7, Title: "Home", Tags: []string{"errands", "Café", "CAFÉ"}}
+	refreshed := Area{ID: 7, Title: "Home", Tags: domain.TagNames{"errands", "Café", "CAFÉ"}}
 	transactionStore := &recordingStore{
 		addResult:         Area{ID: 7, Title: "Home"},
 		resolveTagsResult: resolvedTags,
@@ -517,7 +518,7 @@ func TestShowAndEditDelegateExactIntentAndStoreErrors(t *testing.T) {
 func TestArchiveAndUnarchiveDelegateTimestamps(t *testing.T) {
 	t.Parallel()
 
-	want := Area{ID: 7, Title: "Home", Tags: []string{}}
+	want := Area{ID: 7, Title: "Home", Tags: domain.TagNames{}}
 	store := &recordingStore{archiveResult: want, unarchiveResult: want}
 	service := NewService(store)
 	clockCalls := 0
@@ -582,9 +583,9 @@ func TestTagAndUntagNormalizeWithinOneTransactionAndReturnStoredSpellings(t *tes
 
 			refreshed := found
 			if test.mutationName == "attach tags" {
-				refreshed.Tags = []string{"Errands", "CAFÉ"}
+				refreshed.Tags = domain.TagNames{"Errands", "CAFÉ"}
 			} else {
-				refreshed.Tags = []string{}
+				refreshed.Tags = domain.TagNames{}
 			}
 			transactionStore := &recordingStore{
 				findResults:       []Area{found, refreshed},
@@ -715,7 +716,7 @@ func TestTaggingErrorsPassThrough(t *testing.T) {
 func TestNonrecursiveDeleteReturnsNormalizedEnvelopeWithoutTransaction(t *testing.T) {
 	t.Parallel()
 
-	deletedArea := Area{ID: 7, Title: "Empty", Tags: []string{}}
+	deletedArea := Area{ID: 7, Title: "Empty", Tags: domain.TagNames{}}
 	store := &recordingStore{deleteResult: deletedArea}
 	deletion, err := NewService(store).Delete(context.Background(), 7, false)
 	if err != nil {
@@ -734,7 +735,7 @@ func TestNonrecursiveDeleteReturnsNormalizedEnvelopeWithoutTransaction(t *testin
 func TestRecursiveDeleteReturnsContainerGroupedEnvelope(t *testing.T) {
 	t.Parallel()
 
-	deletedArea := Area{ID: 7, Title: "Home", Tags: []string{}}
+	deletedArea := Area{ID: 7, Title: "Home", Tags: domain.TagNames{}}
 	firstProjectID := int64(10)
 	secondProjectID := int64(11)
 	transactionStore := &recordingStore{

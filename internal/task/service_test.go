@@ -13,53 +13,62 @@ import (
 )
 
 type recordingStore struct {
-	addCalls           int
-	title              string
-	note               string
-	addedProjectID     *int64
-	addedAreaID        *int64
-	addedDueOn         *string
-	addedDeferUntil    *string
-	addedTags          []string
-	timestamp          string
-	addResult          *Task
-	addError           error
-	inboxCalls         int
-	inboxResult        []ViewTask
-	availableCalls     int
-	availableResult    []ViewTask
-	findCalls          int
-	findResults        []Task
-	findError          error
-	findErrors         []error
-	listCalls          int
-	listedOptions      ListOptions
-	listResult         []Task
-	editCalls          int
-	editID             int64
-	editFields         EditFields
-	editTimestamp      string
-	doneCalls          int
-	cancelCalls        int
-	reopenCalls        int
-	deleteCalls        int
-	lifecycleID        int64
-	lifecycleTimestamp string
-	resolveCalls       int
-	resolvedNames      []string
-	resolveResult      []tag.Tag
-	resolveError       error
-	attachCalls        int
-	attachedID         int64
-	attachedTags       []tag.Tag
-	attachError        error
-	detachCalls        int
-	detachedID         int64
-	detachedTags       []tag.Tag
-	detachError        error
-	transactionCalls   int
-	transactionStore   Store
-	transactionError   error
+	addCalls             int
+	title                string
+	note                 string
+	addedProjectID       *int64
+	addedAreaID          *int64
+	addedDueOn           *string
+	addedDeferUntil      *string
+	addedTags            []string
+	timestamp            string
+	addResult            *Task
+	addError             error
+	inboxCalls           int
+	inboxResult          []ViewTask
+	availableCalls       int
+	availableResult      []ViewTask
+	findCalls            int
+	findResults          []Task
+	findError            error
+	findErrors           []error
+	listCalls            int
+	listedFilter         ListFilter
+	listResult           []Task
+	listError            error
+	projectExistsCalls   int
+	projectExistsError   error
+	areaExistsCalls      int
+	areaExistsError      error
+	operations           []string
+	editCalls            int
+	editID               int64
+	editFields           EditFields
+	editTimestamp        string
+	doneCalls            int
+	cancelCalls          int
+	reopenCalls          int
+	deleteCalls          int
+	lifecycleID          int64
+	lifecycleTimestamp   string
+	resolveCalls         int
+	resolvedNames        []string
+	resolveResult        []tag.Tag
+	resolveError         error
+	attachCalls          int
+	attachedID           int64
+	attachedTags         []tag.Tag
+	attachError          error
+	detachCalls          int
+	detachedID           int64
+	detachedTags         []tag.Tag
+	detachError          error
+	transactionCalls     int
+	transactionStore     Transaction
+	transactionError     error
+	readTransactionCalls int
+	readTransactionStore Transaction
+	readTransactionError error
 }
 
 func (r *recordingStore) Add(
@@ -120,10 +129,23 @@ func (r *recordingStore) Find(_ context.Context, id int64) (Task, error) {
 	return Task{ID: id}, nil
 }
 
-func (r *recordingStore) List(_ context.Context, options ListOptions) ([]Task, error) {
+func (r *recordingStore) List(_ context.Context, filter ListFilter) ([]Task, error) {
 	r.listCalls++
-	r.listedOptions = options
-	return r.listResult, nil
+	r.listedFilter = filter
+	r.operations = append(r.operations, "list")
+	return r.listResult, r.listError
+}
+
+func (r *recordingStore) ProjectExists(context.Context, int64) error {
+	r.projectExistsCalls++
+	r.operations = append(r.operations, "project")
+	return r.projectExistsError
+}
+
+func (r *recordingStore) AreaExists(context.Context, int64) error {
+	r.areaExistsCalls++
+	r.operations = append(r.operations, "area")
+	return r.areaExistsError
 }
 
 func (r *recordingStore) Edit(
@@ -167,6 +189,7 @@ func (r *recordingStore) Delete(_ context.Context, id int64) (Task, error) {
 func (r *recordingStore) ResolveTags(_ context.Context, names []string) ([]tag.Tag, error) {
 	r.resolveCalls++
 	r.resolvedNames = names
+	r.operations = append(r.operations, "resolve")
 	return r.resolveResult, r.resolveError
 }
 
@@ -186,13 +209,28 @@ func (r *recordingStore) DetachTags(_ context.Context, id int64, tags []tag.Tag)
 
 func (r *recordingStore) WithinTransaction(
 	ctx context.Context,
-	operation func(Store) error,
+	operation func(Transaction) error,
 ) error {
 	r.transactionCalls++
 	if r.transactionError != nil {
 		return r.transactionError
 	}
 	store := r.transactionStore
+	if store == nil {
+		store = r
+	}
+	return operation(store)
+}
+
+func (r *recordingStore) WithinReadTransaction(
+	ctx context.Context,
+	operation func(Transaction) error,
+) error {
+	r.readTransactionCalls++
+	if r.readTransactionError != nil {
+		return r.readTransactionError
+	}
+	store := r.readTransactionStore
 	if store == nil {
 		store = r
 	}
@@ -580,11 +618,9 @@ func TestListValidatesOptionsAndNormalizesNil(t *testing.T) {
 
 	store := &recordingStore{}
 	service := NewService(store)
-	projectID := int64(7)
 	options := ListOptions{
-		Status:    ListStatusDone,
-		Date:      DateSelectorDeferred,
-		ProjectID: &projectID,
+		Status: ListStatusDone,
+		Date:   DateSelectorDeferred,
 	}
 
 	listed, err := service.List(context.Background(), options)
@@ -594,8 +630,9 @@ func TestListValidatesOptionsAndNormalizesNil(t *testing.T) {
 	if listed == nil || len(listed) != 0 {
 		t.Errorf("List() = %#v, want non-nil empty list", listed)
 	}
-	if store.listCalls != 1 || store.listedOptions != options {
-		t.Errorf("store List() calls/options = %d/%#v, want 1/%#v", store.listCalls, store.listedOptions, options)
+	wantFilter := ListFilter{Status: options.Status, Date: options.Date}
+	if store.listCalls != 1 || store.listedFilter != wantFilter || store.readTransactionCalls != 0 {
+		t.Errorf("store List() calls/filter/read transactions = %d/%#v/%d, want 1/%#v/0", store.listCalls, store.listedFilter, store.readTransactionCalls, wantFilter)
 	}
 
 	invalidProjectID := int64(0)
@@ -627,8 +664,10 @@ func TestListValidatesAndDelegatesArea(t *testing.T) {
 	if _, err := NewService(store).List(context.Background(), options); err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if store.listCalls != 1 || store.listedOptions != options {
-		t.Errorf("store List() calls/options = %d/%#v, want 1/%#v", store.listCalls, store.listedOptions, options)
+	wantFilter := ListFilter{Status: options.Status, AreaID: options.AreaID}
+	if store.readTransactionCalls != 1 || store.areaExistsCalls != 1 ||
+		store.listCalls != 1 || store.listedFilter != wantFilter {
+		t.Errorf("store read/area/list calls/filter = %d/%d/%d/%#v, want 1/1/1/%#v", store.readTransactionCalls, store.areaExistsCalls, store.listCalls, store.listedFilter, wantFilter)
 	}
 
 	projectID := int64(7)
@@ -648,17 +687,21 @@ func TestListValidatesAndDelegatesArea(t *testing.T) {
 	}
 }
 
-func TestListValidatesTagBeforePersistence(t *testing.T) {
+func TestListValidatesAndResolvesTagFilter(t *testing.T) {
 	t.Parallel()
 
 	tagName := "ERRANDS"
-	store := &recordingStore{}
+	store := &recordingStore{resolveResult: []tag.Tag{{ID: 23, Title: "Errands"}}}
 	options := ListOptions{Status: ListStatusOpen, Tag: &tagName}
 	if _, err := NewService(store).List(context.Background(), options); err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if store.listCalls != 1 || store.listedOptions.Tag == nil || *store.listedOptions.Tag != tagName {
-		t.Errorf("store List() calls/options = %d/%#v, want exact tag %q", store.listCalls, store.listedOptions, tagName)
+	wantTagID := int64(23)
+	wantFilter := ListFilter{Status: ListStatusOpen, TagID: &wantTagID}
+	if store.readTransactionCalls != 1 || store.resolveCalls != 1 ||
+		!reflect.DeepEqual(store.resolvedNames, []string{tagName}) ||
+		store.listCalls != 1 || !reflect.DeepEqual(store.listedFilter, wantFilter) {
+		t.Errorf("store read/resolve/names/list/filter = %d/%d/%v/%d/%#v, want 1/1/exact name/1/%#v", store.readTransactionCalls, store.resolveCalls, store.resolvedNames, store.listCalls, store.listedFilter, wantFilter)
 	}
 
 	for _, invalid := range []string{" \t\n", string([]byte{0xff})} {
@@ -676,6 +719,66 @@ func TestListValidatesTagBeforePersistence(t *testing.T) {
 			}
 			if store.listCalls != 0 {
 				t.Errorf("store List() calls = %d, want 0", store.listCalls)
+			}
+		})
+	}
+}
+
+func TestListReturnsReadTransactionErrorsInResolutionOrder(t *testing.T) {
+	t.Parallel()
+
+	projectID := int64(7)
+	tagName := "unknown"
+	storeError := errors.New("store failure")
+	tests := []struct {
+		name       string
+		store      *recordingStore
+		operations []string
+	}{
+		{
+			name:       "transaction boundary",
+			store:      &recordingStore{readTransactionError: storeError},
+			operations: nil,
+		},
+		{
+			name: "missing project before unknown tag",
+			store: &recordingStore{
+				projectExistsError: storeError,
+				resolveError:       errors.New("must not be returned"),
+			},
+			operations: []string{"project"},
+		},
+		{
+			name: "tag resolution",
+			store: &recordingStore{
+				resolveError: storeError,
+			},
+			operations: []string{"project", "resolve"},
+		},
+		{
+			name: "list",
+			store: &recordingStore{
+				resolveResult: []tag.Tag{{ID: 23, Title: "known"}},
+				listError:     storeError,
+			},
+			operations: []string{"project", "resolve", "list"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := NewService(test.store).List(context.Background(), ListOptions{
+				Status:    ListStatusAll,
+				ProjectID: &projectID,
+				Tag:       &tagName,
+			})
+			if !errors.Is(err, storeError) {
+				t.Fatalf("List() error = %v, want store failure", err)
+			}
+			if test.store.readTransactionCalls != 1 || !reflect.DeepEqual(test.store.operations, test.operations) {
+				t.Errorf("read transaction calls/operations = %d/%v, want 1/%v", test.store.readTransactionCalls, test.store.operations, test.operations)
 			}
 		})
 	}

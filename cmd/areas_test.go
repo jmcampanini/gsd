@@ -10,6 +10,7 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -431,7 +432,7 @@ func TestAreaArchiveAndUnarchiveAdaptLifecycleAndOutput(t *testing.T) {
 		t.Errorf("archive call/lifecycle = %d/%#v, want ID 7 and one open/close", archiveApplication.archiveID, archive)
 	}
 
-	unarchived := area.Area{ID: 7, Title: "Home", Position: 2}
+	unarchived := area.Area{ID: 7, Title: "Home", Position: 2, Tags: domain.TagNames{}}
 	unarchiveApplication := &fakeAreaApplication{unarchiveResult: unarchived}
 	unarchive := runAreaCommand(t, unarchiveApplication, "area", "unarchive", "7", "--json")
 	if unarchive.exitCode != 0 || unarchive.stderr != "" || unarchiveApplication.unarchiveID != 7 {
@@ -446,9 +447,13 @@ func TestAreaDeleteSelectsJSONShapeAndAdaptsRecursive(t *testing.T) {
 	t.Parallel()
 
 	deletion := area.Deletion{
-		Area:            area.Area{ID: 7, Title: "Home", Position: 2},
-		DeletedProjects: []project.Project{{ID: 3, Title: "Kitchen", Position: 1}},
-		DeletedTasks:    []task.Task{{ID: 5, Title: "Quotes", Position: 0}},
+		Area: area.Area{ID: 7, Title: "Home", Position: 2, Tags: domain.TagNames{}},
+		DeletedProjects: []project.Project{{
+			ID: 3, Title: "Kitchen", Position: 1, Tags: domain.TagNames{},
+		}},
+		DeletedTasks: []task.Task{{
+			ID: 5, Title: "Quotes", Position: 0, Tags: domain.TagNames{},
+		}},
 	}
 
 	nonrecursiveApplication := &fakeAreaApplication{deleteResult: deletion}

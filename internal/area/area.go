@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
@@ -18,14 +19,14 @@ const (
 )
 
 type Area struct {
-	ID         int64    `json:"id"`
-	Title      string   `json:"title"`
-	Note       string   `json:"note"`
-	ArchivedAt *string  `json:"archived_at"`
-	Position   int64    `json:"position"`
-	CreatedAt  string   `json:"created_at"`
-	UpdatedAt  string   `json:"updated_at"`
-	Tags       []string `json:"tags"`
+	ID         int64           `json:"id"`
+	Title      string          `json:"title"`
+	Note       string          `json:"note"`
+	ArchivedAt *string         `json:"archived_at"`
+	Position   int64           `json:"position"`
+	CreatedAt  string          `json:"created_at"`
+	UpdatedAt  string          `json:"updated_at"`
+	Tags       domain.TagNames `json:"tags"`
 }
 
 type AddFields struct {
@@ -69,8 +70,8 @@ func (e ArchivedAreasError) Error() string {
 	return fmt.Sprintf("archived areas block this operation: %v", e.IDs)
 }
 
-// Store returns every area, project, and task with a non-nil Tags slice.
-type Store interface {
+// Transaction methods return areas, projects, and tasks with non-nil Tags slices.
+type Transaction interface {
 	Add(context.Context, AddFields, string) (Area, error)
 	Find(context.Context, int64) (Area, error)
 	List(context.Context, ListOptions) ([]Area, error)
@@ -83,7 +84,11 @@ type Store interface {
 	ResolveTags(context.Context, []string) ([]tag.Tag, error)
 	AttachTags(context.Context, int64, []tag.Tag) error
 	DetachTags(context.Context, int64, []tag.Tag) error
-	WithinTransaction(context.Context, func(Store) error) error
+}
+
+type Store interface {
+	Transaction
+	WithinTransaction(context.Context, func(Transaction) error) error
 }
 
 type Application interface {
