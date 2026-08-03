@@ -60,14 +60,14 @@ func TestTaskAddScopesPositionsByFullContainerAndFiltersByContainer(t *testing.T
 
 	filters := []struct {
 		name       string
-		options    task.ListOptions
+		filter     task.ListFilter
 		wantTaskID []int64
 	}{
-		{"project", task.ListOptions{Status: task.ListStatusAll, ProjectID: &firstProject.ID}, []int64{projectFirst.ID, projectSecond.ID}},
-		{"area", task.ListOptions{Status: task.ListStatusAll, AreaID: &firstArea.ID}, []int64{areaFirst.ID, areaSecond.ID}},
+		{"project", task.ListFilter{Status: task.ListStatusAll, ProjectID: &firstProject.ID}, []int64{projectFirst.ID, projectSecond.ID}},
+		{"area", task.ListFilter{Status: task.ListStatusAll, AreaID: &firstArea.ID}, []int64{areaFirst.ID, areaSecond.ID}},
 	}
 	for _, filter := range filters {
-		listed, err := tasks.List(ctx, filter.options)
+		listed, err := tasks.List(ctx, filter.filter)
 		if err != nil {
 			t.Fatalf("List(%s) error = %v", filter.name, err)
 		}
@@ -79,22 +79,13 @@ func TestTaskAddScopesPositionsByFullContainerAndFiltersByContainer(t *testing.T
 			t.Errorf("List(%s) IDs = %v, want %v", filter.name, listedIDs, filter.wantTaskID)
 		}
 
-		filter.options.Status = task.ListStatusDone
-		listed, err = tasks.List(ctx, filter.options)
+		filter.filter.Status = task.ListStatusDone
+		listed, err = tasks.List(ctx, filter.filter)
 		if err != nil || len(listed) != 0 {
 			t.Errorf("List(existing filtered-empty %s) = %#v, %v; want [], nil", filter.name, listed, err)
 		}
 	}
 
-	missingID := int64(99)
-	for _, filter := range []task.ListOptions{
-		{Status: task.ListStatusDone, ProjectID: &missingID},
-		{Status: task.ListStatusDone, AreaID: &missingID},
-	} {
-		if _, err := tasks.List(ctx, filter); errorCode(err) != apperr.NotFound {
-			t.Errorf("List(missing container, %#v) error = %v, want not_found", filter, err)
-		}
-	}
 }
 
 func TestTaskAddClassifiesMissingAndResolvedProjects(t *testing.T) {

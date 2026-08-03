@@ -12,6 +12,7 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -344,6 +345,7 @@ func TestJSONCommandOutput(t *testing.T) {
 		Position:   2,
 		CreatedAt:  "2026-07-27T12:00:00.000Z",
 		UpdatedAt:  "2026-07-27T12:00:00.000Z",
+		Tags:       domain.TagNames{},
 	}
 	application := &fakeApplication{addResult: created}
 	result := runCommand(
@@ -679,7 +681,9 @@ func TestAvailableAdaptsOutputModes(t *testing.T) {
 	t.Parallel()
 
 	deferUntil := "2026-07-28"
-	tasks := []task.ViewTask{{Task: task.Task{ID: 7, Title: "actionable", DeferUntil: &deferUntil, Status: "open"}}}
+	tasks := []task.ViewTask{{Task: task.Task{
+		ID: 7, Title: "actionable", DeferUntil: &deferUntil, Status: "open", Tags: domain.TagNames{},
+	}}}
 	jsonResult := runCommand(t, &fakeApplication{availableResult: tasks}, "available", "--json")
 	if jsonResult.exitCode != 0 || jsonResult.stderr != "" {
 		t.Fatalf("JSON available result = %#v, want success", jsonResult)
@@ -751,8 +755,8 @@ func TestListAdaptsStatusAndOutputMode(t *testing.T) {
 	t.Parallel()
 
 	tasks := []task.Task{
-		{ID: 1, Title: "first", Status: "done"},
-		{ID: 2, Title: "second", Status: "cancelled"},
+		{ID: 1, Title: "first", Status: "done", Tags: domain.TagNames{}},
+		{ID: 2, Title: "second", Status: "cancelled", Tags: domain.TagNames{}},
 	}
 	jsonApplication := &fakeApplication{listResult: tasks}
 	jsonResult := runCommand(t, jsonApplication, "list", "--status", "all", "--json")
@@ -911,7 +915,9 @@ func TestLifecycleCommandsAdaptIDsAndHumanActions(t *testing.T) {
 func TestLifecycleJSONReturnsAffectedTask(t *testing.T) {
 	t.Parallel()
 
-	deleted := task.Task{ID: 7, Title: "gone", Status: "cancelled", Position: 4}
+	deleted := task.Task{
+		ID: 7, Title: "gone", Status: "cancelled", Position: 4, Tags: domain.TagNames{},
+	}
 	result := runCommand(t, &fakeApplication{deleteResult: deleted}, "delete", "7", "--json")
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)

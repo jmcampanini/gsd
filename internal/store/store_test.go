@@ -16,7 +16,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-func TestOpenBootstrapsMilestoneFiveSchemaAndConfiguresConnections(t *testing.T) {
+func TestOpenBootstrapsMilestoneSixSchemaAndConfiguresConnections(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -33,8 +33,8 @@ func TestOpenBootstrapsMilestoneFiveSchemaAndConfiguresConnections(t *testing.T)
 	if err := storage.database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("read user_version: %v", err)
 	}
-	if version != 9005 {
-		t.Errorf("user_version = %d, want 9005", version)
+	if version != 9006 {
+		t.Errorf("user_version = %d, want 9006", version)
 	}
 
 	for _, tableName := range []string{
@@ -142,7 +142,7 @@ func TestContainedListingsDoNotReserveWriter(t *testing.T) {
 	}
 	listedTasks, err := tasks.List(
 		ctx,
-		task.ListOptions{Status: task.ListStatusAll, ProjectID: &contained.ID},
+		task.ListFilter{Status: task.ListStatusAll, ProjectID: &contained.ID},
 	)
 	if err != nil {
 		t.Fatalf("List(tasks while writer reserved) error = %v", err)
@@ -350,7 +350,6 @@ func TestOpenRejectsUnsafeBootstrapStates(t *testing.T) {
 		name  string
 		setup string
 	}{
-		{name: "previous development revision", setup: "PRAGMA user_version = 9004"},
 		{name: "wrong revision", setup: "PRAGMA user_version = 42"},
 		{name: "nonempty version zero", setup: "CREATE TABLE existing (id INTEGER)"},
 	}
@@ -506,7 +505,7 @@ END
 		{status: task.ListStatusAll, want: []int64{created[3].ID, created[1].ID, created[2].ID, created[0].ID}},
 	}
 	for _, test := range tests {
-		listed, listErr := tasks.List(ctx, task.ListOptions{Status: test.status})
+		listed, listErr := tasks.List(ctx, task.ListFilter{Status: test.status})
 		if listErr != nil {
 			t.Fatalf("List(%s) error = %v", test.status, listErr)
 		}
@@ -560,58 +559,58 @@ func TestListDatePredicatesComposeWithStatusAndPreserveOrdering(t *testing.T) {
 
 		mismatches := make([]string, 0)
 		tests := []struct {
-			name    string
-			options task.ListOptions
-			want    []int64
+			name   string
+			filter task.ListFilter
+			want   []int64
 		}{
 			{
-				name:    "open due",
-				options: task.ListOptions{Status: task.ListStatusOpen, Date: task.DateSelectorDue},
-				want:    []int64{created[1].ID, created[2].ID, created[3].ID},
+				name:   "open due",
+				filter: task.ListFilter{Status: task.ListStatusOpen, Date: task.DateSelectorDue},
+				want:   []int64{created[1].ID, created[2].ID, created[3].ID},
 			},
 			{
-				name:    "all due",
-				options: task.ListOptions{Status: task.ListStatusAll, Date: task.DateSelectorDue},
-				want:    []int64{created[1].ID, created[2].ID, created[3].ID, created[4].ID},
+				name:   "all due",
+				filter: task.ListFilter{Status: task.ListStatusAll, Date: task.DateSelectorDue},
+				want:   []int64{created[1].ID, created[2].ID, created[3].ID, created[4].ID},
 			},
 			{
-				name:    "done due",
-				options: task.ListOptions{Status: task.ListStatusDone, Date: task.DateSelectorDue},
-				want:    []int64{created[4].ID},
+				name:   "done due",
+				filter: task.ListFilter{Status: task.ListStatusDone, Date: task.DateSelectorDue},
+				want:   []int64{created[4].ID},
 			},
 			{
-				name:    "open overdue",
-				options: task.ListOptions{Status: task.ListStatusOpen, Date: task.DateSelectorOverdue},
-				want:    []int64{created[1].ID},
+				name:   "open overdue",
+				filter: task.ListFilter{Status: task.ListStatusOpen, Date: task.DateSelectorOverdue},
+				want:   []int64{created[1].ID},
 			},
 			{
-				name:    "done overdue",
-				options: task.ListOptions{Status: task.ListStatusDone, Date: task.DateSelectorOverdue},
-				want:    []int64{},
+				name:   "done overdue",
+				filter: task.ListFilter{Status: task.ListStatusDone, Date: task.DateSelectorOverdue},
+				want:   []int64{},
 			},
 			{
-				name:    "all overdue",
-				options: task.ListOptions{Status: task.ListStatusAll, Date: task.DateSelectorOverdue},
-				want:    []int64{created[1].ID},
+				name:   "all overdue",
+				filter: task.ListFilter{Status: task.ListStatusAll, Date: task.DateSelectorOverdue},
+				want:   []int64{created[1].ID},
 			},
 			{
-				name:    "open deferred",
-				options: task.ListOptions{Status: task.ListStatusOpen, Date: task.DateSelectorDeferred},
-				want:    []int64{created[1].ID},
+				name:   "open deferred",
+				filter: task.ListFilter{Status: task.ListStatusOpen, Date: task.DateSelectorDeferred},
+				want:   []int64{created[1].ID},
 			},
 			{
-				name:    "done deferred",
-				options: task.ListOptions{Status: task.ListStatusDone, Date: task.DateSelectorDeferred},
-				want:    []int64{created[4].ID},
+				name:   "done deferred",
+				filter: task.ListFilter{Status: task.ListStatusDone, Date: task.DateSelectorDeferred},
+				want:   []int64{created[4].ID},
 			},
 			{
-				name:    "all deferred",
-				options: task.ListOptions{Status: task.ListStatusAll, Date: task.DateSelectorDeferred},
-				want:    []int64{created[1].ID, created[4].ID},
+				name:   "all deferred",
+				filter: task.ListFilter{Status: task.ListStatusAll, Date: task.DateSelectorDeferred},
+				want:   []int64{created[1].ID, created[4].ID},
 			},
 		}
 		for _, test := range tests {
-			listed, listErr := tasks.List(ctx, test.options)
+			listed, listErr := tasks.List(ctx, test.filter)
 			if listErr != nil {
 				_ = storage.Close()
 				t.Fatalf("List(%s) error = %v", test.name, listErr)
@@ -1192,6 +1191,36 @@ func TestDeleteReturnsSnapshotWithoutCompactingPositions(t *testing.T) {
 	}
 }
 
+func TestTaskDeleteFailsWhenTriggerIgnoresTheRow(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	tasks := NewTasks(storage)
+	created := addStoredTask(t, tasks, task.AddFields{Title: "ignored delete"})
+	trigger := fmt.Sprintf(`
+CREATE TRIGGER ignore_task_delete
+BEFORE DELETE ON tasks
+WHEN OLD.id = %d
+BEGIN
+    SELECT RAISE(IGNORE);
+END
+`, created.ID)
+	if _, err := storage.database.ExecContext(ctx, trigger); err != nil {
+		t.Fatalf("create task delete trigger: %v", err)
+	}
+
+	if _, err := tasks.Delete(ctx, created.ID); err == nil {
+		t.Fatal("Delete() error = nil, want ignored deletion rejected")
+	}
+	persisted, err := tasks.Find(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Find() after ignored delete error = %v", err)
+	}
+	if !reflect.DeepEqual(persisted, created) {
+		t.Errorf("task after ignored delete = %#v, want unchanged %#v", persisted, created)
+	}
+}
+
 func TestTaskTransactionUsesAmbientStateAndRollsBack(t *testing.T) {
 	t.Parallel()
 
@@ -1201,7 +1230,7 @@ func TestTaskTransactionUsesAmbientStateAndRollsBack(t *testing.T) {
 	container := addStoredProject(t, projects, project.AddFields{Title: "container"})
 
 	var added task.Task
-	err := tasks.WithinTransaction(ctx, func(transaction task.Store) error {
+	err := tasks.WithinTransaction(ctx, func(transaction task.Transaction) error {
 		var operationErr error
 		added, operationErr = transaction.Add(
 			ctx,
@@ -1212,7 +1241,7 @@ func TestTaskTransactionUsesAmbientStateAndRollsBack(t *testing.T) {
 			return operationErr
 		}
 
-		bound := transaction.(*Tasks)
+		bound := transaction.(*tasksCore)
 		var projectID int64
 		if operationErr = bound.executor.QueryRowContext(ctx, `
 UPDATE projects

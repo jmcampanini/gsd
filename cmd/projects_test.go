@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -668,7 +669,9 @@ func TestProjectResolveCommandsAdaptExitAndJSONEnvelope(t *testing.T) {
 			t.Parallel()
 
 			want := project.Resolution{
-				Project:        project.Project{ID: 7, Title: "Kitchen", Status: test.status},
+				Project: project.Project{
+					ID: 7, Title: "Kitchen", Status: test.status, Tags: domain.TagNames{},
+				},
 				CancelledTasks: []task.Task{},
 			}
 			application := &fakeProjectApplication{resolveResult: want}
@@ -692,7 +695,9 @@ func TestProjectResolveCommandsAdaptExitAndJSONEnvelope(t *testing.T) {
 func TestProjectReopenAndDeleteAdaptArgumentsAndJSONShapes(t *testing.T) {
 	t.Parallel()
 
-	reopened := project.Project{ID: 8, Title: "Reset", Status: "open"}
+	reopened := project.Project{
+		ID: 8, Title: "Reset", Status: "open", Tags: domain.TagNames{},
+	}
 	reopenApplication := &fakeProjectApplication{reopenResult: reopened}
 	reopenResult := runProjectCommand(t, reopenApplication, "project", "reopen", "8", "--json")
 	requireProjectCommandJSON(t, reopenResult, reopened)
@@ -700,7 +705,9 @@ func TestProjectReopenAndDeleteAdaptArgumentsAndJSONShapes(t *testing.T) {
 		t.Errorf("reopen adaptation/lifecycle = %#v/%#v, want ID 8 and one open/close", reopenApplication, reopenResult)
 	}
 
-	deleted := project.Project{ID: 9, Title: "Doomed", Status: "open"}
+	deleted := project.Project{
+		ID: 9, Title: "Doomed", Status: "open", Tags: domain.TagNames{},
+	}
 	nonrecursiveApplication := &fakeProjectApplication{deleteResult: project.Deletion{
 		Project:      deleted,
 		DeletedTasks: []task.Task{},

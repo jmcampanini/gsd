@@ -1,13 +1,11 @@
 package store
 
 import (
-	"database/sql"
 	"errors"
 	"reflect"
-	"strings"
 	"testing"
 
-	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
@@ -30,17 +28,17 @@ func TestTaskTagsRoundTripAcrossDirectAndViewOperations(t *testing.T) {
 	if err := tasks.AttachTags(ctx, created.ID, []tag.Tag{middle, zulu, alpha}); err != nil {
 		t.Fatalf("AttachTags(direct) error = %v", err)
 	}
-	wantTags := []string{zulu.Title, alpha.Title, middle.Title}
+	wantTags := domain.TagNames{alpha.Title, middle.Title, zulu.Title}
 
 	found, err := tasks.Find(ctx, created.ID)
 	if err != nil {
 		t.Fatalf("Find() error = %v", err)
 	}
 	if !reflect.DeepEqual(found.Tags, wantTags) {
-		t.Errorf("Find() tags = %v, want tag-ID order %v", found.Tags, wantTags)
+		t.Errorf("Find() tags = %v, want alphabetical order %v", found.Tags, wantTags)
 	}
 
-	listed, err := tasks.List(ctx, task.ListOptions{Status: task.ListStatusAll})
+	listed, err := tasks.List(ctx, task.ListFilter{Status: task.ListStatusAll})
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
@@ -88,7 +86,7 @@ func TestTaskTagsRoundTripAcrossDirectAndViewOperations(t *testing.T) {
 		t.Fatalf("AttachTags(view task) error = %v", err)
 	}
 	untagged := addStoredTask(t, tasks, task.AddFields{Title: "untagged"})
-	wantViewTags := []string{zulu.Title, middle.Title}
+	wantViewTags := domain.TagNames{middle.Title, zulu.Title}
 	views := []struct {
 		name string
 		list func() ([]task.ViewTask, error)
@@ -117,7 +115,7 @@ func TestTaskTagsRoundTripAcrossDirectAndViewOperations(t *testing.T) {
 		t.Fatalf("Delete(tagged) error = %v", err)
 	}
 	if !reflect.DeepEqual(deleted.Tags, wantTags) {
-		t.Errorf("Delete(tagged) tags = %v, want pre-CASCADE snapshot %v", deleted.Tags, wantTags)
+		t.Errorf("Delete(tagged) tags = %v, want pre-delete tags %v", deleted.Tags, wantTags)
 	}
 	var joins int64
 	if err := storage.database.QueryRowContext(
@@ -132,7 +130,7 @@ func TestTaskTagsRoundTripAcrossDirectAndViewOperations(t *testing.T) {
 	}
 }
 
-func TestTaskListTagFilterIsCaseInsensitiveAndComposesWithAllPredicates(t *testing.T) {
+func TestTaskListTagIDFilterComposesWithAllPredicates(t *testing.T) {
 	t.Parallel()
 
 	ctx, storage := openTestStorage(t)
@@ -141,7 +139,7 @@ func TestTaskListTagFilterIsCaseInsensitiveAndComposesWithAllPredicates(t *testi
 	tags := NewTags(storage)
 
 	focus := addTaskTestTag(t, tags, "Focus")
-	_ = addTaskTestTag(t, tags, "other")
+	other := addTaskTestTag(t, tags, "other")
 	container := addStoredProject(t, projects, project.AddFields{Title: "container"})
 	dueOn := "2026-08-03"
 	focusDue := addStoredTask(t, tasks, task.AddFields{
@@ -173,10 +171,9 @@ func TestTaskListTagFilterIsCaseInsensitiveAndComposesWithAllPredicates(t *testi
 		t.Fatalf("Done(focus task) error = %v", err)
 	}
 
-	mixedCase := "fOcUs"
-	listed, err := tasks.List(ctx, task.ListOptions{Status: task.ListStatusAll, Tag: &mixedCase})
+	listed, err := tasks.List(ctx, task.ListFilter{Status: task.ListStatusAll, TagID: &focus.ID})
 	if err != nil {
-		t.Fatalf("List(case-insensitive tag) error = %v", err)
+		t.Fatalf("List(tag ID) error = %v", err)
 	}
 	gotIDs := make([]int64, len(listed))
 	for index := range listed {
@@ -184,14 +181,14 @@ func TestTaskListTagFilterIsCaseInsensitiveAndComposesWithAllPredicates(t *testi
 	}
 	wantIDs := []int64{focusDue.ID, inboxFocus.ID, focusUndated.ID, doneFocus.ID}
 	if !reflect.DeepEqual(gotIDs, wantIDs) {
-		t.Errorf("List(case-insensitive tag) IDs = %v, want position/ID order %v", gotIDs, wantIDs)
+		t.Errorf("List(tag ID) IDs = %v, want position/ID order %v", gotIDs, wantIDs)
 	}
 
-	composed, err := tasks.List(ctx, task.ListOptions{
+	composed, err := tasks.List(ctx, task.ListFilter{
 		Status:    task.ListStatusOpen,
 		Date:      task.DateSelectorDue,
 		ProjectID: &container.ID,
-		Tag:       &mixedCase,
+		TagID:     &focus.ID,
 	})
 	if err != nil {
 		t.Fatalf("List(composed filters) error = %v", err)
@@ -200,11 +197,10 @@ func TestTaskListTagFilterIsCaseInsensitiveAndComposesWithAllPredicates(t *testi
 		t.Errorf("List(composed filters) = %#v, want only task %d", composed, focusDue.ID)
 	}
 
-	other := "OTHER"
-	empty, err := tasks.List(ctx, task.ListOptions{
+	empty, err := tasks.List(ctx, task.ListFilter{
 		Status:    task.ListStatusAll,
 		ProjectID: &container.ID,
-		Tag:       &other,
+		TagID:     &other.ID,
 	})
 	if err != nil {
 		t.Fatalf("List(existing container with empty tag match) error = %v", err)
@@ -213,20 +209,13 @@ func TestTaskListTagFilterIsCaseInsensitiveAndComposesWithAllPredicates(t *testi
 		t.Errorf("List(existing container with empty tag match) = %#v, want nonnil empty", empty)
 	}
 
-	unknown := "missing-tag"
-	if _, err := tasks.List(ctx, task.ListOptions{
-		Status: task.ListStatusAll,
-		Tag:    &unknown,
-	}); errorCode(err) != apperr.NotFound || !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("List(unknown tag) error = %v, want not_found wrapping sql.ErrNoRows", err)
+	unknownTagID := int64(999)
+	empty, err = tasks.List(ctx, task.ListFilter{Status: task.ListStatusAll, TagID: &unknownTagID})
+	if err != nil {
+		t.Fatalf("List(unknown tag ID) error = %v", err)
 	}
-	missingProjectID := int64(999)
-	if _, err := tasks.List(ctx, task.ListOptions{
-		Status:    task.ListStatusAll,
-		ProjectID: &missingProjectID,
-		Tag:       &unknown,
-	}); errorCode(err) != apperr.NotFound || !strings.Contains(err.Error(), "no project 999") {
-		t.Errorf("List(missing container and unknown tag) error = %v, want preserved container not_found", err)
+	if empty == nil || len(empty) != 0 {
+		t.Errorf("List(unknown tag ID) = %#v, want nonnil empty", empty)
 	}
 }
 
@@ -261,7 +250,7 @@ func TestTaskTagPrimitivesAreIdempotentAndShareTransactionRefreshAndRollback(t *
 	if err != nil {
 		t.Fatalf("Find(after idempotent attach) error = %v", err)
 	}
-	if !reflect.DeepEqual(attached.Tags, []string{alpha.Title}) {
+	if !reflect.DeepEqual(attached.Tags, domain.TagNames{alpha.Title}) {
 		t.Errorf("tags after idempotent attach/detach = %v, want [%s]", attached.Tags, alpha.Title)
 	}
 	if attached.UpdatedAt != created.UpdatedAt {
@@ -269,7 +258,7 @@ func TestTaskTagPrimitivesAreIdempotentAndShareTransactionRefreshAndRollback(t *
 	}
 
 	rollback := errors.New("force rollback")
-	err = tasks.WithinTransaction(ctx, func(transaction task.Store) error {
+	err = tasks.WithinTransaction(ctx, func(transaction task.Transaction) error {
 		if operationErr := transaction.AttachTags(ctx, created.ID, []tag.Tag{beta}); operationErr != nil {
 			return operationErr
 		}
@@ -277,7 +266,7 @@ func TestTaskTagPrimitivesAreIdempotentAndShareTransactionRefreshAndRollback(t *
 		if operationErr != nil {
 			return operationErr
 		}
-		if !reflect.DeepEqual(refreshed.Tags, []string{alpha.Title, beta.Title}) {
+		if !reflect.DeepEqual(refreshed.Tags, domain.TagNames{alpha.Title, beta.Title}) {
 			t.Fatalf("transaction Find() tags = %v, want refreshed attachment", refreshed.Tags)
 		}
 		return rollback
@@ -289,12 +278,12 @@ func TestTaskTagPrimitivesAreIdempotentAndShareTransactionRefreshAndRollback(t *
 	if err != nil {
 		t.Fatalf("Find(after rollback) error = %v", err)
 	}
-	if !reflect.DeepEqual(rolledBack.Tags, []string{alpha.Title}) {
+	if !reflect.DeepEqual(rolledBack.Tags, domain.TagNames{alpha.Title}) {
 		t.Errorf("tags after rollback = %v, want [%s]", rolledBack.Tags, alpha.Title)
 	}
 
 	var committed task.Task
-	if err := tasks.WithinTransaction(ctx, func(transaction task.Store) error {
+	if err := tasks.WithinTransaction(ctx, func(transaction task.Transaction) error {
 		if operationErr := transaction.AttachTags(ctx, created.ID, []tag.Tag{beta}); operationErr != nil {
 			return operationErr
 		}
@@ -304,7 +293,7 @@ func TestTaskTagPrimitivesAreIdempotentAndShareTransactionRefreshAndRollback(t *
 	}); err != nil {
 		t.Fatalf("WithinTransaction(commit) error = %v", err)
 	}
-	if !reflect.DeepEqual(committed.Tags, []string{alpha.Title, beta.Title}) {
+	if !reflect.DeepEqual(committed.Tags, domain.TagNames{alpha.Title, beta.Title}) {
 		t.Errorf("committed refresh tags = %v, want Alpha then beta", committed.Tags)
 	}
 	if committed.UpdatedAt != created.UpdatedAt {

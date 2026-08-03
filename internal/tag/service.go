@@ -37,7 +37,7 @@ func (s *Service) Rename(ctx context.Context, oldName, newName string) (Renaming
 	}
 
 	var renaming Renaming
-	err := s.store.WithinTransaction(ctx, func(store Store) error {
+	err := s.store.WithinTransaction(ctx, func(store Transaction) error {
 		previous, err := store.Find(ctx, oldName)
 		if err != nil {
 			return err
@@ -64,11 +64,7 @@ func (s *Service) Delete(ctx context.Context, name string) (Deletion, error) {
 	}
 
 	var deletion Deletion
-	err := s.store.WithinTransaction(ctx, func(store Store) error {
-		if _, err := store.Find(ctx, name); err != nil {
-			return err
-		}
-
+	err := s.store.WithinTransaction(ctx, func(store Transaction) error {
 		detached, err := store.CountUsage(ctx, name)
 		if err != nil {
 			return err

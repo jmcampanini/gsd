@@ -143,7 +143,7 @@ func newProjectShowCommand(options *rootOptions, factory applicationFactory) *co
 	}
 }
 
-type projectTagMutation func(context.Context, project.Application, int64, []string) (project.Tagging, error)
+type projectTaggingMutation func(context.Context, project.Application, int64, []string) (project.Tagging, error)
 
 func newProjectTagCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
 	return newProjectTaggingCommand(
@@ -177,7 +177,7 @@ func newProjectTaggingCommand(
 	use string,
 	short string,
 	action string,
-	mutate projectTagMutation,
+	mutate projectTaggingMutation,
 ) *cobra.Command {
 	return &cobra.Command{
 		Use:   use,
@@ -190,9 +190,9 @@ func newProjectTaggingCommand(
 			}
 
 			return withProjectApplication(command, options, factory, func(application project.Application) error {
-				tagging, mutationErr := mutate(command.Context(), application, id, args[1:])
-				if mutationErr != nil {
-					return mutationErr
+				tagging, err := mutate(command.Context(), application, id, args[1:])
+				if err != nil {
+					return err
 				}
 				if options.json {
 					return writeJSON(command.OutOrStdout(), tagging.Project)

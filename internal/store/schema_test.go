@@ -362,7 +362,7 @@ func TestAutomaticallyAllocatedEntityIDsAreNotReusedAfterDeletion(t *testing.T) 
 	}
 }
 
-func TestMilestoneFiveViewsExposeTagsInCreationOrder(t *testing.T) {
+func TestMilestoneSixViewsExposeTagsInCaseInsensitiveAlphabeticalOrder(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -415,11 +415,11 @@ INSERT INTO projects (title, cancelled_at, position) VALUES ('resolved project',
 		args []any
 		want string
 	}{
-		{name: "inbox", sql: "SELECT tags FROM inbox WHERE id = ?", args: []any{inboxTaskID}, want: `["Zulu","alpha","Middle"]`},
-		{name: "available", sql: "SELECT tags FROM available WHERE id = ?", args: []any{inboxTaskID}, want: `["Zulu","alpha","Middle"]`},
+		{name: "inbox", sql: "SELECT tags FROM inbox WHERE id = ?", args: []any{inboxTaskID}, want: `["alpha","Middle","Zulu"]`},
+		{name: "available", sql: "SELECT tags FROM available WHERE id = ?", args: []any{inboxTaskID}, want: `["alpha","Middle","Zulu"]`},
 		{name: "untagged", sql: "SELECT tags FROM inbox WHERE title = 'untagged'", want: `[]`},
-		{name: "logbook task", sql: "SELECT tags FROM logbook WHERE kind = 'task' AND id = ?", args: []any{resolvedTaskID}, want: `["Zulu","alpha"]`},
-		{name: "logbook project", sql: "SELECT tags FROM logbook WHERE kind = 'project' AND id = ?", args: []any{resolvedProjectID}, want: `["Zulu","Middle"]`},
+		{name: "logbook task", sql: "SELECT tags FROM logbook WHERE kind = 'task' AND id = ?", args: []any{resolvedTaskID}, want: `["alpha","Zulu"]`},
+		{name: "logbook project", sql: "SELECT tags FROM logbook WHERE kind = 'project' AND id = ?", args: []any{resolvedProjectID}, want: `["Middle","Zulu"]`},
 	} {
 		var got string
 		if err := storage.database.QueryRowContext(ctx, query.sql, query.args...).Scan(&got); err != nil {
@@ -436,7 +436,7 @@ SELECT t.*,
        p.title                        AS project_title,
        COALESCE(t.area_id, p.area_id) AS governing_area_id,
        a.title                        AS governing_area_title,
-       (SELECT json_group_array(g.title ORDER BY g.id)
+       (SELECT json_group_array(g.title ORDER BY g.title COLLATE NOCASE)
         FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
         WHERE tt.task_id = t.id)      AS tags
 FROM tasks t
@@ -448,7 +448,7 @@ SELECT t.*,
        p.title                        AS project_title,
        COALESCE(t.area_id, p.area_id) AS governing_area_id,
        a.title                        AS governing_area_title,
-       (SELECT json_group_array(g.title ORDER BY g.id)
+       (SELECT json_group_array(g.title ORDER BY g.title COLLATE NOCASE)
         FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
         WHERE tt.task_id = t.id)      AS tags
 FROM tasks t
@@ -464,7 +464,7 @@ SELECT 'task' AS kind, t.id, t.title, t.status,
        p.title                        AS project_title,
        COALESCE(t.area_id, p.area_id) AS governing_area_id,
        a.title                        AS governing_area_title,
-       (SELECT json_group_array(g.title ORDER BY g.id)
+       (SELECT json_group_array(g.title ORDER BY g.title COLLATE NOCASE)
         FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
         WHERE tt.task_id = t.id)      AS tags
 FROM tasks t
@@ -477,7 +477,7 @@ SELECT 'project', p.id, p.title, p.status,
        NULL,
        p.area_id,
        a.title,
-       (SELECT json_group_array(g.title ORDER BY g.id)
+       (SELECT json_group_array(g.title ORDER BY g.title COLLATE NOCASE)
         FROM project_tags pt JOIN tags g ON g.id = pt.tag_id
         WHERE pt.project_id = p.id)
 FROM projects p

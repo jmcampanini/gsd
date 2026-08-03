@@ -39,7 +39,7 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Area, error) {
 	}
 
 	var added Area
-	err = s.store.WithinTransaction(ctx, func(store Store) error {
+	err = s.store.WithinTransaction(ctx, func(store Transaction) error {
 		created, err := store.Add(ctx, fields, timestamp)
 		if err != nil {
 			return err
@@ -158,7 +158,7 @@ func (s *Service) changeTags(
 	}
 
 	var result Tagging
-	transactionErr := s.store.WithinTransaction(ctx, func(store Store) error {
+	transactionErr := s.store.WithinTransaction(ctx, func(store Transaction) error {
 		if _, err := store.Find(ctx, id); err != nil {
 			return err
 		}
@@ -210,7 +210,7 @@ func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletio
 	var deletedArea Area
 	deletedProjects := []project.Project{}
 	deletedTasks := []task.Task{}
-	err := s.store.WithinTransaction(ctx, func(store Store) error {
+	err := s.store.WithinTransaction(ctx, func(store Transaction) error {
 		projectTasks, err := domain.NormalizeSliceResult(
 			store.DeleteTasks(ctx, id, TaskDeletionScopeProject),
 		)

@@ -32,14 +32,18 @@ type Deletion struct {
 	Detached int64 `json:"detached"`
 }
 
-type Store interface {
+type Transaction interface {
 	Add(context.Context, string, string) (Tag, error)
 	Find(context.Context, string) (Tag, error)
 	List(context.Context) ([]ListedTag, error)
 	Rename(context.Context, string, string, string) (Tag, error)
 	CountUsage(context.Context, string) (int64, error)
 	Delete(context.Context, string) (Tag, error)
-	WithinTransaction(context.Context, func(Store) error) error
+}
+
+type Store interface {
+	Transaction
+	WithinTransaction(context.Context, func(Transaction) error) error
 }
 
 type Application interface {

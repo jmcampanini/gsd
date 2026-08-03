@@ -7,12 +7,13 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-func TestProjectTagsRoundTripInTagIDOrderAcrossProjectOperations(t *testing.T) {
+func TestProjectTagsRoundTripInAlphabeticalOrderAcrossProjectOperations(t *testing.T) {
 	t.Parallel()
 
 	ctx, storage := openTestStorage(t)
@@ -47,8 +48,8 @@ func TestProjectTagsRoundTripInTagIDOrderAcrossProjectOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Find(tagged project) error = %v", err)
 	}
-	if !reflect.DeepEqual(found.Tags, []string{blue.Title, amber.Title}) {
-		t.Errorf("Find(tagged project) tags = %v, want tag-ID order", found.Tags)
+	if !reflect.DeepEqual(found.Tags, domain.TagNames{amber.Title, blue.Title}) {
+		t.Errorf("Find(tagged project) tags = %v, want alphabetical NOCASE order", found.Tags)
 	}
 	if found.UpdatedAt != created.UpdatedAt {
 		t.Errorf("updated_at after attach = %q, want unchanged %q", found.UpdatedAt, created.UpdatedAt)
@@ -102,7 +103,7 @@ func TestProjectTagsRoundTripInTagIDOrderAcrossProjectOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Find(detached project) error = %v", err)
 	}
-	if !reflect.DeepEqual(detached.Tags, []string{amber.Title}) {
+	if !reflect.DeepEqual(detached.Tags, domain.TagNames{amber.Title}) {
 		t.Errorf("tags after detach = %v, want [%s]", detached.Tags, amber.Title)
 	}
 	if detached.UpdatedAt != reopened.UpdatedAt {
@@ -134,7 +135,7 @@ func TestProjectTagPrimitivesShareTransactionsAndAllowResolvedArchivedContainers
 
 	rollback := errors.New("force rollback")
 	var transient project.Project
-	err := projects.WithinTransaction(ctx, func(transaction project.Store) error {
+	err := projects.WithinTransaction(ctx, func(transaction project.Transaction) error {
 		var operationErr error
 		transient, operationErr = transaction.Add(ctx, project.AddFields{
 			AreaID: &container.ID,
@@ -161,7 +162,7 @@ func TestProjectTagPrimitivesShareTransactionsAndAllowResolvedArchivedContainers
 		if operationErr != nil {
 			return operationErr
 		}
-		if !reflect.DeepEqual(hydrated.Tags, []string{marker.Title}) {
+		if !reflect.DeepEqual(hydrated.Tags, domain.TagNames{marker.Title}) {
 			t.Fatalf("transaction Find() tags = %v, want attached marker", hydrated.Tags)
 		}
 		return rollback
@@ -199,7 +200,7 @@ func TestProjectTagPrimitivesShareTransactionsAndAllowResolvedArchivedContainers
 	if err != nil {
 		t.Fatalf("Find(resolved archived project) error = %v", err)
 	}
-	if !reflect.DeepEqual(tagged.Tags, []string{marker.Title}) || tagged.UpdatedAt != resolved.UpdatedAt {
+	if !reflect.DeepEqual(tagged.Tags, domain.TagNames{marker.Title}) || tagged.UpdatedAt != resolved.UpdatedAt {
 		t.Errorf("resolved archived project after attach = %#v, want marker and unchanged timestamp", tagged)
 	}
 	if err := projects.DetachTags(ctx, persisted.ID, []tag.Tag{marker}); err != nil {
@@ -238,8 +239,8 @@ INSERT INTO task_tags (task_id, tag_id) VALUES (?, ?), (?, ?), (?, ?)
 		t.Fatalf("CancelOpenTasks() error = %v", err)
 	}
 	if len(cancelled) != 2 ||
-		!reflect.DeepEqual(cancelled[0].Tags, []string{firstTag.Title, secondTag.Title}) ||
-		!reflect.DeepEqual(cancelled[1].Tags, []string{secondTag.Title}) {
+		!reflect.DeepEqual(cancelled[0].Tags, domain.TagNames{firstTag.Title, secondTag.Title}) ||
+		!reflect.DeepEqual(cancelled[1].Tags, domain.TagNames{secondTag.Title}) {
 		t.Fatalf("CancelOpenTasks() = %#v, want ordered task tags", cancelled)
 	}
 
@@ -250,7 +251,7 @@ INSERT INTO task_tags (task_id, tag_id) VALUES (?, ?), (?, ?), (?, ?)
 	if len(deleted) != 2 ||
 		!reflect.DeepEqual(deleted[0].Tags, cancelled[0].Tags) ||
 		!reflect.DeepEqual(deleted[1].Tags, cancelled[1].Tags) {
-		t.Errorf("DeleteTasks() = %#v, want pre-CASCADE task tags %#v", deleted, cancelled)
+		t.Errorf("DeleteTasks() = %#v, want pre-delete task tags %#v", deleted, cancelled)
 	}
 }
 

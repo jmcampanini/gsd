@@ -42,7 +42,7 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Project, error) {
 	}
 
 	var created Project
-	err = s.store.WithinTransaction(ctx, func(store Store) error {
+	err = s.store.WithinTransaction(ctx, func(store Transaction) error {
 		created, err = store.Add(ctx, fields, timestamp)
 		if err != nil {
 			return err
@@ -138,7 +138,7 @@ func (s *Service) Resolve(ctx context.Context, id int64, exit Exit) (Resolution,
 
 	timestamp := domain.FormatTimestamp(s.now())
 	resolution := Resolution{CancelledTasks: []task.Task{}}
-	err := s.store.WithinTransaction(ctx, func(store Store) error {
+	err := s.store.WithinTransaction(ctx, func(store Transaction) error {
 		project, err := store.Resolve(ctx, id, exit, timestamp)
 		if err != nil {
 			return err
@@ -198,8 +198,8 @@ func (s *Service) changeTags(
 		return Tagging{}, normalizeErr
 	}
 
-	var tagging Tagging
-	transactionErr := s.store.WithinTransaction(ctx, func(store Store) error {
+	var result Tagging
+	transactionErr := s.store.WithinTransaction(ctx, func(store Transaction) error {
 		if _, err := store.Find(ctx, id); err != nil {
 			return err
 		}
@@ -220,14 +220,14 @@ func (s *Service) changeTags(
 		if err != nil {
 			return err
 		}
-		tagging = Tagging{Project: refreshed, TagTitles: tag.Titles(resolvedTags)}
+		result = Tagging{Project: refreshed, TagTitles: tag.Titles(resolvedTags)}
 		return nil
 	})
 	if transactionErr != nil {
 		return Tagging{}, transactionErr
 	}
 
-	return tagging, nil
+	return result, nil
 }
 
 func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletion, error) {
@@ -248,7 +248,7 @@ func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletio
 	}
 
 	deletion := Deletion{DeletedTasks: []task.Task{}}
-	err := s.store.WithinTransaction(ctx, func(store Store) error {
+	err := s.store.WithinTransaction(ctx, func(store Transaction) error {
 		deletedTasks, err := domain.NormalizeSliceResult(store.DeleteTasks(ctx, id))
 		if err != nil {
 			return err

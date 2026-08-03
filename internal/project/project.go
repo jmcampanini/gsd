@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -25,17 +26,17 @@ const (
 )
 
 type Project struct {
-	ID          int64    `json:"id"`
-	AreaID      *int64   `json:"area_id"`
-	Title       string   `json:"title"`
-	Note        string   `json:"note"`
-	DoneAt      *string  `json:"done_at"`
-	CancelledAt *string  `json:"cancelled_at"`
-	Status      string   `json:"status"`
-	Position    int64    `json:"position"`
-	CreatedAt   string   `json:"created_at"`
-	UpdatedAt   string   `json:"updated_at"`
-	Tags        []string `json:"tags"`
+	ID          int64           `json:"id"`
+	AreaID      *int64          `json:"area_id"`
+	Title       string          `json:"title"`
+	Note        string          `json:"note"`
+	DoneAt      *string         `json:"done_at"`
+	CancelledAt *string         `json:"cancelled_at"`
+	Status      string          `json:"status"`
+	Position    int64           `json:"position"`
+	CreatedAt   string          `json:"created_at"`
+	UpdatedAt   string          `json:"updated_at"`
+	Tags        domain.TagNames `json:"tags"`
 }
 
 type AddFields struct {
@@ -84,8 +85,8 @@ func (e ResolvedProjectsError) Error() string {
 	return fmt.Sprintf("resolved projects block this operation: %v", e.IDs)
 }
 
-// Store returns every project and task with a non-nil Tags slice.
-type Store interface {
+// Transaction returns every project and task with a non-nil Tags slice.
+type Transaction interface {
 	Add(context.Context, AddFields, string) (Project, error)
 	Find(context.Context, int64) (Project, error)
 	List(context.Context, ListOptions) ([]Project, error)
@@ -98,7 +99,11 @@ type Store interface {
 	ResolveTags(context.Context, []string) ([]tag.Tag, error)
 	AttachTags(context.Context, int64, []tag.Tag) error
 	DetachTags(context.Context, int64, []tag.Tag) error
-	WithinTransaction(context.Context, func(Store) error) error
+}
+
+type Store interface {
+	Transaction
+	WithinTransaction(context.Context, func(Transaction) error) error
 }
 
 type Application interface {

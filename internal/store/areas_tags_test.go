@@ -9,12 +9,13 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-func TestAreaTagsRoundTripInCreationOrderAcrossAreaOperations(t *testing.T) {
+func TestAreaTagsRoundTripInNoCaseAlphabeticalOrderAcrossAreaOperations(t *testing.T) {
 	t.Parallel()
 
 	ctx, storage := openTestStorage(t)
@@ -51,9 +52,9 @@ func TestAreaTagsRoundTripInCreationOrderAcrossAreaOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Find() error = %v", err)
 	}
-	wantInitialTags := []string{firstTag.Title, secondTag.Title}
+	wantInitialTags := domain.TagNames{secondTag.Title, firstTag.Title}
 	if !reflect.DeepEqual(found.Tags, wantInitialTags) {
-		t.Errorf("Find() tags = %v, want tag creation order %v", found.Tags, wantInitialTags)
+		t.Errorf("Find() tags = %v, want NOCASE alphabetical order %v", found.Tags, wantInitialTags)
 	}
 	if found.UpdatedAt != created.UpdatedAt {
 		t.Errorf("updated_at after attach = %q, want unchanged %q", found.UpdatedAt, created.UpdatedAt)
@@ -94,7 +95,7 @@ func TestAreaTagsRoundTripInCreationOrderAcrossAreaOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Find(archived area) error = %v", err)
 	}
-	wantArchivedTags := []string{firstTag.Title, secondTag.Title, thirdTag.Title}
+	wantArchivedTags := domain.TagNames{secondTag.Title, thirdTag.Title, firstTag.Title}
 	if !reflect.DeepEqual(archivedFound.Tags, wantArchivedTags) {
 		t.Errorf("archived area tags = %v, want %v", archivedFound.Tags, wantArchivedTags)
 	}
@@ -105,7 +106,7 @@ func TestAreaTagsRoundTripInCreationOrderAcrossAreaOperations(t *testing.T) {
 	if err := areas.DetachTags(ctx, created.ID, []tag.Tag{secondTag}); err != nil {
 		t.Fatalf("DetachTags() error = %v", err)
 	}
-	wantDetachedTags := []string{firstTag.Title, thirdTag.Title}
+	wantDetachedTags := domain.TagNames{thirdTag.Title, firstTag.Title}
 	detached, err := areas.Find(ctx, created.ID)
 	if err != nil {
 		t.Fatalf("Find(detached area) error = %v", err)
@@ -135,7 +136,7 @@ func TestAreaTaggedAddTransactionRollsBackEntityAndAttachments(t *testing.T) {
 	stop := errors.New("stop tagged add")
 	var createdID int64
 
-	err := areas.WithinTransaction(ctx, func(transaction area.Store) error {
+	err := areas.WithinTransaction(ctx, func(transaction area.Transaction) error {
 		created, addErr := transaction.Add(
 			ctx,
 			area.AddFields{Title: "rolled back"},
@@ -159,7 +160,7 @@ func TestAreaTaggedAddTransactionRollsBackEntityAndAttachments(t *testing.T) {
 	assertAreaTagJoinCount(t, storage, 0)
 }
 
-func TestAreaDeletionReturnsMaterializedTagSnapshotsAtEveryRecursiveLevel(t *testing.T) {
+func TestAreaDeletionReturnsPreDeleteTagSnapshotsAtEveryRecursiveLevel(t *testing.T) {
 	t.Parallel()
 
 	ctx, storage := openTestStorage(t)
@@ -169,7 +170,7 @@ func TestAreaDeletionReturnsMaterializedTagSnapshotsAtEveryRecursiveLevel(t *tes
 	tags := NewTags(storage)
 	firstTag := addAreaTestTag(t, tags, "first")
 	secondTag := addAreaTestTag(t, tags, "second")
-	wantTags := []string{firstTag.Title, secondTag.Title}
+	wantTags := domain.TagNames{firstTag.Title, secondTag.Title}
 
 	empty := addStoredArea(t, areas, area.AddFields{Title: "empty tagged"})
 	if err := areas.AttachTags(ctx, empty.ID, []tag.Tag{secondTag, firstTag}); err != nil {
@@ -198,7 +199,7 @@ func TestAreaDeletionReturnsMaterializedTagSnapshotsAtEveryRecursiveLevel(t *tes
 	var deletedProjects []project.Project
 	var deletedProjectTasks []task.Task
 	var deletedLooseTasks []task.Task
-	err = areas.WithinTransaction(ctx, func(transaction area.Store) error {
+	err = areas.WithinTransaction(ctx, func(transaction area.Transaction) error {
 		var operationErr error
 		deletedProjectTasks, operationErr = transaction.DeleteTasks(ctx, doomed.ID, area.TaskDeletionScopeProject)
 		if operationErr != nil {

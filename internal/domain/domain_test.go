@@ -1,11 +1,37 @@
 package domain
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 )
+
+func TestTagNamesMarshalJSONAlwaysEmitsAnArray(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name  string
+		value TagNames
+		want  string
+	}{
+		{name: "nil", want: `[]`},
+		{name: "non-nil", value: TagNames{"home", "errands"}, want: `["home","errands"]`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := json.Marshal(test.value)
+			if err != nil {
+				t.Fatalf("Marshal() error = %v", err)
+			}
+			if string(got) != test.want {
+				t.Errorf("Marshal() = %s, want %s", got, test.want)
+			}
+		})
+	}
+}
 
 func TestNormalizeTagNamesMatchesSQLiteNoCaseAndPreservesFirstSpelling(t *testing.T) {
 	t.Parallel()
