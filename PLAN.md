@@ -9,7 +9,7 @@ acceptance boundary. Both artifacts are retired at consolidation.
 ## Progress
 
 - [x] Chunk 0 — Milestone 5 consolidation
-- [ ] Chunk 1 — Config loader integration
+- [x] Chunk 1 — Config loader integration
 - [ ] Chunk 2 — `gsd config` report
 - [ ] Chunk 3 — Color resolution and styled human output
 
@@ -35,9 +35,11 @@ styling tests, already reconciled into `plans/MILESTONE_6.md`,
 - **`internal/config`** (new package) owns the config struct, defaults
   (including XDG resolution), go-config-loader wiring in
   defaults → TOML file → env → flags order, provenance data, and the coded
-  error for an explicit `--config` that cannot load (`invalid_argument`,
-  exit 1). `store.ResolvePath`'s default-path logic migrates here; stores
-  receive a final path.
+  error for config that cannot load (`invalid_argument`, exit 1). Only an
+  absent discovered file is optional. `store.ResolvePath`'s default-path
+  logic migrates here; stores receive a final path. Relative file values are
+  anchored to the config file's directory; relative env and flag values keep
+  their current working-directory behavior.
 - **Config struct**: one field, two tags —
   `DBPath string` with `toml:"db_path"`, `config:"db"`, `help:"..."` — so
   `GSD_DB`/`--db` keep their exact current spellings. Flag registration goes
@@ -138,30 +140,32 @@ Human outcome: the database location becomes a setting — a discovered TOML
 file drives `db_path` with full precedence, and an explicit `--config` fails
 loud.
 
-- [ ] `internal/config`: struct, defaults (XDG data-home db default moved
+- [x] `internal/config`: struct, defaults (XDG data-home db default moved
       from `store.ResolvePath`), loader order defaults → discovered/explicit
       TOML → env → flags, `LoadReport` provenance retained for chunk 2.
-- [ ] Root command: `--config PATH` persistent flag; `--db` registered via
+- [x] Root command: `--config PATH` persistent flag; `--db` registered via
       `pflagloader`; the application factory resolves the db path through the
       loaded config; help/version/parse-error paths load nothing.
-- [ ] Explicit `--config` that is missing, unreadable, or invalid TOML →
-      coded `invalid_argument`, exit 1; absent discovered file is silently
-      fine (CLI-CONFIG-002; current go-config-loader behavior documented
-      while its issue #13 stays open).
-- [ ] Test owners: `internal/config` tests own the precedence matrix and
+- [x] Explicit `--config` that is missing, unreadable, or invalid TOML →
+      coded `invalid_argument`, exit 1; an existing discovered file that
+      cannot load does the same; only an absent discovered file is silently
+      fine. A file-provided empty `db_path` is `invalid_argument`
+      (CLI-CONFIG-002; current go-config-loader behavior documented while its
+      issue #13 stays open).
+- [x] Test owners: `internal/config` tests own the precedence matrix and
       failure modes with real temp files/env/flag values (cheapest faithful
       layer — the loader is real, no store involved); cmd tests own flag
       plumbing and exit mapping with a factory spy proving help/version open
       nothing; e2e proves existing `--db`/`GSD_DB` behavior unchanged and
       file-driven `db_path` end to end (db file appears at the configured
       path).
-- [ ] Human proof (demo `.sandbox/demos/milestone-6-chunk-1.html`):
+- [x] Human proof (demo `.sandbox/demos/milestone-6-chunk-1.html`):
       `mkdir -p $XDG_CONFIG_HOME/gsd` + write `config.toml` with `db_path`;
       `gsd add "First"` then `ls` the configured location;
       `GSD_DB=... gsd add "Second"` showing env override;
       `gsd add "Third" --db ...` showing flag override;
       `gsd inbox --config /nonexistent.toml` failing exit 1.
-- [ ] Agent verification: `make check` green; precedence matrix exercised
+- [x] Agent verification: `make check` green; precedence matrix exercised
       via the built binary.
 
 ## Chunk 2 — `gsd config` report

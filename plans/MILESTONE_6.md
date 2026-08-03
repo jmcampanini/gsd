@@ -29,14 +29,17 @@ defaults → config file → env → flags):
 |-----|------|-----|------|---------|
 | db path | `db_path` | `GSD_DB` | `--db PATH` | `$XDG_DATA_HOME/gsd/gsd.db` |
 
-- File location: `$XDG_CONFIG_HOME/gsd/config.toml`; discovered file is
-  optional, but an explicit `--config PATH` that can't load fails loud.
-  Per CLI-CONFIG-002, the discovered-file behavior gets documented as
-  currently implemented while go-config-loader #13 leaves the
-  optional-directory contract open.
+- File location: `$XDG_CONFIG_HOME/gsd/config.toml`; only an absent
+  discovered file is optional. A discovered file that exists but cannot load,
+  or an explicit `--config PATH` that cannot load, is `invalid_argument`.
+  File-provided `db_path` cannot be empty. Per CLI-CONFIG-002, the discovered-file
+  behavior gets documented as currently implemented while go-config-loader
+  #13 leaves the optional-directory contract open.
 - One field, two tags, each owning a namespace: `toml:"db_path"` names
   the file key; `config:"db"` names env and flag (`GSD_DB` / `--db`), so
-  `COMMANDS.md`'s existing env/flag contract is preserved verbatim.
+  `COMMANDS.md`'s existing env/flag contract is preserved verbatim. Relative
+  file values are anchored to the config file's directory; relative env and
+  flag values remain working-directory-relative.
 - New keys require a demonstrated need — every key is permanent API.
 - Color is deliberately **not** configuration: no TOML key, no
   application env var. Its entire surface is the `--color` flag and the

@@ -4,7 +4,9 @@ go 1.26.5
 
 require (
 	charm.land/lipgloss/v2 v2.0.5
+	github.com/jmcampanini/go-config-loader v0.2.0
 	github.com/spf13/cobra v1.10.2
+	github.com/spf13/pflag v1.0.10
 	modernc.org/sqlite v1.55.0
 )
 
@@ -181,7 +183,6 @@ require (
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.5.0 // indirect
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/spf13/viper v1.12.0 // indirect
 	github.com/ssgreg/nlreturn/v2 v2.2.1 // indirect
 	github.com/stbenjam/no-sprintf-host-port v0.3.1 // indirect

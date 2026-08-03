@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jmcampanini/gsd/internal/logbook"
+	"github.com/spf13/pflag"
 )
 
 type fakeLogbookApplication struct {
@@ -35,9 +36,16 @@ func runLogbookCommand(
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	result := commandResult{}
-	factory := func(_ context.Context, path string) (applications, io.Closer, error) {
+	factory := func(
+		_ context.Context,
+		configPath string,
+		configExplicit bool,
+		flags *pflag.FlagSet,
+	) (applications, io.Closer, error) {
 		result.opens++
-		result.openPath = path
+		result.configPath = configPath
+		result.configExplicit = configExplicit
+		result.openPath, _ = flags.GetString("db")
 		return applications{logbook: application}, closeRecorder{close: func() {
 			result.closes++
 		}}, nil
