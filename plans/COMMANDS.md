@@ -245,18 +245,30 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
   stderr diagnostics for every error.
 - **Exit codes stay coarse**: `0` success, `1` application error, `2` usage
   error. Fine distinctions live in the JSON error code.
-- Human collections are headerless aligned tables, `show` is a field/value
-  table, mutations use concise action-prefixed payloads, and empty collections
-  print nothing. `tags list` prints stored name and cross-entity usage count,
-  ordered alphabetically with `NOCASE`, without IDs or a header. Task,
-  project, and area `show` include a `Tags` row of comma-separated stored
-  names, blank when untagged; collection rows gain no tags column.
+- Human collections are aligned tables with lowercase faint column headers,
+  rendered only when rows exist; empty collections print nothing. `show` is a
+  field/value outline beneath a status-glyph headline, mutations use concise
+  glyph-prefixed action payloads, and `tags list` prints `#`-prefixed stored
+  names with cross-entity usage counts, ordered alphabetically with `NOCASE`,
+  without IDs or a header. Task, project, and area `show` include a `tags`
+  row of `#`-prefixed stored names, blank when untagged; collection rows
+  gain no tags column.
 - Successful tag mutation lines are concise and action-prefixed:
   `Added tag NAME`, `Renamed tag OLD to NEW`,
   `Deleted tag NAME (detached from N items)`, `Tagged: KIND ID  NAME`, and
-  `Untagged: KIND ID  NAME`. They use stored spelling after case-insensitive
-  resolution; rename prints both the stored previous and new titles. Human
-  tables are unstyled until color support arrives in Milestone 6.
+  `Untagged: KIND ID  NAME`, each behind its verb-class glyph. They use
+  stored spelling after case-insensitive resolution; rename prints both the
+  stored previous and new titles.
+- Styling grammar: faint marks metadata (IDs, kinds, counts, timestamps,
+  headers, non-urgent dates), bold marks urgency (due today or overdue),
+  glyphs mark records and events (`+` add, `−` delete, `✓` done, `✗`
+  cancel, `#` tag verbs and tag names, `•` other mutations and open
+  records, `└` cascade children), and hue marks state change only — green
+  for done/added, red for cancelled/deleted/urgent — drawn from Catppuccin
+  Latte on light terminal backgrounds and Frappé on dark, accents-only.
+  Identity markers and metadata stay monochrome; stderr diagnostics are
+  unstyled in v1. Structure (headers, glyphs, layout) is identical across
+  color modes; modes control only ANSI styling.
 - Bare `gsd tags`, `gsd tag`, and `gsd untag` are usage errors (exit `2`) and
   do not open the database.
 - Human output escapes ASCII control characters (`show` preserves note line
@@ -272,17 +284,17 @@ milestones use the narrower baseline behavior.
   `$XDG_CONFIG_HOME/gsd/config.toml`. It is optional. When `--config PATH` is
   given, that exact file is required: a missing, unreadable, or invalid file
   fails rather than falling back to discovery.
-- The only v1 keys are `db_path` and `color`. New keys are permanent API and
-  require a demonstrated need.
+- The only v1 key is `db_path`. New keys are permanent API and require a
+  demonstrated need. Color is deliberately not a configuration key.
 - `gsd config` prints valid, redirectable TOML for the effective config.
   `gsd config --provenance` also identifies each field's source: default,
   file, environment, or flag.
-- Color accepts `--color=auto|always|never`, `GSD_COLOR` with the same values,
-  and the `color` TOML key. Resolution is explicit `--color` flag, then
-  nonempty `NO_COLOR`, then `GSD_COLOR`, then the file value, then
-  destination-aware `auto`. Auto-detection is evaluated per output stream and
-  disables color for non-terminals and `TERM=dumb`. JSON output never contains
-  ANSI sequences, including under `--color=always`.
+- Color accepts `--color=auto|always|never` with an explicit value.
+  Resolution is the explicit `--color` flag, then nonempty `NO_COLOR`, then
+  destination-aware `auto`, evaluated per output stream (CLI-OUTPUT-001/002).
+  Auto disables color for non-terminals and `TERM=dumb`; `FORCE_COLOR`,
+  `CLICOLOR`, and `CLICOLOR_FORCE` are not consulted. JSON output never
+  contains ANSI sequences, including under `--color=always`.
 
 ## Database
 

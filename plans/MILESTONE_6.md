@@ -6,9 +6,11 @@ Data mode: throwaway. Depends on: Milestone 5.
 
 gsd implements the canonical v1 config contract from `COMMANDS.md`: a TOML
 config file loaded through go-config-loader with full precedence and
-provenance, a `gsd config` report command, and proper color modes. This lands *before*
-go-live so the question "where does my real data live" is answered by
-config, permanently, before real data exists.
+provenance, a `gsd config` report command, standards-pure color modes, and
+the styled lipgloss human-output layer. This lands *before* go-live so the
+question "where does my real data live" is answered by config, permanently,
+before real data exists — and so the human surface's visual contract is
+settled before it carries real data.
 
 ## Schema delta
 
@@ -26,7 +28,6 @@ defaults → config file → env → flags):
 | Key | TOML | Env | Flag | Default |
 |-----|------|-----|------|---------|
 | db path | `db_path` | `GSD_DB` | `--db PATH` | `$XDG_DATA_HOME/gsd/gsd.db` |
-| color | `color` | `GSD_COLOR` | `--color=auto\|always\|never` | `auto` |
 
 - File location: `$XDG_CONFIG_HOME/gsd/config.toml`; discovered file is
   optional, but an explicit `--config PATH` that can't load fails loud.
@@ -37,6 +38,9 @@ defaults → config file → env → flags):
   the file key; `config:"db"` names env and flag (`GSD_DB` / `--db`), so
   `COMMANDS.md`'s existing env/flag contract is preserved verbatim.
 - New keys require a demonstrated need — every key is permanent API.
+- Color is deliberately **not** configuration: no TOML key, no
+  application env var. Its entire surface is the `--color` flag and the
+  `NO_COLOR` convention below.
 
 ## Commands
 
@@ -48,13 +52,36 @@ gsd --color=auto|always|never ...
 ```
 
 Color resolution (CLI-OUTPUT-001/002): explicit `--color` flag > nonempty
-`NO_COLOR` > env/file value > destination-aware auto-detection, evaluated
-per stream; `TERM=dumb` disables in auto. `--json` output never carries
-ANSI regardless (CLI-OUTPUT-003).
+`NO_COLOR` > destination-aware auto-detection, evaluated per stream;
+`TERM=dumb` disables in auto; `FORCE_COLOR`, `CLICOLOR`, and
+`CLICOLOR_FORCE` are not consulted. `--json` output never carries ANSI
+regardless (CLI-OUTPUT-003).
 
 No secrets exist in this surface; redaction hooks are structurally present
 via configreporter but redact nothing in v1 (CLI-CONFIG-004 satisfied
 trivially — noted so the review checks the structure, not the absence).
+
+## Styled human output
+
+The visual system was settled by blind pairwise testing on 2026-08-02
+(structure, then chrome volume, then hue); root `PLAN.md` carries the full
+style guide. The acceptance boundary:
+
+- Collections render as aligned tables with lowercase faint headers (only
+  when rows exist — empty collections still print nothing), faint
+  right-aligned IDs and metadata, plain titles, and bold-red due-today or
+  overdue dates.
+- `tags` renders headerless `#name  count` rows. `show` renders a
+  status-glyph headline over indented faint field labels. Mutation and
+  narration lines carry verb-class glyph prefixes (`+` `−` `✓` `✗` `#` `•`,
+  `└`-tree cascade children).
+- Hue marks state change only — green done/added, red cancelled/deleted/
+  urgent — drawn from Catppuccin Latte on light terminal backgrounds and
+  Frappé on dark, accents-only; identity markers and metadata stay
+  monochrome; stderr stays unstyled in v1.
+- Structure (headers, glyphs, layout) is identical across color modes;
+  modes control only ANSI styling. JSON envelopes are byte-identical to
+  Milestone 5.
 
 ## Chunks
 
@@ -65,9 +92,11 @@ trivially — noted so the review checks the structure, not the absence).
    loaders in precedence order, `--config`, db-path resolution moved onto
    the loaded config; existing `--db`/`GSD_DB` behavior proven unchanged
    by e2e.
-2. **Report + color** — `gsd config` (+ `--provenance`) via
-   configreporter, `--color` flag and full resolution chain wired into
-   lipgloss profile selection.
+2. **Report** — `gsd config` (+ `--provenance`, `--json`) via
+   configreporter.
+3. **Color + styled output** — the `--color` flag and full resolution
+   chain wired into per-stream lipgloss profile selection,
+   background-adaptive accents, and the styled shared writers.
 
 ### Chunk 0: Milestone 5 consolidation
 
@@ -132,10 +161,8 @@ $ gsd inbox            # uses the synced path, no flags
 ```text
 $ gsd config
 db_path = "/Users/jmcampanini/Sync/gsd/gsd.db"
-color = "auto"
-$ GSD_COLOR=never gsd config --provenance
-db_path = ...   # file: ~/.config/gsd/config.toml
-color = "never" # env: GSD_COLOR
+$ GSD_DB=/tmp/scratch.db gsd config --provenance
+db_path = "/tmp/scratch.db"   # env: GSD_DB
 ```
 
 ### Redirected output is clean without asking
@@ -144,6 +171,14 @@ color = "never" # env: GSD_COLOR
 $ gsd inbox > inbox.txt        # no ANSI in the file
 $ NO_COLOR=1 gsd inbox         # plain even on a TTY
 $ gsd inbox --color=always | less -R   # styled on purpose
+```
+
+### Your lists read at a glance
+
+```text
+$ gsd available        # quiet headers, faint ids, overdue dates in bold red
+$ gsd done 5           # ✓ Done: 5  Take out recycling
+$ gsd show 12          # • headline, faint field labels, #tags
 ```
 
 ## Agent-verified end-to-end workflow
@@ -155,8 +190,10 @@ $ gsd inbox --color=always | less -R   # styled on purpose
    config identical.
 3. Explicit `--config /nonexistent` fails loud, exit 1; absent discovered
    file is silently fine.
-4. Color: `--json` output has no ANSI under `--color=always`; `NO_COLOR`
-   beats file/env `color=always`; `--color=always` beats `NO_COLOR`.
+4. Color matrix (piped): default redirect clean; `--color=always` emits
+   ANSI into a pipe and beats nonempty `NO_COLOR`; `NO_COLOR` yields clean
+   output; `TERM=dumb` clean in auto; `--json` carries no ANSI under
+   `--color=always`. Structure (headers, glyphs) identical across modes.
 5. `make check` proves existing e2e workflows still pass with config in
    the loading path (no behavior regressions).
 
@@ -164,8 +201,9 @@ $ gsd inbox --color=always | less -R   # styled on purpose
 
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
-- [ ] `COMMANDS.md` § Configuration and § Database rechecked against the
-      shipped precedence, report, and color behavior before Go live starts.
+- [ ] `COMMANDS.md` § Output, § Configuration, and § Database rechecked
+      against the shipped styling, precedence, report, and color behavior
+      before Go live starts.
 - [ ] **Schema convergence audit re-run** after the ordering change:
       dev database schema byte-comparable to `SCHEMA.md`.
 

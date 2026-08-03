@@ -70,7 +70,7 @@ Active planning begins with the Config milestone:
 
 | # | Milestone | Capability delivered | Data mode |
 |---|-----------|----------------------|-----------|
-| 6 | [Config](MILESTONE_6.md) | Config file via go-config-loader; color modes | throwaway |
+| 6 | [Config](MILESTONE_6.md) | Config file via go-config-loader; color modes; styled human output | throwaway |
 | 7 | [Reorder](MILESTONE_7.md) | Manual ordering | throwaway |
 | 8 | [Search](MILESTONE_8.md) | FTS5 `search` | throwaway |
 | 9 | [Query](MILESTONE_9.md) | Read-only SQL; schema as public contract | throwaway |
@@ -104,8 +104,9 @@ effort described as a forward-looking target in `COMMANDS.md` and
 - Schema is created incrementally per milestone rather than all up front.
 - Real data enters only during Go live, via an agent driving the CLI against an
   export from the current tool; no import code is added to gsd.
-- The canonical v1 config surface is minimal: `db_path` and `color` only. Its
-  contract is in `COMMANDS.md`, with implementation scheduled for Config.
+- The canonical v1 config surface is minimal: `db_path` only. Its contract
+  is in `COMMANDS.md`, with implementation scheduled for Config. Color is
+  flag and environment behavior (CLI-OUTPUT-001), never a config key.
 - Initial stack, data-policy, TUI-scope, error-rendering, and config decisions
   were settled during planning and implementation interviews on 2026-07-26
   and 2026-07-27, then reconciled into the canonical specifications.
@@ -120,3 +121,10 @@ effort described as a forward-looking target in `COMMANDS.md` and
   findings. The amended transaction-authority rule in `AGENTS.md` was
   ratified: stores own implementation-detail atomicity, services own
   use-case composition.
+- 2026-08-02, Milestone 6 planning: color was removed from the config
+  surface — the chain is strictly CLI-OUTPUT-001 (`--color` > nonempty
+  `NO_COLOR` > per-stream auto), with no `GSD_COLOR` and no TOML key. The
+  human-output styling system was settled by three blind pairwise test
+  rounds: quiet-chrome collection tables, glyph-led records and mutation
+  lines, and red/green state accents drawn from Catppuccin Latte/Frappé
+  selected by terminal background, accents-only.
