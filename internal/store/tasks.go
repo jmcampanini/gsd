@@ -61,27 +61,27 @@ func (s *Tasks) Add(ctx context.Context, fields task.AddFields, timestamp string
 }
 
 func (s *Tasks) Inbox(ctx context.Context) ([]task.ViewTask, error) {
-	return (&tasksCore{executor: s.database.database}).Inbox(ctx)
+	return s.poolCore().Inbox(ctx)
 }
 
 func (s *Tasks) Available(ctx context.Context) ([]task.ViewTask, error) {
-	return (&tasksCore{executor: s.database.database}).Available(ctx)
+	return s.poolCore().Available(ctx)
 }
 
 func (s *Tasks) Find(ctx context.Context, id int64) (task.Task, error) {
-	return (&tasksCore{executor: s.database.database}).Find(ctx, id)
+	return s.poolCore().Find(ctx, id)
 }
 
 func (s *Tasks) List(ctx context.Context, filter task.ListFilter) ([]task.Task, error) {
-	return (&tasksCore{executor: s.database.database}).List(ctx, filter)
+	return s.poolCore().List(ctx, filter)
 }
 
 func (s *Tasks) ProjectExists(ctx context.Context, id int64) error {
-	return (&tasksCore{executor: s.database.database}).ProjectExists(ctx, id)
+	return s.poolCore().ProjectExists(ctx, id)
 }
 
 func (s *Tasks) AreaExists(ctx context.Context, id int64) error {
-	return (&tasksCore{executor: s.database.database}).AreaExists(ctx, id)
+	return s.poolCore().AreaExists(ctx, id)
 }
 
 func (s *Tasks) Edit(ctx context.Context, id int64, fields task.EditFields, timestamp string) (task.Task, error) {

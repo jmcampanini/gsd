@@ -247,7 +247,7 @@ func (s *projectsCore) List(ctx context.Context, options project.ListOptions) ([
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
 
-	return collectProjects(rows)
+	return collectRows(rows, scanProject, "scan listed project", "iterate listed projects")
 }
 
 func (s *projectsCore) Edit(
@@ -513,10 +513,6 @@ func sortTasks(tasks []task.Task) {
 
 		return tasks[left].ID < tasks[right].ID
 	})
-}
-
-func collectProjects(rows *sql.Rows) ([]project.Project, error) {
-	return collectRows(rows, scanProject, "scan listed project", "iterate listed projects")
 }
 
 func scanProject(scanner rowScanner) (project.Project, error) {

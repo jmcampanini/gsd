@@ -65,7 +65,7 @@ RETURNING `+tagColumns, name, timestamp, timestamp, name))
 }
 
 func (s *Tags) Find(ctx context.Context, name string) (tag.Tag, error) {
-	return (&tagsCore{executor: s.database.database}).Find(ctx, name)
+	return s.poolCore().Find(ctx, name)
 }
 
 func (s *tagsCore) Find(ctx context.Context, name string) (tag.Tag, error) {
@@ -73,7 +73,7 @@ func (s *tagsCore) Find(ctx context.Context, name string) (tag.Tag, error) {
 }
 
 func (s *Tags) List(ctx context.Context) ([]tag.ListedTag, error) {
-	return (&tagsCore{executor: s.database.database}).List(ctx)
+	return s.poolCore().List(ctx)
 }
 
 func (s *tagsCore) List(ctx context.Context) ([]tag.ListedTag, error) {
@@ -86,27 +86,7 @@ ORDER BY title COLLATE NOCASE, id
 	if err != nil {
 		return nil, fmt.Errorf("list tags: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
-
-	listed := make([]tag.ListedTag, 0)
-	for rows.Next() {
-		var current tag.ListedTag
-		if err := rows.Scan(
-			&current.ID,
-			&current.Title,
-			&current.CreatedAt,
-			&current.UpdatedAt,
-			&current.UsageCount,
-		); err != nil {
-			return nil, fmt.Errorf("scan listed tag: %w", err)
-		}
-		listed = append(listed, current)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate listed tags: %w", err)
-	}
-
-	return listed, nil
+	return collectRows(rows, scanListedTag, "scan listed tag", "iterate listed tags")
 }
 
 func (s *Tags) Rename(
@@ -155,7 +135,7 @@ RETURNING `+tagColumns, newName, timestamp, oldName, newName))
 }
 
 func (s *Tags) CountUsage(ctx context.Context, name string) (int64, error) {
-	return (&tagsCore{executor: s.database.database}).CountUsage(ctx, name)
+	return s.poolCore().CountUsage(ctx, name)
 }
 
 func (s *tagsCore) CountUsage(ctx context.Context, name string) (int64, error) {
@@ -177,7 +157,7 @@ WHERE title = ? COLLATE NOCASE
 }
 
 func (s *Tags) Delete(ctx context.Context, name string) (tag.Tag, error) {
-	return (&tagsCore{executor: s.database.database}).Delete(ctx, name)
+	return s.poolCore().Delete(ctx, name)
 }
 
 func (s *tagsCore) Delete(ctx context.Context, name string) (tag.Tag, error) {
@@ -203,6 +183,23 @@ func (s *Tags) WithinTransaction(
 	return withinImmediateTransaction(ctx, s.database, "tag", func(connection *sql.Conn) error {
 		return apply(&tagsCore{executor: connection})
 	})
+}
+
+func (s *Tags) poolCore() *tagsCore {
+	return &tagsCore{executor: s.database.database}
+}
+
+func scanListedTag(scanner rowScanner) (tag.ListedTag, error) {
+	var value tag.ListedTag
+	err := scanner.Scan(
+		&value.ID,
+		&value.Title,
+		&value.CreatedAt,
+		&value.UpdatedAt,
+		&value.UsageCount,
+	)
+
+	return value, err
 }
 
 func scanTag(scanner rowScanner) (tag.Tag, error) {

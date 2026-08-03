@@ -129,8 +129,7 @@ func (s *tagTitlesScanner[T]) Scan(source any) error {
 		return fmt.Errorf("decode tag titles: %w", err)
 	}
 	if titles == nil {
-		*s.destination = make(T, 0)
-		return nil
+		titles = []string{}
 	}
 	*s.destination = T(titles)
 	return nil
