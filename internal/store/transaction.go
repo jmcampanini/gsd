@@ -25,30 +25,6 @@ func withinImmediateTransaction(
 	return withinTransaction(ctx, database, noun, "BEGIN IMMEDIATE", apply)
 }
 
-func deleteRows(
-	ctx context.Context,
-	executor interface {
-		ExecContext(context.Context, string, ...any) (sql.Result, error)
-	},
-	expected int64,
-	statement string,
-	arguments ...any,
-) error {
-	result, err := executor.ExecContext(ctx, statement, arguments...)
-	if err != nil {
-		return err
-	}
-	deleted, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("read deleted row count: %w", err)
-	}
-	if deleted != expected {
-		return fmt.Errorf("deleted %d rows, want %d", deleted, expected)
-	}
-
-	return nil
-}
-
 func runInTransaction[S, T any](
 	ctx context.Context,
 	within func(context.Context, func(S) error) error,

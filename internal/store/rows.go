@@ -1,12 +1,37 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 )
 
 type rowScanner interface {
 	Scan(...any) error
+}
+
+func deleteRows(
+	ctx context.Context,
+	executor interface {
+		ExecContext(context.Context, string, ...any) (sql.Result, error)
+	},
+	expected int64,
+	statement string,
+	arguments ...any,
+) error {
+	result, err := executor.ExecContext(ctx, statement, arguments...)
+	if err != nil {
+		return err
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read deleted row count: %w", err)
+	}
+	if deleted != expected {
+		return fmt.Errorf("deleted %d rows, want %d", deleted, expected)
+	}
+
+	return nil
 }
 
 func collectRows[T any](

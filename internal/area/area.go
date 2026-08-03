@@ -70,7 +70,7 @@ func (e ArchivedAreasError) Error() string {
 	return fmt.Sprintf("archived areas block this operation: %v", e.IDs)
 }
 
-// Transaction returns every area, project, and task with a non-nil Tags slice.
+// Transaction methods return areas, projects, and tasks with non-nil Tags slices.
 type Transaction interface {
 	Add(context.Context, AddFields, string) (Area, error)
 	Find(context.Context, int64) (Area, error)

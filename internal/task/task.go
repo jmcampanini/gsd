@@ -104,6 +104,7 @@ type Tagging struct {
 	TagTitles []string
 }
 
+// Transaction methods return tasks with non-nil Tags slices.
 type Transaction interface {
 	Add(ctx context.Context, fields AddFields, timestamp string) (Task, error)
 	Inbox(ctx context.Context) ([]ViewTask, error)
@@ -122,7 +123,6 @@ type Transaction interface {
 	DetachTags(context.Context, int64, []tag.Tag) error
 }
 
-// Store returns every task with a non-nil Tags slice.
 type Store interface {
 	Transaction
 	WithinTransaction(context.Context, func(Transaction) error) error

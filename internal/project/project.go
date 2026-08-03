@@ -85,7 +85,7 @@ func (e ResolvedProjectsError) Error() string {
 	return fmt.Sprintf("resolved projects block this operation: %v", e.IDs)
 }
 
-// Transaction returns every project and task with a non-nil Tags slice.
+// Transaction methods return projects and tasks with non-nil Tags slices.
 type Transaction interface {
 	Add(context.Context, AddFields, string) (Project, error)
 	Find(context.Context, int64) (Project, error)

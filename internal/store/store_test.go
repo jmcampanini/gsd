@@ -140,12 +140,17 @@ func TestContainedListingsDoNotReserveWriter(t *testing.T) {
 	if len(listedProjects) != 1 || listedProjects[0].ID != contained.ID {
 		t.Errorf("List(projects while writer reserved) = %#v, want project %d", listedProjects, contained.ID)
 	}
-	listedTasks, err := tasks.List(
-		ctx,
-		task.ListFilter{Status: task.ListStatusAll, ProjectID: &contained.ID},
-	)
+	var listedTasks []task.Task
+	err = tasks.WithinReadTransaction(ctx, func(transaction task.Transaction) error {
+		var listErr error
+		listedTasks, listErr = transaction.List(
+			ctx,
+			task.ListFilter{Status: task.ListStatusAll, ProjectID: &contained.ID},
+		)
+		return listErr
+	})
 	if err != nil {
-		t.Fatalf("List(tasks while writer reserved) error = %v", err)
+		t.Fatalf("WithinReadTransaction(tasks while writer reserved) error = %v", err)
 	}
 	if len(listedTasks) != 1 || listedTasks[0].ID != created.ID {
 		t.Errorf("List(tasks while writer reserved) = %#v, want task %d", listedTasks, created.ID)

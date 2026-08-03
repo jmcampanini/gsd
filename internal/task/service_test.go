@@ -687,7 +687,7 @@ func TestListValidatesAndDelegatesArea(t *testing.T) {
 	}
 }
 
-func TestListValidatesTagBeforePersistence(t *testing.T) {
+func TestListValidatesAndResolvesTagFilter(t *testing.T) {
 	t.Parallel()
 
 	tagName := "ERRANDS"

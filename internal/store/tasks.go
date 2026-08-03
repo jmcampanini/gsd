@@ -115,18 +115,27 @@ func (s *Tasks) Delete(ctx context.Context, id int64) (task.Task, error) {
 }
 
 func (s *Tasks) ResolveTags(ctx context.Context, names []string) ([]tag.Tag, error) {
+	if len(names) <= 1 {
+		return s.poolCore().ResolveTags(ctx, names)
+	}
 	return runInTransaction(ctx, s.WithinReadTransaction, func(transaction task.Transaction) ([]tag.Tag, error) {
 		return transaction.ResolveTags(ctx, names)
 	})
 }
 
 func (s *Tasks) AttachTags(ctx context.Context, taskID int64, tags []tag.Tag) error {
+	if len(tags) <= 1 {
+		return s.poolCore().AttachTags(ctx, taskID, tags)
+	}
 	return s.WithinTransaction(ctx, func(transaction task.Transaction) error {
 		return transaction.AttachTags(ctx, taskID, tags)
 	})
 }
 
 func (s *Tasks) DetachTags(ctx context.Context, taskID int64, tags []tag.Tag) error {
+	if len(tags) <= 1 {
+		return s.poolCore().DetachTags(ctx, taskID, tags)
+	}
 	return s.WithinTransaction(ctx, func(transaction task.Transaction) error {
 		return transaction.DetachTags(ctx, taskID, tags)
 	})
@@ -142,6 +151,10 @@ func (s *Tasks) WithinReadTransaction(ctx context.Context, apply func(task.Trans
 	return withinDeferredTransaction(ctx, s.database, "task", func(connection *sql.Conn) error {
 		return apply(&tasksCore{executor: connection})
 	})
+}
+
+func (s *Tasks) poolCore() *tasksCore {
+	return &tasksCore{executor: s.database.database}
 }
 
 func (s *tasksCore) Add(ctx context.Context, fields task.AddFields, timestamp string) (task.Task, error) {
