@@ -288,7 +288,9 @@ milestones use the narrower baseline behavior.
   treated as absent, and a relative `XDG_CONFIG_HOME` is resolved from the
   working directory; this remains subject to go-config-loader issue #13. A
   discovered file that exists but cannot load is `invalid_argument`, as is a
-  file-provided empty `db_path`.
+  file-provided empty `db_path`, even when `GSD_DB` or `--db` supplies a valid
+  path. Issue #13 tracks both this strict contract and the alternative of
+  letting higher-precedence sources patch over a broken discovered file.
 - The only v1 key is `db_path`. New keys are permanent API and require a
   demonstrated need. Color is deliberately not a configuration key.
 - `gsd config` prints valid, redirectable TOML for the effective config.
@@ -305,11 +307,14 @@ milestones use the narrower baseline behavior.
 
 The default path is `$XDG_DATA_HOME/gsd/gsd.db`, falling back to
 `~/.local/share/gsd/gsd.db`. Precedence is `--db PATH`, then nonempty `GSD_DB`,
-then config-file `db_path`, then the default. Relative file values are resolved
-from the config file's directory; relative env and flag values are resolved
-from the working directory. Parent directories are created when opening the
-database. During throwaway-data milestones, only a genuinely
-empty version-0 database is bootstrapped; a nonempty version-0 or differently
+then config-file `db_path`, then the default. Empty `GSD_DB` and explicit
+`--db ""` fall through instead of overriding a lower-precedence value; this is
+a database-path compatibility rule, not a general contract for future config
+keys. Relative file values are resolved from the config file's directory;
+relative env and flag values are resolved from the working directory. Parent
+directories are created when opening the database. During throwaway-data
+milestones, only a genuinely empty version-0 database is bootstrapped; a
+nonempty version-0 or differently
 versioned database fails with `conflict` and delete-your-dev-db guidance.
 
 ## TUI (post-v1)

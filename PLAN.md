@@ -36,14 +36,20 @@ styling tests, already reconciled into `plans/MILESTONE_6.md`,
   (including XDG resolution), go-config-loader wiring in
   defaults → TOML file → env → flags order, provenance data, and the coded
   error for config that cannot load (`invalid_argument`, exit 1). Only an
-  absent discovered file is optional. `store.ResolvePath`'s default-path
-  logic migrates here; stores receive a final path. Relative file values are
-  anchored to the config file's directory; relative env and flag values keep
-  their current working-directory behavior.
+  absent discovered file is optional; an invalid discovered file stops the
+  chain before env and flags, so higher-precedence values cannot patch over
+  it. This strict behavior remains while go-config-loader issue #13 evaluates
+  the alternative. `store.ResolvePath`'s default-path logic migrates here;
+  stores receive a final path. Relative file values are anchored to the
+  config file's directory; relative env and flag values keep their current
+  working-directory behavior.
 - **Config struct**: one field, two tags —
   `DBPath string` with `toml:"db_path"`, `config:"db"`, `help:"..."` — so
-  `GSD_DB`/`--db` keep their exact current spellings. Flag registration goes
-  through `pflagloader` so the flag surface has a single source of truth.
+  `GSD_DB`/`--db` keep their exact current spellings. Empty `GSD_DB` and
+  explicit `--db ""` remain key-specific legacy fallbacks rather than a
+  general policy for future settings. Flag registration goes through
+  `pflagloader` so the flag surface has a single source of truth; registration
+  failures are static programmer errors and panic during root construction.
 - **cmd owns all color and styling** (presentation, per `AGENTS.md`), routed
   through the existing shared writers. Services and stores are untouched by
   chunk 3.
@@ -61,6 +67,8 @@ styling tests, already reconciled into `plans/MILESTONE_6.md`,
 - **Help, version, and argument parsing** continue to open neither the
   database nor the config file; `gsd config` loads config but never opens
   the database.
+- **Config errors retain chained library context**, including the
+  `configloader:` prefix. Error codes are stable; message wording is not.
 - **JSON envelopes are byte-identical to Milestone 5.** Only human output
   changes.
 
@@ -148,10 +156,11 @@ loud.
       loaded config; help/version/parse-error paths load nothing.
 - [x] Explicit `--config` that is missing, unreadable, or invalid TOML →
       coded `invalid_argument`, exit 1; an existing discovered file that
-      cannot load does the same; only an absent discovered file is silently
-      fine. A file-provided empty `db_path` is `invalid_argument`
-      (CLI-CONFIG-002; current go-config-loader behavior documented while its
-      issue #13 stays open).
+      cannot load does the same, even when env or flags provide a valid path;
+      only an absent discovered file is silently fine. A file-provided empty
+      `db_path` is `invalid_argument` (CLI-CONFIG-002; current
+      go-config-loader behavior documented while issue #13 evaluates both
+      strict and patch-over contracts).
 - [x] Test owners: `internal/config` tests own the precedence matrix and
       failure modes with real temp files/env/flag values (cheapest faithful
       layer — the loader is real, no store involved); cmd tests own flag
@@ -182,8 +191,10 @@ Human outcome: you can always see what config is in effect and why.
 - [ ] Test owners: cmd tests own the TOML/JSON/provenance rendering, stream
       routing, and exit mapping (config report is presentation over
       `internal/config` data); `internal/config` tests own provenance
-      correctness; e2e owns the round-trip (`gsd config` output fed back via
-      `--config` yields an identical effective config).
+      correctness and make the file-precedence row's expected path/source
+      declarative while extending that matrix; e2e owns the round-trip (`gsd
+      config` output fed back via `--config` yields an identical effective
+      config).
 - [ ] Human proof (demo `milestone-6-chunk-2.html`): `gsd config`;
       `GSD_DB=... gsd config --provenance`; `gsd config > snap.toml && gsd
       config --config snap.toml`; `gsd config --json`.
