@@ -1,10 +1,11 @@
 # Command Spec (v1)
 
-The CLI is the canonical v1 surface; agents consume it directly (`--json`)
-plus raw SQL through `gsd query`. A post-v1 TUI is planned to embed the same
-grammar and call the same parser and core. The data contract behind `query`
-lives in `SCHEMA.md`. This document specifies the canonical v1 target; the
-roadmap in `MILESTONES.md` delivers it incrementally.
+The CLI is the canonical v1 surface; agents consume entity operations
+through `--json`, configuration through TOML, plus raw SQL through `gsd
+query`. A post-v1 TUI is planned to embed the same grammar and call the same
+parser and core. The data contract behind `query` lives in `SCHEMA.md`. This
+document specifies the canonical v1 target; the roadmap in `MILESTONES.md`
+delivers it incrementally.
 
 ## Grammar
 
@@ -194,9 +195,12 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
 
 ## Output contract
 
-- `--json` is a global complete-output-mode flag. Successful entity output is
-  its table row — the same column names and formats, including derived
-  `status` — plus `tags`, an array of stored tag names in alphabetical
+- `--json` is a global persistent complete-output-mode flag for commands that
+  support JSON. `gsd config` is the one exception: combining it with
+  `--json` is a usage error (exit `2`), and TOML is its machine-readable
+  format. Successful entity output is its table row — the same column names
+  and formats, including derived `status` — plus `tags`, an array of stored
+  tag names in alphabetical
   (`NOCASE`) order, matching `tags list`.
   The complete v1 entity field sets are:
   - task: `id`, `project_id`, `area_id`, `title`, `note`, `defer_until`,
@@ -293,9 +297,16 @@ milestones use the narrower baseline behavior.
   letting higher-precedence sources patch over a broken discovered file.
 - The only v1 key is `db_path`. New keys are permanent API and require a
   demonstrated need. Color is deliberately not a configuration key.
-- `gsd config` prints valid, redirectable TOML for the effective config.
-  `gsd config --provenance` also identifies each field's source: default,
-  file, environment, or flag.
+- `gsd config` prints valid, redirectable TOML for the effective config;
+  TOML is this command's machine-readable format. It renders `db_path` as the
+  absolute effective runtime location so relative environment and flag values
+  round-trip from any snapshot directory. `gsd config --provenance` keeps the
+  report valid TOML by adding an inline source comment normalized
+  to `default`, `file: PATH`, `env: GSD_DB`, or `flag: --db`. Despite the
+  inherited global flag, `gsd config --json` is a usage error (exit `2`).
+- `db_path` is intentionally reportable and non-sensitive, so v1 has no
+  redaction code or hooks. The reporting contract must be revisited before
+  adding any future sensitive key.
 - Color accepts `--color=auto|always|never` with an explicit value.
   Resolution is the explicit `--color` flag, then nonempty `NO_COLOR`, then
   destination-aware `auto`, evaluated per output stream (CLI-OUTPUT-001/002).
@@ -311,7 +322,10 @@ then config-file `db_path`, then the default. Empty `GSD_DB` and explicit
 `--db ""` fall through instead of overriding a lower-precedence value; this is
 a database-path compatibility rule, not a general contract for future config
 keys. Relative file values are resolved from the config file's directory;
-relative env and flag values are resolved from the working directory. Parent
+relative env and flag values are resolved from the working directory. The
+`gsd config` report uses the corresponding absolute runtime location so
+redirected TOML preserves that location when reloaded from another directory.
+Parent
 directories are created when opening the database. During throwaway-data
 milestones, only a genuinely empty version-0 database is bootstrapped; a
 nonempty version-0 or differently
