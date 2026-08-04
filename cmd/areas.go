@@ -2,8 +2,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
-	"io"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
@@ -16,7 +14,7 @@ func newAreasCommand(options *rootOptions, factory applicationFactory) *cobra.Co
 		Short: "Manage areas",
 		Args:  cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
-			return errors.New("areas requires a subcommand")
+			return usageError("areas requires a subcommand")
 		},
 	}
 	command.AddCommand(
@@ -46,7 +44,7 @@ func newAreasAddCommand(options *rootOptions, factory applicationFactory) *cobra
 				if addErr != nil {
 					return addErr
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, created, writeAddedArea)
+				return writeCommandOutput(command, options, created, humanOutput.writeAddedArea)
 			})
 		},
 	}
@@ -77,7 +75,7 @@ func newAreasListCommand(options *rootOptions, factory applicationFactory) *cobr
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, areas, writeAreaList)
+				return writeCommandOutput(command, options, areas, humanOutput.writeAreaList)
 			})
 		},
 	}
@@ -94,7 +92,7 @@ func newAreaCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 		Short: "Manage an area",
 		Args:  cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
-			return errors.New("area requires a subcommand")
+			return usageError("area requires a subcommand")
 		},
 	}
 	command.AddCommand(
@@ -126,21 +124,21 @@ func newAreaShowCommand(options *rootOptions, factory applicationFactory) *cobra
 				if showErr != nil {
 					return showErr
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, found, writeArea)
+				return writeCommandOutput(command, options, found, humanOutput.writeArea)
 			})
 		},
 	}
 }
 
-type areaTagMutation func(context.Context, area.Application, int64, []string) (area.Tagging, error)
+type areaTaggingMutation func(context.Context, area.Application, int64, []string) (area.Tagging, error)
 
 func newAreaTagCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	return newAreaTagMutationCommand(
+	return newAreaTaggingCommand(
 		options,
 		factory,
 		"tag ID NAME...",
 		"Tag an area",
-		"Tagged",
+		verbTagged,
 		func(ctx context.Context, application area.Application, id int64, names []string) (area.Tagging, error) {
 			return application.Tag(ctx, id, names)
 		},
@@ -148,25 +146,25 @@ func newAreaTagCommand(options *rootOptions, factory applicationFactory) *cobra.
 }
 
 func newAreaUntagCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	return newAreaTagMutationCommand(
+	return newAreaTaggingCommand(
 		options,
 		factory,
 		"untag ID NAME...",
 		"Untag an area",
-		"Untagged",
+		verbUntagged,
 		func(ctx context.Context, application area.Application, id int64, names []string) (area.Tagging, error) {
 			return application.Untag(ctx, id, names)
 		},
 	)
 }
 
-func newAreaTagMutationCommand(
+func newAreaTaggingCommand(
 	options *rootOptions,
 	factory applicationFactory,
 	use string,
 	short string,
-	action string,
-	mutate areaTagMutation,
+	verb mutationVerb,
+	mutate areaTaggingMutation,
 ) *cobra.Command {
 	return &cobra.Command{
 		Use:   use,
@@ -179,15 +177,15 @@ func newAreaTagMutationCommand(
 			}
 
 			return withAreaApplication(command, options, factory, func(application area.Application) error {
-				tagging, mutationErr := mutate(command.Context(), application, id, args[1:])
-				if mutationErr != nil {
-					return mutationErr
+				tagging, err := mutate(command.Context(), application, id, args[1:])
+				if err != nil {
+					return err
 				}
 				if options.json {
 					return writeJSON(command.OutOrStdout(), tagging.Area)
 				}
 
-				return writeAreaTagging(command.OutOrStdout(), action, tagging)
+				return options.presentation.output(command).writeAreaTagging(verb, tagging)
 			})
 		},
 	}
@@ -201,7 +199,7 @@ func newAreaArchiveCommand(options *rootOptions, factory applicationFactory) *co
 		factory,
 		"archive ID",
 		"Archive an area",
-		"Archived",
+		verbArchived,
 		func(ctx context.Context, application area.Application, id int64) (area.Area, error) {
 			return application.Archive(ctx, id)
 		},
@@ -214,7 +212,7 @@ func newAreaUnarchiveCommand(options *rootOptions, factory applicationFactory) *
 		factory,
 		"unarchive ID",
 		"Unarchive an area",
-		"Unarchived",
+		verbUnarchived,
 		func(ctx context.Context, application area.Application, id int64) (area.Area, error) {
 			return application.Unarchive(ctx, id)
 		},
@@ -226,7 +224,7 @@ func newAreaMutationCommand(
 	factory applicationFactory,
 	use string,
 	short string,
-	action string,
+	verb mutationVerb,
 	mutate areaMutation,
 ) *cobra.Command {
 	return &cobra.Command{
@@ -244,14 +242,7 @@ func newAreaMutationCommand(
 				if mutationErr != nil {
 					return mutationErr
 				}
-				return writeCommandOutput(
-					command.OutOrStdout(),
-					options.json,
-					affected,
-					func(writer io.Writer, current area.Area) error {
-						return writeAreaMutation(writer, action, current)
-					},
-				)
+				return writeCommandOutput(command, options, affected, areaMutationWriter(verb))
 			})
 		},
 	}
@@ -288,7 +279,7 @@ func newAreaDeleteCommand(options *rootOptions, factory applicationFactory) *cob
 					return writeJSON(command.OutOrStdout(), deletion.Area)
 				}
 
-				return writeAreaDeletion(command.OutOrStdout(), deletion)
+				return options.presentation.output(command).writeAreaDeletion(deletion)
 			})
 		},
 	}
@@ -335,7 +326,7 @@ func newAreaEditCommand(options *rootOptions, factory applicationFactory) *cobra
 				if editErr != nil {
 					return editErr
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, edited, writeEditedArea)
+				return writeCommandOutput(command, options, edited, areaMutationWriter(verbEdited))
 			})
 		},
 	}

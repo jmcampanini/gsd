@@ -198,7 +198,7 @@ func TestTagTransactionBeginsImmediatelyAndRollsBack(t *testing.T) {
 	}
 
 	rollback := errors.New("roll back tag transaction")
-	err = tags.WithinTransaction(ctx, func(transaction tag.Store) error {
+	err = tags.WithinTransaction(ctx, func(transaction tag.Transaction) error {
 		if _, err := competing.database.ExecContext(ctx, "INSERT INTO tags (title) VALUES ('competing')"); err == nil {
 			t.Error("competing write error = nil, want immediate transaction to reserve writer")
 		}

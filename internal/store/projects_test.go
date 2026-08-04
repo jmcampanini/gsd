@@ -456,7 +456,7 @@ func TestProjectTransactionUsesAmbientAreaStateAndRollsBack(t *testing.T) {
 	moving := addStoredProject(t, projects, project.AddFields{Title: "moving"})
 
 	var added project.Project
-	err := projects.WithinTransaction(ctx, func(transaction project.Store) error {
+	err := projects.WithinTransaction(ctx, func(transaction project.Transaction) error {
 		var operationErr error
 		added, operationErr = transaction.Add(
 			ctx,
@@ -467,7 +467,7 @@ func TestProjectTransactionUsesAmbientAreaStateAndRollsBack(t *testing.T) {
 			return operationErr
 		}
 
-		bound := transaction.(*Projects)
+		bound := transaction.(*projectsCore)
 		var areaID int64
 		if operationErr = bound.executor.QueryRowContext(ctx, `
 UPDATE areas
@@ -553,7 +553,7 @@ WHERE project_id = ?
 	resolvedAt := "2026-01-03T04:05:06.789Z"
 	var resolved project.Project
 	var cancelled []task.Task
-	err = projects.WithinTransaction(ctx, func(transaction project.Store) error {
+	err = projects.WithinTransaction(ctx, func(transaction project.Transaction) error {
 		resolved, err = transaction.Resolve(ctx, created.ID, project.ExitDone, resolvedAt)
 		if err != nil {
 			return err
@@ -654,7 +654,7 @@ END
 		t.Fatalf("create failure trigger: %v", err)
 	}
 
-	err = projects.WithinTransaction(ctx, func(transaction project.Store) error {
+	err = projects.WithinTransaction(ctx, func(transaction project.Transaction) error {
 		if _, err := transaction.Resolve(
 			ctx,
 			created.ID,
@@ -707,7 +707,7 @@ func TestProjectTransactionRollsBackAfterPanic(t *testing.T) {
 		defer func() {
 			recovered = recover()
 		}()
-		_ = projects.WithinTransaction(ctx, func(transaction project.Store) error {
+		_ = projects.WithinTransaction(ctx, func(transaction project.Transaction) error {
 			if _, err := transaction.Resolve(
 				ctx,
 				created.ID,
@@ -820,7 +820,7 @@ END
 
 	var deletedProject project.Project
 	var deletedTasks []task.Task
-	err = projects.WithinTransaction(ctx, func(transaction project.Store) error {
+	err = projects.WithinTransaction(ctx, func(transaction project.Transaction) error {
 		deletedTasks, err = transaction.DeleteTasks(ctx, created.ID)
 		if err != nil {
 			return err
@@ -884,7 +884,7 @@ END
 	if _, err := storage.database.ExecContext(ctx, trigger); err != nil {
 		t.Fatalf("create project delete trigger: %v", err)
 	}
-	err = projects.WithinTransaction(ctx, func(transaction project.Store) error {
+	err = projects.WithinTransaction(ctx, func(transaction project.Transaction) error {
 		if _, err := transaction.DeleteTasks(ctx, rollbackProject.ID); err != nil {
 			return err
 		}

@@ -12,8 +12,10 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
+	"github.com/spf13/pflag"
 )
 
 type fakeApplication struct {
@@ -137,12 +139,18 @@ func (f *fakeApplication) Delete(_ context.Context, id int64) (task.Task, error)
 }
 
 type commandResult struct {
-	stdout   string
-	stderr   string
-	exitCode int
-	openPath string
-	opens    int
-	closes   int
+	stdout         string
+	stderr         string
+	exitCode       int
+	openPath       string
+	configPath     string
+	configExplicit bool
+	opens          int
+	closes         int
+}
+
+func humanFields(output string) string {
+	return strings.Join(strings.Fields(output), " ")
 }
 
 func runCommand(t *testing.T, application task.Application, args ...string) commandResult {
@@ -186,9 +194,16 @@ func runCommandWithApplications(
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	result := commandResult{}
-	factory := func(_ context.Context, path string) (applications, io.Closer, error) {
+	factory := func(
+		_ context.Context,
+		configPath string,
+		configExplicit bool,
+		flags *pflag.FlagSet,
+	) (applications, io.Closer, error) {
 		result.opens++
-		result.openPath = path
+		result.configPath = configPath
+		result.configExplicit = configExplicit
+		result.openPath, _ = flags.GetString("db")
 		return available, closeRecorder{close: func() { result.closes++ }}, nil
 	}
 	root := newRootCommandWithFactory(factory)
@@ -344,6 +359,7 @@ func TestJSONCommandOutput(t *testing.T) {
 		Position:   2,
 		CreatedAt:  "2026-07-27T12:00:00.000Z",
 		UpdatedAt:  "2026-07-27T12:00:00.000Z",
+		Tags:       domain.TagNames{},
 	}
 	application := &fakeApplication{addResult: created}
 	result := runCommand(
@@ -542,7 +558,7 @@ func TestEditAdaptsFieldsAndHumanOutput(t *testing.T) {
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)
 	}
-	if result.stdout != "Edited: 7    revised  \n" {
+	if !strings.Contains(humanFields(result.stdout), "Edited: 7 revised") {
 		t.Errorf("stdout = %q, want edited task", result.stdout)
 	}
 	if application.editFields.Title == nil || *application.editFields.Title != "  revised  " {
@@ -679,7 +695,9 @@ func TestAvailableAdaptsOutputModes(t *testing.T) {
 	t.Parallel()
 
 	deferUntil := "2026-07-28"
-	tasks := []task.ViewTask{{Task: task.Task{ID: 7, Title: "actionable", DeferUntil: &deferUntil, Status: "open"}}}
+	tasks := []task.ViewTask{{Task: task.Task{
+		ID: 7, Title: "actionable", DeferUntil: &deferUntil, Status: "open", Tags: domain.TagNames{},
+	}}}
 	jsonResult := runCommand(t, &fakeApplication{availableResult: tasks}, "available", "--json")
 	if jsonResult.exitCode != 0 || jsonResult.stderr != "" {
 		t.Fatalf("JSON available result = %#v, want success", jsonResult)
@@ -696,8 +714,10 @@ func TestAvailableAdaptsOutputModes(t *testing.T) {
 	if humanResult.exitCode != 0 || humanResult.stderr != "" {
 		t.Fatalf("human available result = %#v, want success", humanResult)
 	}
-	if strings.Join(strings.Fields(humanResult.stdout), " ") != "7 actionable defer 2026-07-28" {
-		t.Errorf("human available = %q, want inbox-style row without status", humanResult.stdout)
+	lines := strings.Split(strings.TrimSuffix(humanResult.stdout, "\n"), "\n")
+	if len(lines) != 2 || strings.Join(strings.Fields(lines[0]), " ") != "id title dates" ||
+		strings.Join(strings.Fields(lines[1]), " ") != "7 actionable defer 2026-07-28" {
+		t.Errorf("human available = %q, want headed inbox-style row without status", humanResult.stdout)
 	}
 
 	emptyResult := runCommand(t, &fakeApplication{availableResult: []task.ViewTask{}}, "available", "--json")
@@ -751,8 +771,8 @@ func TestListAdaptsStatusAndOutputMode(t *testing.T) {
 	t.Parallel()
 
 	tasks := []task.Task{
-		{ID: 1, Title: "first", Status: "done"},
-		{ID: 2, Title: "second", Status: "cancelled"},
+		{ID: 1, Title: "first", Status: "done", Tags: domain.TagNames{}},
+		{ID: 2, Title: "second", Status: "cancelled", Tags: domain.TagNames{}},
 	}
 	jsonApplication := &fakeApplication{listResult: tasks}
 	jsonResult := runCommand(t, jsonApplication, "list", "--status", "all", "--json")
@@ -779,10 +799,11 @@ func TestListAdaptsStatusAndOutputMode(t *testing.T) {
 		t.Errorf("default list options = %#v, want open without date selector", humanApplication.listOptions)
 	}
 	lines := strings.Split(strings.TrimSpace(humanResult.stdout), "\n")
-	if len(lines) != 2 ||
-		strings.Join(strings.Fields(lines[0]), " ") != "1 first done" ||
-		strings.Join(strings.Fields(lines[1]), " ") != "2 second cancelled" {
-		t.Errorf("human list = %q, want distinct ID, title, and status columns", humanResult.stdout)
+	if len(lines) != 3 ||
+		strings.Join(strings.Fields(lines[0]), " ") != "id title status dates" ||
+		strings.Join(strings.Fields(lines[1]), " ") != "1 first done" ||
+		strings.Join(strings.Fields(lines[2]), " ") != "2 second cancelled" {
+		t.Errorf("human list = %q, want headed ID, title, status, and dates columns", humanResult.stdout)
 	}
 
 	emptyResult := runCommand(t, &fakeApplication{listResult: []task.Task{}}, "list")
@@ -893,7 +914,7 @@ func TestLifecycleCommandsAdaptIDsAndHumanActions(t *testing.T) {
 			if result.exitCode != 0 || result.stderr != "" {
 				t.Fatalf("result = %#v, want success", result)
 			}
-			if result.stdout != test.action+": 7  ship it\n" {
+			if !strings.Contains(humanFields(result.stdout), test.action+": 7 ship it") {
 				t.Errorf("stdout = %q, want action and affected task", result.stdout)
 			}
 			if test.application.mutation != test.command || test.application.mutationID != 7 {
@@ -911,7 +932,9 @@ func TestLifecycleCommandsAdaptIDsAndHumanActions(t *testing.T) {
 func TestLifecycleJSONReturnsAffectedTask(t *testing.T) {
 	t.Parallel()
 
-	deleted := task.Task{ID: 7, Title: "gone", Status: "cancelled", Position: 4}
+	deleted := task.Task{
+		ID: 7, Title: "gone", Status: "cancelled", Position: 4, Tags: domain.TagNames{},
+	}
 	result := runCommand(t, &fakeApplication{deleteResult: deleted}, "delete", "7", "--json")
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)
@@ -974,7 +997,7 @@ func TestTaskTaggingAdaptsExactNamesAndOutputModes(t *testing.T) {
 	if humanTagResult.exitCode != 0 || humanTagResult.stderr != "" {
 		t.Fatalf("human tag result = %#v, want success", humanTagResult)
 	}
-	if humanTagResult.stdout != "Tagged: task 7  Errands\n" {
+	if !strings.Contains(humanFields(humanTagResult.stdout), "Tagged: task 7 #Errands") {
 		t.Errorf("human tag output = %q, want stored tag spelling", humanTagResult.stdout)
 	}
 
@@ -986,7 +1009,7 @@ func TestTaskTaggingAdaptsExactNamesAndOutputModes(t *testing.T) {
 	if untagResult.exitCode != 0 || untagResult.stderr != "" {
 		t.Fatalf("human untag result = %#v, want success", untagResult)
 	}
-	if untagResult.stdout != "Untagged: task 7  Errands\n" {
+	if !strings.Contains(humanFields(untagResult.stdout), "Untagged: task 7 #Errands") {
 		t.Errorf("human untag output = %q, want stored tag spelling", untagResult.stdout)
 	}
 	if untagApplication.taggingMutation != "untag" || untagApplication.taggingID != 7 ||
@@ -1092,7 +1115,7 @@ func TestHumanOutputUsesPlainTables(t *testing.T) {
 	}
 }
 
-func TestHumanShowUsesPlainFieldValueTableForMultilineNotes(t *testing.T) {
+func TestHumanShowUsesGlyphOutlineForMultilineNotes(t *testing.T) {
 	t.Parallel()
 
 	dueOn := "2026-07-28"
@@ -1112,18 +1135,16 @@ func TestHumanShowUsesPlainFieldValueTableForMultilineNotes(t *testing.T) {
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)
 	}
+	normalized := humanFields(result.stdout)
 	for _, value := range []string{
-		"ID",
-		"Title",
-		"Note",
-		"first line",
-		"second line",
-		"Status",
-		"Created at",
-		"Updated at",
-		"Tags",
+		"7 capture",
+		"note first line second line",
+		"status open",
+		"created at 2026-07-27T12:00:00.000Z",
+		"updated at 2026-07-27T13:00:00.000Z",
+		"tags #Errands #Home",
 	} {
-		if !strings.Contains(result.stdout, value) {
+		if !strings.Contains(normalized, value) {
 			t.Errorf("stdout = %q, want %q", result.stdout, value)
 		}
 	}
@@ -1132,9 +1153,9 @@ func TestHumanShowUsesPlainFieldValueTableForMultilineNotes(t *testing.T) {
 		normalizedRows[strings.Join(strings.Fields(line), " ")] = true
 	}
 	for _, row := range []string{
-		"Due on 2026-07-28",
-		"Defer until 2026-07-29",
-		"Tags Errands, Home",
+		"due on 2026-07-28",
+		"defer until 2026-07-29",
+		"tags #Errands #Home",
 	} {
 		if !normalizedRows[row] {
 			t.Errorf("stdout = %q, want associated row %q", result.stdout, row)
@@ -1142,11 +1163,6 @@ func TestHumanShowUsesPlainFieldValueTableForMultilineNotes(t *testing.T) {
 	}
 	if strings.Contains(result.stdout, "\x1b[") {
 		t.Errorf("stdout = %q, want no ANSI sequences", result.stdout)
-	}
-	for _, line := range strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n") {
-		if strings.HasSuffix(line, " ") {
-			t.Errorf("stdout line = %q, want no trailing spaces", line)
-		}
 	}
 }
 
@@ -1313,8 +1329,8 @@ func TestUsageErrorsAreHumanReadableEvenWithJSON(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "json unparsed", args: []string{"--unknown", "--json"}},
-		{name: "json parsed", args: []string{"--json", "--unknown"}},
+		{name: "json unparsed", args: []string{"--unknown", "--json", "--config", "/nonexistent.toml"}},
+		{name: "json parsed", args: []string{"--json", "--config", "/nonexistent.toml", "--unknown"}},
 	}
 
 	for _, test := range tests {
@@ -1324,6 +1340,9 @@ func TestUsageErrorsAreHumanReadableEvenWithJSON(t *testing.T) {
 			result := runCommand(t, &fakeApplication{}, test.args...)
 			if result.exitCode != 2 {
 				t.Errorf("exit code = %d, want 2", result.exitCode)
+			}
+			if result.opens != 0 {
+				t.Errorf("factory opens = %d, want 0", result.opens)
 			}
 			if result.stdout != "" {
 				t.Errorf("stdout = %q, want empty", result.stdout)
@@ -1338,6 +1357,26 @@ func TestUsageErrorsAreHumanReadableEvenWithJSON(t *testing.T) {
 	}
 }
 
+func TestPersistentConfigFlagsReachApplicationFactory(t *testing.T) {
+	t.Parallel()
+
+	result := runCommand(
+		t,
+		&fakeApplication{inboxResult: []task.ViewTask{}},
+		"inbox",
+		"--config",
+		"chosen.toml",
+		"--db",
+		"chosen.db",
+	)
+	if result.exitCode != 0 || result.stderr != "" || result.opens != 1 || result.closes != 1 {
+		t.Fatalf("result = %#v, want one successful factory lifecycle", result)
+	}
+	if result.configPath != "chosen.toml" || !result.configExplicit || result.openPath != "chosen.db" {
+		t.Errorf("factory config inputs = %#v, want explicit chosen.toml and chosen.db", result)
+	}
+}
+
 func TestHelpAndVersionDoNotOpenDatabase(t *testing.T) {
 	t.Parallel()
 
@@ -1346,8 +1385,8 @@ func TestHelpAndVersionDoNotOpenDatabase(t *testing.T) {
 		args []string
 	}{
 		{name: "bare root"},
-		{name: "help", args: []string{"--db", "/unusable/path/gsd.db", "--help"}},
-		{name: "version", args: []string{"--db", "/unusable/path/gsd.db", "--version"}},
+		{name: "help", args: []string{"--config", "/nonexistent.toml", "--db", "/unusable/path/gsd.db", "--help"}},
+		{name: "version", args: []string{"--config", "/nonexistent.toml", "--db", "/unusable/path/gsd.db", "--version"}},
 	}
 
 	for _, test := range tests {

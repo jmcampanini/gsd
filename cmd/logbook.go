@@ -1,9 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-	"io"
-	"strconv"
 	"time"
 
 	"github.com/jmcampanini/gsd/internal/logbook"
@@ -25,35 +22,8 @@ func newLogbookCommand(
 				if err != nil {
 					return err
 				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), entries)
-				}
-
-				return writeLogbook(command.OutOrStdout(), entries, location)
+				return writeCommandOutput(command, options, entries, logbookWriter(location))
 			})
 		},
 	}
-}
-
-func writeLogbook(writer io.Writer, entries []logbook.Entry, location *time.Location) error {
-	if len(entries) == 0 {
-		return nil
-	}
-
-	rows := make([][]string, 0, len(entries))
-	for _, entry := range entries {
-		resolvedAt, err := time.Parse(time.RFC3339Nano, entry.ResolvedAt)
-		if err != nil {
-			return fmt.Errorf("parse logbook resolved_at for %s %d: %w", entry.Kind, entry.ID, err)
-		}
-		rows = append(rows, []string{
-			humanText(entry.Kind, false),
-			strconv.FormatInt(entry.ID, 10),
-			humanText(entry.Title, false),
-			humanText(entry.Status, false),
-			resolvedAt.In(location).Format(time.DateOnly),
-		})
-	}
-
-	return writeTable(writer, rows)
 }

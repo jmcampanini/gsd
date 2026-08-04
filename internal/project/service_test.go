@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -70,7 +71,7 @@ type recordingStore struct {
 	detachedTags         []tag.Tag
 	detachTagsError      error
 	transactionCalls     int
-	transactionStore     Store
+	transactionStore     Transaction
 	transactionError     error
 }
 
@@ -228,7 +229,7 @@ func (r *recordingStore) DetachTags(
 
 func (r *recordingStore) WithinTransaction(
 	ctx context.Context,
-	operation func(Store) error,
+	operation func(Transaction) error,
 ) error {
 	r.transactionCalls++
 	if r.transactionError != nil {
@@ -378,7 +379,7 @@ func TestAddWithTagsNormalizesAndRefreshesWithinOneTransaction(t *testing.T) {
 	t.Parallel()
 
 	resolvedTags := []tag.Tag{{ID: 10, Title: "WORK"}, {ID: 11, Title: "É"}, {ID: 12, Title: "é"}}
-	refreshed := Project{ID: 1, Title: "tagged", Tags: []string{"WORK", "É", "é"}}
+	refreshed := Project{ID: 1, Title: "tagged", Tags: domain.TagNames{"WORK", "É", "é"}}
 	transactionStore := &recordingStore{
 		resolveTagsResult: resolvedTags,
 		findResult:        refreshed,
@@ -728,7 +729,7 @@ func TestResolveUsesOneTransactionAndTimestampForTheCascade(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			resolvedProject := Project{ID: 7, Status: test.value, Tags: []string{}}
+			resolvedProject := Project{ID: 7, Status: test.value, Tags: domain.TagNames{}}
 			transactionStore := &recordingStore{
 				resolveResult: resolvedProject,
 				cancelResult:  test.cancelledTasks,
@@ -808,7 +809,7 @@ func TestResolveUsesOneTransactionAndTimestampForTheCascade(t *testing.T) {
 func TestReopenDelegatesOneTimestampWithoutATransaction(t *testing.T) {
 	t.Parallel()
 
-	store := &recordingStore{reopenResult: Project{ID: 7, Status: string(ListStatusOpen), Tags: []string{}}}
+	store := &recordingStore{reopenResult: Project{ID: 7, Status: string(ListStatusOpen), Tags: domain.TagNames{}}}
 	service := NewService(store)
 	nowCalls := 0
 	service.now = func() time.Time {
@@ -842,7 +843,7 @@ func TestTagAndUntagNormalizeAndRefreshWithinOneTransaction(t *testing.T) {
 
 	resolvedTags := []tag.Tag{{ID: 10, Title: "WORK"}, {ID: 11, Title: "É"}, {ID: 12, Title: "é"}}
 	wantNames := []string{"Work", "É", "é"}
-	refreshed := Project{ID: 7, Title: "project", Tags: []string{"stored"}}
+	refreshed := Project{ID: 7, Title: "project", Tags: domain.TagNames{"stored"}}
 	tests := []struct {
 		name  string
 		untag bool
@@ -1106,7 +1107,7 @@ func TestDeleteUsesATransactionOnlyForRecursiveDeletion(t *testing.T) {
 	t.Run("nonrecursive", func(t *testing.T) {
 		t.Parallel()
 
-		deletedProject := Project{ID: 7, Title: "empty", Tags: []string{}}
+		deletedProject := Project{ID: 7, Title: "empty", Tags: domain.TagNames{}}
 		store := &recordingStore{deleteResult: deletedProject}
 		deletion, err := NewService(store).Delete(context.Background(), 7, false)
 		if err != nil {
@@ -1128,7 +1129,7 @@ func TestDeleteUsesATransactionOnlyForRecursiveDeletion(t *testing.T) {
 	t.Run("recursive", func(t *testing.T) {
 		t.Parallel()
 
-		deletedProject := Project{ID: 7, Title: "populated", Tags: []string{}}
+		deletedProject := Project{ID: 7, Title: "populated", Tags: domain.TagNames{}}
 		deletedTasks := []task.Task{{ID: 8}, {ID: 9}}
 		transactionStore := &recordingStore{
 			deleteResult:      deletedProject,

@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	schemaRevision = 9005
+	schemaRevision = 9006
 	busyTimeoutMS  = 5000
 )
 
@@ -55,25 +55,6 @@ func Open(ctx context.Context, path string) (*DB, error) {
 
 func (d *DB) Close() error {
 	return d.database.Close()
-}
-
-func ResolvePath(flagValue string) (string, error) {
-	if flagValue != "" {
-		return flagValue, nil
-	}
-	if environmentPath := os.Getenv("GSD_DB"); environmentPath != "" {
-		return environmentPath, nil
-	}
-	if dataHome := os.Getenv("XDG_DATA_HOME"); dataHome != "" {
-		return filepath.Join(dataHome, "gsd", "gsd.db"), nil
-	}
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home directory: %w", err)
-	}
-
-	return filepath.Join(home, ".local", "share", "gsd", "gsd.db"), nil
 }
 
 func dataSourceName(path string) string {

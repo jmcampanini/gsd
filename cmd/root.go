@@ -12,19 +12,23 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/config"
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/store"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var Version = "dev"
 
 type rootOptions struct {
-	databasePath string
+	configPath   string
 	json         bool
+	color        colorMode
+	presentation *presentation
 }
 
 type applications struct {
@@ -35,7 +39,12 @@ type applications struct {
 	logbook  logbook.Application
 }
 
-type applicationFactory func(context.Context, string) (applications, io.Closer, error)
+type applicationFactory func(
+	context.Context,
+	string,
+	bool,
+	*pflag.FlagSet,
+) (applications, io.Closer, error)
 
 func Execute() int {
 	return execute(newRootCommand(), os.Args[1:])
@@ -64,7 +73,35 @@ func newRootCommandWithFactoryAndLocation(
 	factory applicationFactory,
 	location *time.Location,
 ) *cobra.Command {
-	options := &rootOptions{}
+	return newRootCommandWithDependencies(factory, config.Load, location)
+}
+
+func newRootCommandWithDependencies(
+	factory applicationFactory,
+	loadConfiguration configurationLoader,
+	location *time.Location,
+) *cobra.Command {
+	return newRootCommandWithRuntimeDependencies(
+		factory,
+		loadConfiguration,
+		location,
+		defaultPresentationDependencies(),
+	)
+}
+
+func newRootCommandWithRuntimeDependencies(
+	factory applicationFactory,
+	loadConfiguration configurationLoader,
+	location *time.Location,
+	presentationDependencies presentationDependencies,
+) *cobra.Command {
+	options := &rootOptions{color: colorAuto}
+	availablePresentation := &presentation{
+		mode:         &options.color,
+		dependencies: presentationDependencies,
+		location:     location,
+	}
+	options.presentation = availablePresentation
 	root := &cobra.Command{
 		Use:           "gsd",
 		Short:         "Get shit done",
@@ -77,14 +114,23 @@ func newRootCommandWithFactoryAndLocation(
 		},
 	}
 
-	root.PersistentFlags().StringVar(&options.databasePath, "db", "", "path to the SQLite database")
+	root.PersistentFlags().StringVar(&options.configPath, "config", "", "path to a TOML config file")
+	if err := config.RegisterFlags(root.PersistentFlags()); err != nil {
+		panic(fmt.Sprintf("register config flags: %v", err))
+	}
 	root.PersistentFlags().BoolVar(&options.json, "json", false, "emit JSON output")
+	root.PersistentFlags().Var(
+		colorValue{mode: &options.color},
+		"color",
+		"control color output: auto, always, or never",
+	)
 	root.AddCommand(
 		newAddCommand(options, factory),
 		newAreaCommand(options, factory),
 		newAreasCommand(options, factory),
 		newAvailableCommand(options, factory),
 		newCancelCommand(options, factory),
+		newConfigCommand(options, loadConfiguration),
 		newDeleteCommand(options, factory),
 		newDoneCommand(options, factory),
 		newEditCommand(options, factory),
@@ -105,14 +151,16 @@ func newRootCommandWithFactoryAndLocation(
 
 func defaultApplicationFactory(
 	ctx context.Context,
-	requestedPath string,
+	configPath string,
+	configPathExplicit bool,
+	flags *pflag.FlagSet,
 ) (applications, io.Closer, error) {
-	path, err := store.ResolvePath(requestedPath)
+	loaded, _, err := config.Load(configPath, configPathExplicit, flags)
 	if err != nil {
 		return applications{}, nil, err
 	}
 
-	database, err := store.Open(ctx, path)
+	database, err := store.Open(ctx, loaded.DBPath)
 	if err != nil {
 		return applications{}, nil, err
 	}
@@ -132,7 +180,13 @@ func withApplications(
 	factory applicationFactory,
 	run func(applications) error,
 ) error {
-	available, closer, err := factory(command.Context(), options.databasePath)
+	flags := command.Root().PersistentFlags()
+	available, closer, err := factory(
+		command.Context(),
+		options.configPath,
+		flags.Changed("config"),
+		flags,
+	)
 	if err != nil {
 		return normalizeApplicationError(err)
 	}
@@ -242,6 +296,13 @@ func appendRecoveryGuidance(message, verb, command string, ids []int64) string {
 	}
 
 	return message + "; " + verb + " first: " + strings.Join(commands, "; ")
+}
+
+// usageError builds an error the root adapter maps to exit 2: exitCodeForError
+// treats every uncoded error as usage because Cobra parse failures arrive
+// uncoded. Application errors must pass through normalizeApplicationError.
+func usageError(message string) error {
+	return errors.New(message)
 }
 
 func exitCodeForError(err error) int {

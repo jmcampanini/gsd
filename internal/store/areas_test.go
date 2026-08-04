@@ -247,8 +247,8 @@ func TestAreaTransactionUsesAmbientStateForFailureClassificationAndRollsBack(t *
 	created := addStoredArea(t, areas, area.AddFields{Title: "Home"})
 
 	rollback := errors.New("roll back area transaction")
-	err := areas.WithinTransaction(ctx, func(transaction area.Store) error {
-		bound := transaction.(*Areas)
+	err := areas.WithinTransaction(ctx, func(transaction area.Transaction) error {
+		bound := transaction.(*areasCore)
 		if _, deleteErr := bound.executor.ExecContext(ctx, "DELETE FROM areas WHERE id = ?", created.ID); deleteErr != nil {
 			return deleteErr
 		}
@@ -408,7 +408,7 @@ WHERE project_id IN (?, ?) OR area_id = ?
 	var deletedProjects []project.Project
 	var deletedProjectTasks []task.Task
 	var deletedLooseTasks []task.Task
-	err = areas.WithinTransaction(ctx, func(transaction area.Store) error {
+	err = areas.WithinTransaction(ctx, func(transaction area.Transaction) error {
 		var operationErr error
 		deletedProjectTasks, operationErr = transaction.DeleteTasks(ctx, doomed.ID, area.TaskDeletionScopeProject)
 		if operationErr != nil {
@@ -483,7 +483,7 @@ END
 		t.Fatalf("create failure trigger: %v", err)
 	}
 
-	err := areas.WithinTransaction(ctx, func(transaction area.Store) error {
+	err := areas.WithinTransaction(ctx, func(transaction area.Transaction) error {
 		if _, err := transaction.DeleteTasks(ctx, doomed.ID, area.TaskDeletionScopeProject); err != nil {
 			return err
 		}

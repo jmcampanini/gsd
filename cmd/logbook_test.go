@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jmcampanini/gsd/internal/logbook"
+	"github.com/spf13/pflag"
 )
 
 type fakeLogbookApplication struct {
@@ -35,9 +36,16 @@ func runLogbookCommand(
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	result := commandResult{}
-	factory := func(_ context.Context, path string) (applications, io.Closer, error) {
+	factory := func(
+		_ context.Context,
+		configPath string,
+		configExplicit bool,
+		flags *pflag.FlagSet,
+	) (applications, io.Closer, error) {
 		result.opens++
-		result.openPath = path
+		result.configPath = configPath
+		result.configExplicit = configExplicit
+		result.openPath, _ = flags.GetString("db")
 		return applications{logbook: application}, closeRecorder{close: func() {
 			result.closes++
 		}}, nil
@@ -166,10 +174,11 @@ func TestLogbookHumanOutputPreservesOrderAndUsesLocalCalendarDay(t *testing.T) {
 		t.Fatalf("result = %#v, want human success", result)
 	}
 	lines := strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n")
-	if len(lines) != 2 ||
-		strings.Join(strings.Fields(lines[0]), " ") != "project 12 First cancelled 2026-07-27" ||
-		strings.Join(strings.Fields(lines[1]), " ") != "task 3 Second done 2026-07-28" {
-		t.Errorf("stdout = %q, want ordered local-day rows", result.stdout)
+	if len(lines) != 3 ||
+		strings.Join(strings.Fields(lines[0]), " ") != "kind id title status date" ||
+		strings.Join(strings.Fields(lines[1]), " ") != "project 12 First cancelled 2026-07-27" ||
+		strings.Join(strings.Fields(lines[2]), " ") != "task 3 Second done 2026-07-28" {
+		t.Errorf("stdout = %q, want headed ordered local-day rows", result.stdout)
 	}
 	if strings.Contains(result.stdout, "\x1b[") {
 		t.Errorf("stdout = %q, want no ANSI", result.stdout)

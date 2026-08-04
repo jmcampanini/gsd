@@ -56,7 +56,7 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, created, writeAddedTask)
+				return writeCommandOutput(command, options, created, humanOutput.writeAddedTask)
 			})
 		},
 	}
@@ -81,7 +81,7 @@ func newInboxCommand(options *rootOptions, factory applicationFactory) *cobra.Co
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, tasks, writeOpenTaskList)
+				return writeCommandOutput(command, options, tasks, humanOutput.writeOpenTaskList)
 			})
 		},
 	}
@@ -98,7 +98,7 @@ func newAvailableCommand(options *rootOptions, factory applicationFactory) *cobr
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, tasks, writeOpenTaskList)
+				return writeCommandOutput(command, options, tasks, humanOutput.writeOpenTaskList)
 			})
 		},
 	}
@@ -120,7 +120,7 @@ func newShowCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, found, writeTask)
+				return writeCommandOutput(command, options, found, humanOutput.writeTask)
 			})
 		},
 	}
@@ -196,11 +196,7 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 				if editErr != nil {
 					return editErr
 				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), edited)
-				}
-
-				return writeTaskMutation(command.OutOrStdout(), "Edited", edited)
+				return writeCommandOutput(command, options, edited, taskMutationWriter(verbEdited))
 			})
 		},
 	}
@@ -269,7 +265,7 @@ func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, tasks, writeTaskList)
+				return writeCommandOutput(command, options, tasks, humanOutput.writeTaskList)
 			})
 		},
 	}
@@ -291,7 +287,7 @@ func newDoneCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 		factory,
 		"done ID",
 		"Complete a task",
-		"Done",
+		verbDone,
 		func(ctx context.Context, application task.Application, id int64) (task.Task, error) {
 			return application.Done(ctx, id)
 		},
@@ -304,7 +300,7 @@ func newCancelCommand(options *rootOptions, factory applicationFactory) *cobra.C
 		factory,
 		"cancel ID",
 		"Cancel a task",
-		"Cancelled",
+		verbCancelled,
 		func(ctx context.Context, application task.Application, id int64) (task.Task, error) {
 			return application.Cancel(ctx, id)
 		},
@@ -317,7 +313,7 @@ func newReopenCommand(options *rootOptions, factory applicationFactory) *cobra.C
 		factory,
 		"reopen ID",
 		"Reopen a task",
-		"Reopened",
+		verbReopened,
 		func(ctx context.Context, application task.Application, id int64) (task.Task, error) {
 			return application.Reopen(ctx, id)
 		},
@@ -330,7 +326,7 @@ func newTagCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 		factory,
 		"tag ID NAME...",
 		"Tag a task",
-		"Tagged",
+		verbTagged,
 		func(ctx context.Context, application task.Application, id int64, names []string) (task.Tagging, error) {
 			return application.Tag(ctx, id, names)
 		},
@@ -343,7 +339,7 @@ func newUntagCommand(options *rootOptions, factory applicationFactory) *cobra.Co
 		factory,
 		"untag ID NAME...",
 		"Untag a task",
-		"Untagged",
+		verbUntagged,
 		func(ctx context.Context, application task.Application, id int64, names []string) (task.Tagging, error) {
 			return application.Untag(ctx, id, names)
 		},
@@ -356,7 +352,7 @@ func newDeleteCommand(options *rootOptions, factory applicationFactory) *cobra.C
 		factory,
 		"delete ID",
 		"Delete a task",
-		"Deleted",
+		verbDeleted,
 		func(ctx context.Context, application task.Application, id int64) (task.Task, error) {
 			return application.Delete(ctx, id)
 		},
@@ -423,7 +419,7 @@ func newTaskTaggingCommand(
 	factory applicationFactory,
 	use string,
 	short string,
-	action string,
+	verb mutationVerb,
 	mutate taskTaggingMutation,
 ) *cobra.Command {
 	return &cobra.Command{
@@ -445,7 +441,7 @@ func newTaskTaggingCommand(
 					return writeJSON(command.OutOrStdout(), tagging.Task)
 				}
 
-				return writeTaskTagging(command.OutOrStdout(), action, tagging)
+				return options.presentation.output(command).writeTaskTagging(verb, tagging)
 			})
 		},
 	}
@@ -458,7 +454,7 @@ func newTaskMutationCommand(
 	factory applicationFactory,
 	use string,
 	short string,
-	action string,
+	verb mutationVerb,
 	mutate taskMutation,
 ) *cobra.Command {
 	return &cobra.Command{
@@ -476,11 +472,7 @@ func newTaskMutationCommand(
 				if err != nil {
 					return err
 				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), affected)
-				}
-
-				return writeTaskMutation(command.OutOrStdout(), action, affected)
+				return writeCommandOutput(command, options, affected, taskMutationWriter(verb))
 			})
 		},
 	}

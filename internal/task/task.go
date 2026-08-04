@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/tag"
 )
 
@@ -32,21 +33,29 @@ type ListOptions struct {
 	Tag       *string
 }
 
+type ListFilter struct {
+	Status    ListStatus
+	Date      DateSelector
+	ProjectID *int64
+	AreaID    *int64
+	TagID     *int64
+}
+
 type Task struct {
-	ID          int64    `json:"id"`
-	ProjectID   *int64   `json:"project_id"`
-	AreaID      *int64   `json:"area_id"`
-	Title       string   `json:"title"`
-	Note        string   `json:"note"`
-	DeferUntil  *string  `json:"defer_until"`
-	DueOn       *string  `json:"due_on"`
-	DoneAt      *string  `json:"done_at"`
-	CancelledAt *string  `json:"cancelled_at"`
-	Status      string   `json:"status"`
-	Position    int64    `json:"position"`
-	CreatedAt   string   `json:"created_at"`
-	UpdatedAt   string   `json:"updated_at"`
-	Tags        []string `json:"tags"`
+	ID          int64           `json:"id"`
+	ProjectID   *int64          `json:"project_id"`
+	AreaID      *int64          `json:"area_id"`
+	Title       string          `json:"title"`
+	Note        string          `json:"note"`
+	DeferUntil  *string         `json:"defer_until"`
+	DueOn       *string         `json:"due_on"`
+	DoneAt      *string         `json:"done_at"`
+	CancelledAt *string         `json:"cancelled_at"`
+	Status      string          `json:"status"`
+	Position    int64           `json:"position"`
+	CreatedAt   string          `json:"created_at"`
+	UpdatedAt   string          `json:"updated_at"`
+	Tags        domain.TagNames `json:"tags"`
 }
 
 type ViewTask struct {
@@ -95,13 +104,15 @@ type Tagging struct {
 	TagTitles []string
 }
 
-// Store returns every task with a non-nil Tags slice.
-type Store interface {
+// Transaction methods return tasks with non-nil Tags slices.
+type Transaction interface {
 	Add(ctx context.Context, fields AddFields, timestamp string) (Task, error)
 	Inbox(ctx context.Context) ([]ViewTask, error)
 	Available(ctx context.Context) ([]ViewTask, error)
 	Find(ctx context.Context, id int64) (Task, error)
-	List(ctx context.Context, options ListOptions) ([]Task, error)
+	List(ctx context.Context, filter ListFilter) ([]Task, error)
+	ProjectExists(context.Context, int64) error
+	AreaExists(context.Context, int64) error
 	Edit(ctx context.Context, id int64, fields EditFields, timestamp string) (Task, error)
 	Done(ctx context.Context, id int64, timestamp string) (Task, error)
 	Cancel(ctx context.Context, id int64, timestamp string) (Task, error)
@@ -110,7 +121,12 @@ type Store interface {
 	ResolveTags(context.Context, []string) ([]tag.Tag, error)
 	AttachTags(context.Context, int64, []tag.Tag) error
 	DetachTags(context.Context, int64, []tag.Tag) error
-	WithinTransaction(context.Context, func(Store) error) error
+}
+
+type Store interface {
+	Transaction
+	WithinTransaction(context.Context, func(Transaction) error) error
+	WithinReadTransaction(context.Context, func(Transaction) error) error
 }
 
 type Application interface {

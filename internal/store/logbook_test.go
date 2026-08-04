@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/logbook"
 )
 
@@ -50,7 +51,7 @@ INSERT INTO project_tags (project_id, tag_id) VALUES (1, 2);
 			Status:       "done",
 			ResolvedAt:   "2026-03-01T00:00:00.000Z",
 			ProjectTitle: &beta,
-			Tags:         []string{"first", "second"},
+			Tags:         domain.TagNames{"first", "second"},
 		},
 		{
 			Kind:       "project",
@@ -58,7 +59,7 @@ INSERT INTO project_tags (project_id, tag_id) VALUES (1, 2);
 			Title:      "Beta",
 			Status:     "cancelled",
 			ResolvedAt: "2026-02-01T00:00:00.000Z",
-			Tags:       []string{},
+			Tags:       domain.TagNames{},
 		},
 		{
 			Kind:               "project",
@@ -68,7 +69,7 @@ INSERT INTO project_tags (project_id, tag_id) VALUES (1, 2);
 			ResolvedAt:         "2026-02-01T00:00:00.000Z",
 			GoverningAreaID:    &projectAreaID,
 			GoverningAreaTitle: &projectAreaTitle,
-			Tags:               []string{"second"},
+			Tags:               domain.TagNames{"second"},
 		},
 		{
 			Kind:               "task",
@@ -79,7 +80,7 @@ INSERT INTO project_tags (project_id, tag_id) VALUES (1, 2);
 			ProjectTitle:       &alpha,
 			GoverningAreaID:    &projectAreaID,
 			GoverningAreaTitle: &projectAreaTitle,
-			Tags:               []string{},
+			Tags:               domain.TagNames{},
 		},
 		{
 			Kind:               "task",
@@ -89,7 +90,7 @@ INSERT INTO project_tags (project_id, tag_id) VALUES (1, 2);
 			ResolvedAt:         "2026-02-01T00:00:00.000Z",
 			GoverningAreaID:    &directAreaID,
 			GoverningAreaTitle: &directAreaTitle,
-			Tags:               []string{},
+			Tags:               domain.TagNames{},
 		},
 	}
 	if !reflect.DeepEqual(entries, want) {

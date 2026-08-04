@@ -7,11 +7,13 @@ the repository and CLI foundation, a complete bare-inbox task lifecycle,
 calendar-aware due dates, deferrals, and an `available` view, projects
 with task containment, narrated completion cascades, and the interleaved
 `logbook`, areas holding projects and loose tasks with governing-area
-archiving and RESTRICT-guarded recursive deletion, and flat tags spanning
-all three entity kinds. Tags complete the v1 entity model and its JSON field
-set; the broader command surface remains the forward-looking canonical v1
-target delivered incrementally through `MILESTONES.md`. The SQL schema lives
-in `SCHEMA.md`.
+archiving and RESTRICT-guarded recursive deletion, flat tags spanning all
+three entity kinds, and the settled config and presentation layer: a TOML
+`db_path` with full precedence, a provenance-reporting `gsd config`,
+standards-pure color modes, and the styled human surface. Tags complete the
+v1 entity model and its JSON field set; the broader command surface remains
+the forward-looking canonical v1 target delivered incrementally through
+`MILESTONES.md`. The SQL schema lives in `SCHEMA.md`.
 
 ## Primitives
 

@@ -1,10 +1,11 @@
 # Command Spec (v1)
 
-The CLI is the canonical v1 surface; agents consume it directly (`--json`)
-plus raw SQL through `gsd query`. A post-v1 TUI is planned to embed the same
-grammar and call the same parser and core. The data contract behind `query`
-lives in `SCHEMA.md`. This document specifies the canonical v1 target; the
-roadmap in `MILESTONES.md` delivers it incrementally.
+The CLI is the canonical v1 surface; agents consume entity operations
+through `--json`, configuration through TOML, plus raw SQL through `gsd
+query`. A post-v1 TUI is planned to embed the same grammar and call the same
+parser and core. The data contract behind `query` lives in `SCHEMA.md`. This
+document specifies the canonical v1 target; the roadmap in `MILESTONES.md`
+delivers it incrementally.
 
 ## Grammar
 
@@ -194,9 +195,12 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
 
 ## Output contract
 
-- `--json` is a global complete-output-mode flag. Successful entity output is
-  its table row — the same column names and formats, including derived
-  `status` — plus `tags`, an array of stored tag names in alphabetical
+- `--json` is a global persistent complete-output-mode flag for commands that
+  support JSON. `gsd config` is the one exception: combining it with
+  `--json` is a usage error (exit `2`), and TOML is its machine-readable
+  format. Successful entity output is its table row — the same column names
+  and formats, including derived `status` — plus `tags`, an array of stored
+  tag names in alphabetical
   (`NOCASE`) order, matching `tags list`.
   The complete v1 entity field sets are:
   - task: `id`, `project_id`, `area_id`, `title`, `note`, `defer_until`,
@@ -245,18 +249,33 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
   stderr diagnostics for every error.
 - **Exit codes stay coarse**: `0` success, `1` application error, `2` usage
   error. Fine distinctions live in the JSON error code.
-- Human collections are headerless aligned tables, `show` is a field/value
-  table, mutations use concise action-prefixed payloads, and empty collections
-  print nothing. `tags list` prints stored name and cross-entity usage count,
-  ordered alphabetically with `NOCASE`, without IDs or a header. Task,
-  project, and area `show` include a `Tags` row of comma-separated stored
+- Human collections are aligned tables with lowercase faint column headers,
+  rendered only when rows exist; empty collections print nothing. `show` is a
+  field/value outline beneath a status-glyph headline: `•` open task, `◆` open
+  project, `●` active area, `✓` done task/project, and `✗` cancelled
+  task/project or archived area. Mutations use concise glyph-prefixed action
+  payloads, and `tags list` prints `#`-prefixed stored names with cross-entity
+  usage counts, ordered alphabetically with `NOCASE`, without IDs or a header.
+  Task, project, and area `show` include a `tags` row of `#`-prefixed stored
   names, blank when untagged; collection rows gain no tags column.
 - Successful tag mutation lines are concise and action-prefixed:
   `Added tag NAME`, `Renamed tag OLD to NEW`,
-  `Deleted tag NAME (detached from N items)`, `Tagged: KIND ID  NAME`, and
-  `Untagged: KIND ID  NAME`. They use stored spelling after case-insensitive
-  resolution; rename prints both the stored previous and new titles. Human
-  tables are unstyled until color support arrives in Milestone 6.
+  `Deleted tag NAME (detached from N items)`, `Tagged: KIND ID  #NAME`, and
+  `Untagged: KIND ID  #NAME`, each behind its verb-class glyph. Tagging uses
+  `+#`; untagging uses `−#`. They use stored spelling after case-insensitive
+  resolution; rename prints both the stored previous and new titles.
+- Styling grammar: faint marks metadata (IDs, kinds, counts, timestamps,
+  headers, non-urgent dates), bold marks urgency (due today or overdue on open
+  tasks), and glyphs mark records and events. Events use `+` add, `−` delete,
+  `✓` done, `✗` cancel/archive, `+#` tag, `−#` untag, and `~` neutral
+  mutations. Record glyphs follow the `show` mapping above; cascade children
+  use `├` until the final `└`. Hue marks state change only — green for
+  done/added, red for cancelled/archived/deleted/urgent — drawn from
+  Catppuccin Latte on light terminal backgrounds and Frappé on dark,
+  accents-only. Identity markers, structural glyphs, and metadata stay
+  monochrome; stderr diagnostics are unstyled in v1. Structure (headers,
+  glyphs, layout) is identical across color modes; modes control only ANSI
+  styling.
 - Bare `gsd tags`, `gsd tag`, and `gsd untag` are usage errors (exit `2`) and
   do not open the database.
 - Human output escapes ASCII control characters (`show` preserves note line
@@ -264,34 +283,51 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
 
 ## Configuration
 
-The Config milestone implements this canonical v1 contract; specifying it here
-before implementation keeps the v1 target authoritative while earlier
-milestones use the narrower baseline behavior.
-
 - The discovered config file is TOML at
   `$XDG_CONFIG_HOME/gsd/config.toml`. It is optional. When `--config PATH` is
   given, that exact file is required: a missing, unreadable, or invalid file
-  fails rather than falling back to discovery.
-- The only v1 keys are `db_path` and `color`. New keys are permanent API and
-  require a demonstrated need.
-- `gsd config` prints valid, redirectable TOML for the effective config.
-  `gsd config --provenance` also identifies each field's source: default,
-  file, environment, or flag.
-- Color accepts `--color=auto|always|never`, `GSD_COLOR` with the same values,
-  and the `color` TOML key. Resolution is explicit `--color` flag, then
-  nonempty `NO_COLOR`, then `GSD_COLOR`, then the file value, then
-  destination-aware `auto`. Auto-detection is evaluated per output stream and
-  disables color for non-terminals and `TERM=dumb`. JSON output never contains
-  ANSI sequences, including under `--color=always`.
+  fails rather than falling back to discovery. Under go-config-loader's
+  current behavior, a missing discovered path or a directory at that path is
+  treated as absent, and a relative `XDG_CONFIG_HOME` is resolved from the
+  working directory; this remains subject to go-config-loader issue #13. A
+  discovered file that exists but cannot load is `invalid_argument`, as is a
+  file-provided empty `db_path`, even when `GSD_DB` or `--db` supplies a valid
+  path. Issue #13 tracks both this strict contract and the alternative of
+  letting higher-precedence sources patch over a broken discovered file.
+- The only v1 key is `db_path`. New keys are permanent API and require a
+  demonstrated need. Color is deliberately not a configuration key.
+- `gsd config` prints valid, redirectable TOML for the effective config;
+  TOML is this command's machine-readable format. It renders `db_path` as the
+  absolute effective runtime location so relative environment and flag values
+  round-trip from any snapshot directory. `gsd config --provenance` keeps the
+  report valid TOML by adding an inline source comment normalized
+  to `default`, `file: PATH`, `env: GSD_DB`, or `flag: --db`. Despite the
+  inherited global flag, `gsd config --json` is a usage error (exit `2`).
+- `db_path` is intentionally reportable and non-sensitive, so v1 has no
+  redaction code or hooks. The reporting contract must be revisited before
+  adding any future sensitive key.
+- Color accepts `--color=auto|always|never` with an explicit value.
+  Resolution is the explicit `--color` flag, then nonempty `NO_COLOR`, then
+  destination-aware `auto`, evaluated per output stream (CLI-OUTPUT-001/002).
+  Auto disables color for non-terminals and `TERM=dumb`; `FORCE_COLOR`,
+  `CLICOLOR`, and `CLICOLOR_FORCE` are not consulted. JSON output never
+  contains ANSI sequences, including under `--color=always`.
 
 ## Database
 
 The default path is `$XDG_DATA_HOME/gsd/gsd.db`, falling back to
 `~/.local/share/gsd/gsd.db`. Precedence is `--db PATH`, then nonempty `GSD_DB`,
-then config-file `db_path`, then the default. Parent directories are created
-when opening the database. During throwaway-data milestones, only a genuinely
-empty version-0 database is bootstrapped; a nonempty version-0 or differently
-versioned database fails with `conflict` and delete-your-dev-db guidance.
+then config-file `db_path`, then the default. Empty `GSD_DB` and explicit
+`--db ""` fall through instead of overriding a lower-precedence value; this is
+a database-path compatibility rule, not a general contract for future config
+keys. Relative file values are resolved from the config file's directory;
+relative env and flag values are resolved from the working directory. The
+`gsd config` report uses the corresponding absolute runtime location so
+redirected TOML preserves that location when reloaded from another directory.
+Parent directories are created when opening the database. During
+throwaway-data milestones, only a genuinely empty version-0 database is
+bootstrapped; a nonempty version-0 or differently versioned database fails
+with `conflict` and delete-your-dev-db guidance.
 
 ## TUI (post-v1)
 

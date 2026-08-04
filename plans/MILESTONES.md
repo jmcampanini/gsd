@@ -64,13 +64,27 @@ schema byte-for-byte with `SCHEMA.md`. Consolidation also landed the
 store transaction seam across all stores, read-then-validate guard
 classification, and the shared `internal/domain` validation package.
 
+### Milestone 6 — Config
+
+Delivered the canonical v1 config contract: a discovered or explicit
+TOML file loaded through go-config-loader with defaults → file → env →
+flag precedence and fail-loud invalid-file handling, db-path resolution
+moved onto the loaded config, and the TOML-only `gsd config` report
+with normalized `--provenance` source comments. Landed the settled
+visual system — standards-pure per-stream color modes,
+background-adaptive Catppuccin accents, quiet-headed collection tables,
+glyph-led records and mutation lines, and `├`/`└` cascade trees — while
+JSON envelopes stayed byte-identical to Milestone 5. Consolidation also
+landed the root/core store split, read-then-delete cascades,
+service-owned read-path tag resolution, `domain.TagNames`, and
+alphabetical tag arrays (`user_version` 9006).
+
 ## Active roadmap
 
-Active planning begins with the Config milestone:
+Active planning begins with the Reorder milestone:
 
 | # | Milestone | Capability delivered | Data mode |
 |---|-----------|----------------------|-----------|
-| 6 | [Config](MILESTONE_6.md) | Config file via go-config-loader; color modes | throwaway |
 | 7 | [Reorder](MILESTONE_7.md) | Manual ordering | throwaway |
 | 8 | [Search](MILESTONE_8.md) | FTS5 `search` | throwaway |
 | 9 | [Query](MILESTONE_9.md) | Read-only SQL; schema as public contract | throwaway |
@@ -104,8 +118,9 @@ effort described as a forward-looking target in `COMMANDS.md` and
 - Schema is created incrementally per milestone rather than all up front.
 - Real data enters only during Go live, via an agent driving the CLI against an
   export from the current tool; no import code is added to gsd.
-- The canonical v1 config surface is minimal: `db_path` and `color` only. Its
-  contract is in `COMMANDS.md`, with implementation scheduled for Config.
+- The canonical v1 config surface is minimal: `db_path` only. Its contract
+  is in `COMMANDS.md`, with implementation scheduled for Config. Color is
+  flag and environment behavior (CLI-OUTPUT-001), never a config key.
 - Initial stack, data-policy, TUI-scope, error-rendering, and config decisions
   were settled during planning and implementation interviews on 2026-07-26
   and 2026-07-27, then reconciled into the canonical specifications.
@@ -120,3 +135,11 @@ effort described as a forward-looking target in `COMMANDS.md` and
   findings. The amended transaction-authority rule in `AGENTS.md` was
   ratified: stores own implementation-detail atomicity, services own
   use-case composition.
+- 2026-08-02, Milestone 6 planning: color was removed from the config
+  surface — the chain is strictly CLI-OUTPUT-001 (`--color` > nonempty
+  `NO_COLOR` > per-stream auto), with no `GSD_COLOR` and no TOML key. The
+  human-output styling system was settled by three blind pairwise test
+  rounds plus a glyph tournament: quiet-chrome collection tables, glyph-led
+  records and mutation lines, standard `├`/`└` cascade trees, and red/green
+  state accents drawn from Catppuccin Latte/Frappé selected by terminal
+  background, accents-only.

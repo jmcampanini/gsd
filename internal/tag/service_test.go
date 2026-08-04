@@ -38,7 +38,7 @@ type recordingStore struct {
 	deleteResult     Tag
 	deleteError      error
 	transactionCalls int
-	transactionStore Store
+	transactionStore Transaction
 	transactionError error
 	sequence         []string
 }
@@ -96,7 +96,7 @@ func (r *recordingStore) Delete(_ context.Context, name string) (Tag, error) {
 
 func (r *recordingStore) WithinTransaction(
 	ctx context.Context,
-	operation func(Store) error,
+	operation func(Transaction) error,
 ) error {
 	r.transactionCalls++
 	if r.transactionError != nil {
@@ -273,13 +273,11 @@ func TestListNormalizesNilAndPreservesStoreResults(t *testing.T) {
 	}
 }
 
-func TestDeleteOwnsFindCountDeleteTransactionAndReturnsDeletedTag(t *testing.T) {
+func TestDeleteOwnsCountDeleteTransactionAndReturnsDeletedTag(t *testing.T) {
 	t.Parallel()
 
-	found := Tag{ID: 7, Title: "errands", CreatedAt: "created", UpdatedAt: "updated"}
 	deleted := Tag{ID: 7, Title: "errands", CreatedAt: "created", UpdatedAt: "updated"}
 	transactionStore := &recordingStore{
-		findResult:       found,
 		countUsageResult: 3,
 		deleteResult:     deleted,
 	}
@@ -292,11 +290,10 @@ func TestDeleteOwnsFindCountDeleteTransactionAndReturnsDeletedTag(t *testing.T) 
 	if store.transactionCalls != 1 || store.findCalls+store.countUsageCalls+store.deleteCalls != 0 {
 		t.Errorf("outer calls = %#v, want one transaction boundary only", store)
 	}
-	if !reflect.DeepEqual(transactionStore.sequence, []string{"find", "count usage", "delete"}) {
-		t.Errorf("transaction sequence = %v, want find, count usage, delete", transactionStore.sequence)
+	if !reflect.DeepEqual(transactionStore.sequence, []string{"count usage", "delete"}) {
+		t.Errorf("transaction sequence = %v, want count usage then delete", transactionStore.sequence)
 	}
-	if transactionStore.findName != "ERRANDS" || transactionStore.countUsageName != "ERRANDS" ||
-		transactionStore.deleteName != "ERRANDS" {
+	if transactionStore.countUsageName != "ERRANDS" || transactionStore.deleteName != "ERRANDS" {
 		t.Errorf("transaction names = %#v, want caller identity delegated exactly", transactionStore)
 	}
 	if deletion.Tag != deleted || deletion.Detached != 3 {
@@ -326,10 +323,6 @@ func TestStoreAndTransactionErrorsPassThroughUnchanged(t *testing.T) {
 			return err
 		}},
 		{name: "transaction boundary", store: &recordingStore{transactionError: storeError}, apply: func(service *Service) error {
-			_, err := service.Delete(context.Background(), "valid")
-			return err
-		}},
-		{name: "delete find", store: &recordingStore{findError: storeError}, apply: func(service *Service) error {
 			_, err := service.Delete(context.Background(), "valid")
 			return err
 		}},

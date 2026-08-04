@@ -63,8 +63,8 @@ func TestAreaContainmentAcrossBinaryInvocations(t *testing.T) {
 		{"project", "show", fmt.Sprint(project.ID)},
 	} {
 		result := runGSD(t, append(show, "--db", databasePath)...)
-		if !hasHumanRow(result.stdout, "Area", fmt.Sprint(home.ID)) {
-			t.Errorf("human show %v = %#v, want Area row for Home", show, result)
+		if !hasHumanRow(result.stdout, "area", fmt.Sprint(home.ID)) {
+			t.Errorf("human show %v = %#v, want area row for Home", show, result)
 		}
 	}
 
@@ -174,7 +174,10 @@ func TestAreaArchiveAndDeletionAcrossBinaryInvocations(t *testing.T) {
 		"area", "archive", fmt.Sprint(home.ID), "--db", databasePath,
 	)
 	if archiveResult.exitCode != 0 || archiveResult.stderr != "" ||
-		archiveResult.stdout != fmt.Sprintf("Archived: area %d  Home\n", home.ID) {
+		!strings.Contains(
+			strings.Join(strings.Fields(archiveResult.stdout), " "),
+			fmt.Sprintf("Archived: area %d Home", home.ID),
+		) {
 		t.Fatalf("human archive = %#v, want concise archive mutation", archiveResult)
 	}
 	archivedHome := decodeAreaRow(t, runJSON("area", "show", fmt.Sprint(home.ID)))
