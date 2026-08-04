@@ -106,7 +106,7 @@ func TestTagsAddAdaptsNameAndWritesCompleteOutput(t *testing.T) {
 		&fakeTagApplication{addResult: tag.Tag{Title: "errands\x1b[31m"}},
 		"tags", "add", "errands",
 	)
-	if human.exitCode != 0 || human.stderr != "" || human.stdout != "Added tag errands\\x1b[31m\n" {
+	if human.exitCode != 0 || human.stderr != "" || human.stdout != "+ Added tag errands\\x1b[31m\n" {
 		t.Errorf("human result = %#v, want escaped add line", human)
 	}
 
@@ -147,8 +147,8 @@ func TestTagsListWritesCompleteJSONAndHeaderlessEscapedHumanRows(t *testing.T) {
 		t.Fatalf("human result = %#v, want headerless success", human)
 	}
 	lines := strings.Split(strings.TrimSuffix(human.stdout, "\n"), "\n")
-	if len(lines) != 2 || strings.Join(strings.Fields(lines[0]), " ") != "home 0" ||
-		strings.Join(strings.Fields(lines[1]), " ") != "work\\turgent 12" {
+	if len(lines) != 2 || strings.Join(strings.Fields(lines[0]), " ") != "#home 0" ||
+		strings.Join(strings.Fields(lines[1]), " ") != "#work\\turgent 12" {
 		t.Errorf("stdout = %q, want escaped name/count rows", human.stdout)
 	}
 	if strings.Contains(human.stdout, "\t") {
@@ -189,7 +189,7 @@ func TestTagsRenameAndDeleteAdaptArgumentsAndOutputShapes(t *testing.T) {
 		}},
 		"tags", "rename", "OLD-TYPED", "new-typed",
 	)
-	if renameHuman.exitCode != 0 || renameHuman.stderr != "" || renameHuman.stdout != "Renamed tag old\\rstored to new\\x1bstored\n" {
+	if renameHuman.exitCode != 0 || renameHuman.stderr != "" || renameHuman.stdout != "~ Renamed tag old\\rstored to new\\x1bstored\n" {
 		t.Errorf("rename human = %#v, want escaped stored spellings", renameHuman)
 	}
 
@@ -214,8 +214,8 @@ func TestTagsRenameAndDeleteAdaptArgumentsAndOutputShapes(t *testing.T) {
 		count int64
 		want  string
 	}{
-		{count: 0, want: "Deleted tag out-and-about (detached from 0 items)\n"},
-		{count: 1, want: "Deleted tag out-and-about (detached from 1 item)\n"},
+		{count: 0, want: "− Deleted tag out-and-about (detached from 0 items)\n"},
+		{count: 1, want: "− Deleted tag out-and-about (detached from 1 item)\n"},
 	} {
 		human := runTagCommand(t, &fakeTagApplication{deleteResult: tag.Deletion{Tag: renamed, Detached: test.count}}, "tags", "delete", "out-and-about")
 		if human.exitCode != 0 || human.stderr != "" || human.stdout != test.want {

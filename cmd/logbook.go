@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 	"strconv"
 	"time"
 
@@ -29,17 +28,13 @@ func newLogbookCommand(
 					return writeJSON(command.OutOrStdout(), entries)
 				}
 
-				return writeLogbook(command.OutOrStdout(), entries, location)
+				return options.presentation.output(command).writeLogbook(entries, location)
 			})
 		},
 	}
 }
 
-func writeLogbook(writer io.Writer, entries []logbook.Entry, location *time.Location) error {
-	if len(entries) == 0 {
-		return nil
-	}
-
+func (o humanOutput) writeLogbook(entries []logbook.Entry, location *time.Location) error {
 	rows := make([][]string, 0, len(entries))
 	for _, entry := range entries {
 		resolvedAt, err := time.Parse(time.RFC3339Nano, entry.ResolvedAt)
@@ -50,10 +45,15 @@ func writeLogbook(writer io.Writer, entries []logbook.Entry, location *time.Loca
 			humanText(entry.Kind, false),
 			strconv.FormatInt(entry.ID, 10),
 			humanText(entry.Title, false),
-			humanText(entry.Status, false),
+			o.statusWord(entry.Status),
 			resolvedAt.In(location).Format(time.DateOnly),
 		})
 	}
 
-	return writeTable(writer, rows)
+	return o.writeCollection(
+		[]string{"kind", "id", "title", "status", "date"},
+		rows,
+		1,
+		0, 1, 4,
+	)
 }

@@ -125,6 +125,7 @@ effort described as a forward-looking target in `COMMANDS.md` and
   surface — the chain is strictly CLI-OUTPUT-001 (`--color` > nonempty
   `NO_COLOR` > per-stream auto), with no `GSD_COLOR` and no TOML key. The
   human-output styling system was settled by three blind pairwise test
-  rounds: quiet-chrome collection tables, glyph-led records and mutation
-  lines, and red/green state accents drawn from Catppuccin Latte/Frappé
-  selected by terminal background, accents-only.
+  rounds plus a glyph tournament: quiet-chrome collection tables, glyph-led
+  records and mutation lines, standard `├`/`└` cascade trees, and red/green
+  state accents drawn from Catppuccin Latte/Frappé selected by terminal
+  background, accents-only.

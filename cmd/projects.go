@@ -50,7 +50,7 @@ func newProjectsAddCommand(options *rootOptions, factory applicationFactory) *co
 				if addErr != nil {
 					return addErr
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, created, writeAddedProject)
+				return writeCommandOutput(command, options, created, humanOutput.writeAddedProject)
 			})
 		},
 	}
@@ -83,7 +83,7 @@ func newProjectsListCommand(options *rootOptions, factory applicationFactory) *c
 				if listErr != nil {
 					return listErr
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, projects, writeProjectList)
+				return writeCommandOutput(command, options, projects, humanOutput.writeProjectList)
 			})
 		},
 	}
@@ -137,7 +137,7 @@ func newProjectShowCommand(options *rootOptions, factory applicationFactory) *co
 				if showErr != nil {
 					return showErr
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, found, writeProject)
+				return writeCommandOutput(command, options, found, humanOutput.writeProject)
 			})
 		},
 	}
@@ -198,7 +198,7 @@ func newProjectTaggingCommand(
 					return writeJSON(command.OutOrStdout(), tagging.Project)
 				}
 
-				return writeProjectTagging(command.OutOrStdout(), action, tagging)
+				return options.presentation.output(command).writeProjectTagging(action, tagging)
 			})
 		},
 	}
@@ -253,7 +253,7 @@ func newProjectResolveCommand(
 					return writeJSON(command.OutOrStdout(), resolution)
 				}
 
-				return writeProjectResolution(command.OutOrStdout(), action, resolution)
+				return options.presentation.output(command).writeProjectResolution(action, resolution)
 			})
 		},
 	}
@@ -279,7 +279,7 @@ func newProjectReopenCommand(options *rootOptions, factory applicationFactory) *
 					return writeJSON(command.OutOrStdout(), reopened)
 				}
 
-				return writeProjectMutation(command.OutOrStdout(), "Reopened", reopened)
+				return options.presentation.output(command).writeProjectMutation("Reopened", reopened)
 			})
 		},
 	}
@@ -317,7 +317,7 @@ func newProjectDeleteCommand(options *rootOptions, factory applicationFactory) *
 					return writeJSON(command.OutOrStdout(), deletion.Project)
 				}
 
-				return writeProjectDeletion(command.OutOrStdout(), deletion)
+				return options.presentation.output(command).writeProjectDeletion(deletion)
 			})
 		},
 	}
@@ -376,7 +376,7 @@ func newProjectEditCommand(options *rootOptions, factory applicationFactory) *co
 					return writeJSON(command.OutOrStdout(), edited)
 				}
 
-				return writeProjectMutation(command.OutOrStdout(), "Edited", edited)
+				return options.presentation.output(command).writeProjectMutation("Edited", edited)
 			})
 		},
 	}

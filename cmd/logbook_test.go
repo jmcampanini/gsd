@@ -174,10 +174,11 @@ func TestLogbookHumanOutputPreservesOrderAndUsesLocalCalendarDay(t *testing.T) {
 		t.Fatalf("result = %#v, want human success", result)
 	}
 	lines := strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n")
-	if len(lines) != 2 ||
-		strings.Join(strings.Fields(lines[0]), " ") != "project 12 First cancelled 2026-07-27" ||
-		strings.Join(strings.Fields(lines[1]), " ") != "task 3 Second done 2026-07-28" {
-		t.Errorf("stdout = %q, want ordered local-day rows", result.stdout)
+	if len(lines) != 3 ||
+		strings.Join(strings.Fields(lines[0]), " ") != "kind id title status date" ||
+		strings.Join(strings.Fields(lines[1]), " ") != "project 12 First cancelled 2026-07-27" ||
+		strings.Join(strings.Fields(lines[2]), " ") != "task 3 Second done 2026-07-28" {
+		t.Errorf("stdout = %q, want headed ordered local-day rows", result.stdout)
 	}
 	if strings.Contains(result.stdout, "\x1b[") {
 		t.Errorf("stdout = %q, want no ANSI", result.stdout)

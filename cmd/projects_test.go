@@ -406,7 +406,7 @@ func TestProjectAddAndEditAdaptFieldsAndOutput(t *testing.T) {
 		"Kitchen reno",
 	)
 	if humanAdd.exitCode != 0 || humanAdd.stderr != "" ||
-		humanAdd.stdout != "Added project 7: Kitchen reno\n" {
+		humanAdd.stdout != "+ Added project 7: Kitchen reno\n" {
 		t.Errorf("human add result = %#v, want project add narration", humanAdd)
 	}
 
@@ -426,7 +426,7 @@ func TestProjectAddAndEditAdaptFieldsAndOutput(t *testing.T) {
 	if editResult.exitCode != 0 || editResult.stderr != "" {
 		t.Fatalf("edit result = %#v, want success", editResult)
 	}
-	if editResult.stdout != "Edited: project 7  Bathroom\n" {
+	if editResult.stdout != "~ Edited: project 7  Bathroom\n" {
 		t.Errorf("stdout = %q, want project edit narration", editResult.stdout)
 	}
 	if editApplication.editID != 7 || editApplication.editFields.Title == nil ||
@@ -497,7 +497,7 @@ func TestProjectTagCommandsAdaptExactNamesAndOutputShapes(t *testing.T) {
 		"errands",
 		"HOME",
 	)
-	requireProjectCommandHumanOutput(t, untagResult, "Untagged: project 8  Errands, Home\\x1b\n")
+	requireProjectCommandHumanOutput(t, untagResult, "−# Untagged: project 8  #Errands #Home\\x1b\n")
 	if untagApplication.untagID != 8 || !reflect.DeepEqual(untagApplication.untagNames, []string{"errands", "HOME"}) {
 		t.Errorf(
 			"Untag() arguments = (%d, %#v), want (8, exact names)",
@@ -586,10 +586,11 @@ func TestProjectListAdaptsStatusAndHumanOutput(t *testing.T) {
 		t.Errorf("List() options = %#v, want default open", application.listOptions)
 	}
 	lines := strings.Split(strings.TrimSpace(result.stdout), "\n")
-	if len(lines) != 2 ||
-		strings.Join(strings.Fields(lines[0]), " ") != "1 Kitchen reno open" ||
-		strings.Join(strings.Fields(lines[1]), " ") != "12 Bathroom done" {
-		t.Errorf("stdout = %q, want headerless ID/title/status rows", result.stdout)
+	if len(lines) != 3 ||
+		strings.Join(strings.Fields(lines[0]), " ") != "id title status" ||
+		strings.Join(strings.Fields(lines[1]), " ") != "1 Kitchen reno open" ||
+		strings.Join(strings.Fields(lines[2]), " ") != "12 Bathroom done" {
+		t.Errorf("stdout = %q, want headed ID/title/status rows", result.stdout)
 	}
 
 	allApplication := &fakeProjectApplication{listResult: []project.Project{}}
@@ -627,26 +628,25 @@ func TestProjectShowUsesSchemaOrderFieldValueTable(t *testing.T) {
 		t.Errorf("Show() ID = %d, want 7", application.showID)
 	}
 
-	wantLabels := []string{
-		"ID",
-		"Area",
-		"Title",
-		"Note",
-		"Done at",
-		"Cancelled at",
-		"Status",
-		"Position",
-		"Created at",
-		"Updated at",
-		"Tags",
+	wantRows := []string{
+		"✓ 7 Kitchen reno",
+		"area 3",
+		"note Budget: 20k",
+		"done at 2026-07-28T12:00:00.000Z",
+		"cancelled at",
+		"status done",
+		"position 2",
+		"created at 2026-07-27T12:00:00.000Z",
+		"updated at 2026-07-28T12:00:00.000Z",
+		"tags",
 	}
 	lines := strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n")
-	if len(lines) != len(wantLabels) {
-		t.Fatalf("stdout lines = %q, want %d schema rows", result.stdout, len(wantLabels))
+	if len(lines) != len(wantRows) {
+		t.Fatalf("stdout lines = %q, want %d headline/outline rows", result.stdout, len(wantRows))
 	}
-	for index, label := range wantLabels {
-		if !strings.HasPrefix(strings.TrimSpace(lines[index]), label) {
-			t.Errorf("row %d = %q, want label %q", index, lines[index], label)
+	for index, want := range wantRows {
+		if got := strings.Join(strings.Fields(lines[index]), " "); got != want {
+			t.Errorf("row %d = %q, want %q", index, got, want)
 		}
 	}
 	if strings.Contains(result.stdout, "\x1b[") {
@@ -770,9 +770,9 @@ func TestProjectLifecycleHumanNarration(t *testing.T) {
 		"done",
 		"7",
 	)
-	wantDone := "Done: project 7  Kitchen\\x1b[31m\n" +
+	wantDone := "✓ Done: project 7  Kitchen\\x1b[31m\n" +
 		"Cancelled 1 open task:\n" +
-		"  3  Pick\\rtiles\\nnow\n"
+		"  └ 3  Pick\\rtiles\\nnow\n"
 	requireProjectCommandHumanOutput(t, doneResult, wantDone)
 	if strings.ContainsAny(doneResult.stdout, "\x1b\r") {
 		t.Errorf("done stdout = %q, want terminal controls escaped", doneResult.stdout)
@@ -791,10 +791,10 @@ func TestProjectLifecycleHumanNarration(t *testing.T) {
 		"cancel",
 		"8",
 	)
-	wantCancel := "Cancelled: project 8  Abandon\n" +
+	wantCancel := "✗ Cancelled: project 8  Abandon\n" +
 		"Cancelled 2 open tasks:\n" +
-		"  4  First\n" +
-		"  3  Second\n"
+		"  ├ 4  First\n" +
+		"  └ 3  Second\n"
 	requireProjectCommandHumanOutput(t, cancelResult, wantCancel)
 
 	zeroResult := runProjectCommand(
@@ -807,7 +807,7 @@ func TestProjectLifecycleHumanNarration(t *testing.T) {
 		"done",
 		"10",
 	)
-	requireProjectCommandHumanOutput(t, zeroResult, "Done: project 10  Already clear\n")
+	requireProjectCommandHumanOutput(t, zeroResult, "✓ Done: project 10  Already clear\n")
 
 	reopenResult := runProjectCommand(
 		t,
@@ -816,7 +816,7 @@ func TestProjectLifecycleHumanNarration(t *testing.T) {
 		"reopen",
 		"10",
 	)
-	requireProjectCommandHumanOutput(t, reopenResult, "Reopened: project 10  Again\n")
+	requireProjectCommandHumanOutput(t, reopenResult, "~ Reopened: project 10  Again\n")
 }
 
 func TestProjectRecursiveDeleteHumanNarration(t *testing.T) {
@@ -836,10 +836,10 @@ func TestProjectRecursiveDeleteHumanNarration(t *testing.T) {
 		"9",
 		"--recursive",
 	)
-	want := "Deleted: project 9  Doomed\n" +
+	want := "− Deleted: project 9  Doomed\n" +
 		"Deleted 2 tasks:\n" +
-		"  1  First\n" +
-		"  2  Second\n"
+		"  ├ 1  First\n" +
+		"  └ 2  Second\n"
 	requireProjectCommandHumanOutput(t, result, want)
 
 	emptyResult := runProjectCommand(
@@ -853,7 +853,7 @@ func TestProjectRecursiveDeleteHumanNarration(t *testing.T) {
 		"10",
 		"--recursive",
 	)
-	requireProjectCommandHumanOutput(t, emptyResult, "Deleted: project 10  Empty\n")
+	requireProjectCommandHumanOutput(t, emptyResult, "− Deleted: project 10  Empty\n")
 }
 
 func TestProjectEditWithoutFieldsFailsBeforeOpeningApplication(t *testing.T) {
@@ -920,10 +920,10 @@ func TestTaskShowPlacesContainmentAfterID(t *testing.T) {
 		t.Fatalf("result = %#v, want success", result)
 	}
 	lines := strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n")
-	if len(lines) < 3 || strings.Join(strings.Fields(lines[0]), " ") != "ID 7" ||
-		strings.Join(strings.Fields(lines[1]), " ") != "Project 4" ||
-		strings.Join(strings.Fields(lines[2]), " ") != "Area 5" {
-		t.Errorf("first rows = %q, want ID, Project, then Area", result.stdout)
+	if len(lines) < 3 || strings.Join(strings.Fields(lines[0]), " ") != "• 7 Get quotes" ||
+		strings.Join(strings.Fields(lines[1]), " ") != "project 4" ||
+		strings.Join(strings.Fields(lines[2]), " ") != "area 5" {
+		t.Errorf("first rows = %q, want headline, project, then area", result.stdout)
 	}
 }
 

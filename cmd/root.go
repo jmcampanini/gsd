@@ -25,8 +25,10 @@ import (
 var Version = "dev"
 
 type rootOptions struct {
-	configPath string
-	json       bool
+	configPath   string
+	json         bool
+	color        colorMode
+	presentation *presentation
 }
 
 type applications struct {
@@ -52,6 +54,9 @@ func execute(root *cobra.Command, args []string) int {
 	root.SetArgs(args)
 	if err := root.Execute(); err != nil {
 		jsonMode, _ := root.PersistentFlags().GetBool("json")
+		if available := presentationFrom(root); available != nil {
+			_, _ = available.profile(root.ErrOrStderr(), root.PersistentFlags().Changed("color"))
+		}
 		_ = writeCommandError(root.ErrOrStderr(), jsonMode, err)
 		return exitCodeForError(err)
 	}
@@ -79,7 +84,27 @@ func newRootCommandWithDependencies(
 	loadConfiguration configurationLoader,
 	location *time.Location,
 ) *cobra.Command {
-	options := &rootOptions{}
+	return newRootCommandWithRuntimeDependencies(
+		factory,
+		loadConfiguration,
+		location,
+		defaultPresentationDependencies(),
+	)
+}
+
+func newRootCommandWithRuntimeDependencies(
+	factory applicationFactory,
+	loadConfiguration configurationLoader,
+	location *time.Location,
+	presentationDependencies presentationDependencies,
+) *cobra.Command {
+	options := &rootOptions{color: colorAuto}
+	availablePresentation := &presentation{
+		mode:         &options.color,
+		dependencies: presentationDependencies,
+		location:     location,
+	}
+	options.presentation = availablePresentation
 	root := &cobra.Command{
 		Use:           "gsd",
 		Short:         "Get shit done",
@@ -97,6 +122,12 @@ func newRootCommandWithDependencies(
 		panic(fmt.Sprintf("register config flags: %v", err))
 	}
 	root.PersistentFlags().BoolVar(&options.json, "json", false, "emit JSON output")
+	root.PersistentFlags().Var(
+		colorValue{mode: &options.color},
+		"color",
+		"control color output: auto, always, or never",
+	)
+	root.SetContext(context.WithValue(context.Background(), presentationContextKey{}, availablePresentation))
 	root.AddCommand(
 		newAddCommand(options, factory),
 		newAreaCommand(options, factory),

@@ -11,12 +11,12 @@ acceptance boundary. Both artifacts are retired at consolidation.
 - [x] Chunk 0 — Milestone 5 consolidation
 - [x] Chunk 1 — Config loader integration
 - [x] Chunk 2 — `gsd config` report
-- [ ] Chunk 3 — Color resolution and styled human output
+- [x] Chunk 3 — Color resolution and styled human output
 
 ## Settled contract deltas
 
-Decisions from the 2026-08-02 planning interview and the three blind pairwise
-styling tests, already reconciled into `plans/MILESTONE_6.md`,
+Decisions from the 2026-08-02 planning interview, three blind pairwise
+styling tests, and the glyph tournament, already reconciled into `plans/MILESTONE_6.md`,
 `plans/COMMANDS.md`, and `plans/MILESTONES.md`:
 
 - **Color is not configuration.** The only v1 config key is `db_path`. The
@@ -83,20 +83,21 @@ styling tests, already reconciled into `plans/MILESTONE_6.md`,
 - **JSON envelopes are byte-identical to Milestone 5.** Only human output
   changes.
 
-## Style guide (blind-test verdicts)
+## Style guide (blind-test and glyph-tournament verdicts)
 
 Accent palette — the only hues in the system, accents-only (plain text and
 faint hierarchy never carry palette colors):
 
 | Accent | Latte (light) | Frappé (dark) | Applied to |
 |--------|---------------|---------------|------------|
-| green  | `#40a02b`     | `#a6d189`     | `✓`, `+`, `done` status words |
-| red    | `#d20f39`     | `#e78284`     | `✗`, `−`, `cancelled` status words, urgent due dates |
+| green  | `#40a02b`     | `#a6d189`     | `✓`, `+`, the `+` in `+#`, `done` status words |
+| red    | `#d20f39`     | `#e78284`     | `✗`, `−`, the `−` in `−#`, `cancelled`/`archived` status, urgent due dates |
 
 Grammar: **faint** = metadata (IDs, kinds, counts, timestamps, headers,
-non-urgent dates) · **bold** = urgency (due today or overdue, combined with
-red) · **glyphs** = records and events · **headers** = whisper · identity
-markers (`#`, `•`, `◆`, `└`) stay monochrome.
+non-urgent dates) · **bold** = urgency (due today or overdue on open tasks,
+combined with red) · **glyphs** = records and events · **headers** = whisper ·
+identity and structure markers (`#`, `•`, `◆`, `●`, `├`, `└`) stay
+monochrome.
 
 Per surface:
 
@@ -108,17 +109,18 @@ Per surface:
   bold red. Current 2-space gutter geometry is preserved.
 - **`tags`**: headerless `#name  count` rows — faint `#`, plain name, faint
   count.
-- **`show`**: status-glyph headline (`• 12  Book dentist appointment` — glyph
-  reflects entity status), then indented lowercase faint field labels with
-  plain values; empty fields kept; note keeps line breaks; tags render as
-  `#a #b` with faint `#`.
-- **Mutation lines**: verb-class glyph prefix on today's payloads —
-  `+` add (tasks, projects, areas, tags), `−` delete, `✓` done,
-  `✗` cancel, `#` tag/untag, `•` other mutations (edit, reopen, rename,
-  archive, unarchive, move). Glyphs colored by outcome class (green/red);
-  neutral glyphs monochrome; IDs faint; tag names after `#` plain.
+- **`show`**: status-glyph headline, then indented lowercase faint field
+  labels with plain values. Open task = `•`; open project = `◆`; active area =
+  `●`; done task/project = `✓`; cancelled task/project and archived area =
+  `✗`. Empty fields stay; note keeps line breaks; tags render as `#a #b` with
+  faint `#`.
+- **Mutation lines**: verb-class glyph prefix on today's payloads — `+` add
+  (tasks, projects, areas, tags), `−` delete, `✓` done, `✗` cancel/archive,
+  `+#` tag, `−#` untag, `~` other mutations (edit, reopen, rename, unarchive,
+  move). Outcome glyphs are green/red; neutral glyphs are monochrome; IDs are
+  faint; tag names after `#` are plain.
 - **Recursive delete narration**: glyph-prefixed verb line, plain count line,
-  `└`-tree children with faint ids.
+  `├` intermediate children and `└` final children, with faint IDs.
 - **stderr**: unstyled in v1; the resolver still evaluates stderr
   independently so styling it later is a one-line change.
 
@@ -224,19 +226,19 @@ Human outcome: gsd's human surface becomes the settled visual system —
 readable hierarchy, glyph vocabulary, and adaptive red/green accents — while
 redirected and JSON output stay byte-clean.
 
-- [ ] Color resolver in cmd: pure per-stream function
+- [x] Color resolver in cmd: pure per-stream function
       (flag > nonempty `NO_COLOR` > auto), `pflag.Value` for
       `--color=auto|always|never` (bare or invalid value → usage, exit 2),
       `TERM=dumb` and non-terminal disable in auto, scrubbed-env
       colorprofile detection, `always` → TrueColor.
-- [ ] Background query once via `HasDarkBackground` when stdout styling is
+- [x] Background query once via `HasDarkBackground` when stdout color styling is
       active on a terminal; Frappé default otherwise; `LightDark` accent
       selection.
-- [ ] Shared writers restyled to the style guide: quiet-headed collection
+- [x] Shared writers restyled to the style guide: quiet-headed collection
       tables (headers only when rows exist), `#` tags surface, glyph-headline
-      `show`, verb-class glyph mutation lines, `└`-tree delete narration.
+      `show`, verb-class glyph mutation lines, `├`/`└` tree delete narration.
       JSON writers untouched.
-- [ ] Test owners: resolver unit tests in cmd own the full mode matrix
+- [x] Test owners: resolver unit tests in cmd own the full mode matrix
       including both TTY branches (terminal-ness injected — the only faithful
       owner, since subprocesses have no pty); writer tests in cmd own
       rendered structure and ANSI presence/absence per mode for
@@ -244,12 +246,12 @@ redirected and JSON output stay byte-clean.
       `--color=always` pipe carries ANSI, `--color=always` beats `NO_COLOR`,
       `NO_COLOR` clean, supported `--json` clean under `--color=always`,
       `TERM=dumb` clean.
-- [ ] Human proof (demo `milestone-6-chunk-3.html`, ANSI converted to HTML
+- [x] Human proof (demo `milestone-6-chunk-3.html`, ANSI converted to HTML
       spans by the demo generator): `gsd available`, `gsd list --status all`,
       `gsd show N`, `gsd logbook`, `gsd tags`, a done/cancel/delete
       narration sequence; `gsd inbox > inbox.txt && cat -v inbox.txt`;
       `NO_COLOR=1 gsd inbox`; `gsd inbox --color=always | less -R`.
-- [ ] Agent verification: `make check` green; full color matrix via the
+- [x] Agent verification: `make check` green; full color matrix via the
       built binary.
 
 ## Agent-verified end-to-end workflow

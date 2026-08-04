@@ -37,7 +37,7 @@ func newTagsAddCommand(options *rootOptions, factory applicationFactory) *cobra.
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, created, writeAddedTag)
+				return writeCommandOutput(command, options, created, humanOutput.writeAddedTag)
 			})
 		},
 	}
@@ -54,7 +54,7 @@ func newTagsListCommand(options *rootOptions, factory applicationFactory) *cobra
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, listed, writeTagList)
+				return writeCommandOutput(command, options, listed, humanOutput.writeTagList)
 			})
 		},
 	}
@@ -75,8 +75,7 @@ func newTagsRenameCommand(options *rootOptions, factory applicationFactory) *cob
 					return writeJSON(command.OutOrStdout(), renaming.Tag)
 				}
 
-				return writeRenamedTag(
-					command.OutOrStdout(),
+				return options.presentation.output(command).writeRenamedTag(
 					renaming.PreviousTitle,
 					renaming.Tag.Title,
 				)
@@ -96,7 +95,7 @@ func newTagsDeleteCommand(options *rootOptions, factory applicationFactory) *cob
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, deletion, writeTagDeletion)
+				return writeCommandOutput(command, options, deletion, humanOutput.writeTagDeletion)
 			})
 		},
 	}

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/task"
 	_ "modernc.org/sqlite"
@@ -402,6 +403,74 @@ func TestConfigReportRoundTripsWithoutOpeningDatabase(t *testing.T) {
 		if _, err := os.Stat(databasePath); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("reported database %q stat error = %v, want not created", databasePath, err)
 		}
+	}
+}
+
+func TestPipedColorModes(t *testing.T) {
+	t.Parallel()
+
+	dir, err := os.MkdirTemp(workDir, "color-")
+	if err != nil {
+		t.Fatalf("create color workflow directory: %v", err)
+	}
+	databasePath := filepath.Join(dir, "gsd.db")
+	created := runGSD(t, "add", "Visible task", "--db", databasePath, "--json")
+	if created.exitCode != 0 || created.stderr != "" {
+		t.Fatalf("create color fixture = %#v, want success", created)
+	}
+
+	plain := runGSD(t, "inbox", "--db", databasePath)
+	if plain.exitCode != 0 || plain.stderr != "" || strings.Contains(plain.stdout, "\x1b[") ||
+		!strings.Contains(plain.stdout, "id") || !strings.Contains(plain.stdout, "Visible task") {
+		t.Fatalf("default piped output = %#v, want clean headed human output", plain)
+	}
+
+	always := runGSD(t, "inbox", "--db", databasePath, "--color=always")
+	if always.exitCode != 0 || always.stderr != "" || !strings.Contains(always.stdout, "\x1b[") {
+		t.Fatalf("forced piped output = %#v, want ANSI", always)
+	}
+	alwaysWithNoColor := runGSDWithEnv(
+		t,
+		map[string]string{"NO_COLOR": "1"},
+		"inbox", "--db", databasePath, "--color=always",
+	)
+	if alwaysWithNoColor.exitCode != 0 || !strings.Contains(alwaysWithNoColor.stdout, "\x1b[") {
+		t.Errorf("forced output with NO_COLOR = %#v, want explicit flag to win", alwaysWithNoColor)
+	}
+
+	never := runGSD(t, "inbox", "--db", databasePath, "--color=never")
+	if never.exitCode != 0 || never.stderr != "" || strings.Contains(never.stdout, "\x1b[") {
+		t.Fatalf("never output = %#v, want no ANSI", never)
+	}
+	if stripped := ansi.Strip(always.stdout); stripped != never.stdout {
+		t.Errorf("forced output stripped = %q, want mode-independent structure %q", stripped, never.stdout)
+	}
+	showAlways := runGSD(t, "show", "1", "--db", databasePath, "--color=always")
+	showNever := runGSD(t, "show", "1", "--db", databasePath, "--color=never")
+	if showAlways.exitCode != 0 || showNever.exitCode != 0 ||
+		!strings.HasPrefix(showNever.stdout, "• 1  Visible task\n") ||
+		ansi.Strip(showAlways.stdout) != showNever.stdout {
+		t.Errorf("forced/plain show = %#v/%#v, want mode-independent glyph and detail structure", showAlways, showNever)
+	}
+
+	noColor := runGSDWithEnv(t, map[string]string{"NO_COLOR": "false"}, "inbox", "--db", databasePath)
+	if noColor.exitCode != 0 || strings.Contains(noColor.stdout, "\x1b[") {
+		t.Errorf("NO_COLOR output = %#v, want any nonempty value to disable ANSI", noColor)
+	}
+	dumb := runGSDWithEnv(t, map[string]string{"TERM": "dumb"}, "inbox", "--db", databasePath)
+	if dumb.exitCode != 0 || strings.Contains(dumb.stdout, "\x1b[") {
+		t.Errorf("TERM=dumb output = %#v, want auto mode without ANSI", dumb)
+	}
+
+	jsonResult := runGSD(t, "inbox", "--db", databasePath, "--json", "--color=always")
+	if jsonResult.exitCode != 0 || jsonResult.stderr != "" || strings.Contains(jsonResult.stdout, "\x1b[") {
+		t.Errorf("forced JSON output = %#v, want ANSI-free JSON", jsonResult)
+	}
+	decodeTasks(t, jsonResult)
+
+	humanError := runGSD(t, "show", "999", "--db", databasePath, "--color=always")
+	if humanError.exitCode != 1 || humanError.stdout != "" || strings.Contains(humanError.stderr, "\x1b[") {
+		t.Errorf("forced human error = %#v, want unstyled stderr", humanError)
 	}
 }
 
@@ -808,7 +877,7 @@ func TestTaskTimeWorkflow(t *testing.T) {
 			t.Errorf("initial due/overdue = %#v/%#v, want created task and empty overdue", due, initialOverdue)
 		}
 		if humanShow.exitCode != 0 || humanShow.stderr != "" ||
-			!strings.Contains(humanShow.stdout, "Due on") ||
+			!strings.Contains(humanShow.stdout, "due on") ||
 			!strings.Contains(humanShow.stdout, tomorrow) ||
 			strings.Contains(humanShow.stdout, "\x1b[") {
 			t.Errorf("human show = %#v, want plain labeled due date", humanShow)
@@ -846,8 +915,8 @@ func TestTaskTimeWorkflow(t *testing.T) {
 		}
 		normalizedHumanDeferred := strings.Join(strings.Fields(humanDeferred.stdout), " ")
 		if humanDeferred.exitCode != 0 || humanDeferred.stderr != "" ||
-			!strings.Contains(normalizedHumanDeferred, "Due on "+capturedDate) ||
-			!strings.Contains(normalizedHumanDeferred, "Defer until "+tomorrow) ||
+			!strings.Contains(normalizedHumanDeferred, "due on "+capturedDate) ||
+			!strings.Contains(normalizedHumanDeferred, "defer until "+tomorrow) ||
 			strings.Contains(humanDeferred.stdout, "\x1b[") {
 			t.Errorf("human deferred show = %#v, want plain labeled due and defer dates with values", humanDeferred)
 		}

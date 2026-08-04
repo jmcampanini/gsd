@@ -204,7 +204,7 @@ func TestAreaAddAdaptsStdinNoteAndWritesCompleteJSONRow(t *testing.T) {
 	human := runAreaCommand(t, &fakeAreaApplication{addResult: area.Area{
 		ID: 7, Title: "Home\x1b[31m",
 	}}, "areas", "add", "Home")
-	if human.exitCode != 0 || human.stderr != "" || human.stdout != "Added area 7: Home\\x1b[31m\n" {
+	if human.exitCode != 0 || human.stderr != "" || human.stdout != "+ Added area 7: Home\\x1b[31m\n" {
 		t.Errorf("human result = %#v, want escaped add narration", human)
 	}
 }
@@ -223,7 +223,7 @@ func TestAreaAddAccumulatesTagFlagsWithoutSplittingCommas(t *testing.T) {
 		"areas", "add", "Tagged", "--tag", "Errands", "--tag", "home,house", "--tag", "WORK",
 	)
 	if result.exitCode != 0 || result.stderr != "" ||
-		result.stdout != "Added area 8: Tagged  Errands, Home,House\n" {
+		result.stdout != "+ Added area 8: Tagged  #Errands #Home,House\n" {
 		t.Fatalf("result = %#v, want tagged add narration", result)
 	}
 	want := area.AddFields{Title: "Tagged", Tags: []string{"Errands", "home,house", "WORK"}}
@@ -269,7 +269,7 @@ func TestAreaUntagUsesStoredSpellingsForHumanOutput(t *testing.T) {
 	}}
 	result := runAreaCommand(t, application, "area", "untag", "7", "stored", "second")
 	if result.exitCode != 0 || result.stderr != "" ||
-		result.stdout != "Untagged: area 7  Stored\\x1b, Second\\rName\n" {
+		result.stdout != "−# Untagged: area 7  #Stored\\x1b #Second\\rName\n" {
 		t.Fatalf("result = %#v, want escaped stored tag spellings", result)
 	}
 	if application.untagID != 7 || !reflect.DeepEqual(application.untagNames, []string{"stored", "second"}) {
@@ -308,9 +308,10 @@ func TestAreaListUsesActiveSliceAndHumanArchiveMarker(t *testing.T) {
 		t.Errorf("List() options = %#v, want active slice", application.listOptions)
 	}
 	lines := strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n")
-	if len(lines) != 2 || strings.Join(strings.Fields(lines[0]), " ") != "1 Home" ||
-		strings.Join(strings.Fields(lines[1]), " ") != "12 Work archived" {
-		t.Errorf("stdout = %q, want headerless ID/title/archive rows", result.stdout)
+	if len(lines) != 3 || strings.Join(strings.Fields(lines[0]), " ") != "id title state" ||
+		strings.Join(strings.Fields(lines[1]), " ") != "1 Home" ||
+		strings.Join(strings.Fields(lines[2]), " ") != "12 Work archived" {
+		t.Errorf("stdout = %q, want headed ID/title/state rows", result.stdout)
 	}
 
 	empty := runAreaCommand(t, &fakeAreaApplication{}, "areas", "list")
@@ -356,7 +357,7 @@ func TestAreaListFlagsMapDirectlyToSlicesAndConflictBeforeOpen(t *testing.T) {
 	}
 }
 
-func TestAreaShowUsesSchemaOrderFieldValueTable(t *testing.T) {
+func TestAreaShowUsesStatusGlyphOutline(t *testing.T) {
 	t.Parallel()
 
 	archivedAt := "2026-07-28T12:00:00.000Z"
@@ -374,25 +375,26 @@ func TestAreaShowUsesSchemaOrderFieldValueTable(t *testing.T) {
 	if result.exitCode != 0 || result.stderr != "" || application.showID != 7 {
 		t.Fatalf("result/ID = %#v/%d, want successful show for 7", result, application.showID)
 	}
-	wantLabels := []string{"ID", "Title", "Note", "Archived at", "Position", "Created at", "Updated at", "Tags"}
-	lastIndex := -1
-	for _, label := range wantLabels {
-		index := strings.Index(result.stdout, label)
-		if index <= lastIndex {
-			t.Errorf("stdout = %q, want %q after preceding schema field", result.stdout, label)
-		}
-		lastIndex = index
+	wantRows := []string{
+		"✗ 7 Home",
+		"note first line",
+		"second\\tline\\x1b",
+		"archived at 2026-07-28T12:00:00.000Z",
+		"position 2",
+		"created at 2026-07-27T12:00:00.000Z",
+		"updated at 2026-07-28T12:00:00.000Z",
+		"tags #Errands #Home",
+	}
+	normalized := make([]string, 0, len(wantRows))
+	for _, line := range strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n") {
+		normalized = append(normalized, strings.Join(strings.Fields(line), " "))
+	}
+	if !reflect.DeepEqual(normalized, wantRows) {
+		t.Errorf("outline rows = %#v, want %#v", normalized, wantRows)
 	}
 	if !strings.Contains(result.stdout, "first line\n") ||
 		!strings.Contains(result.stdout, "second\\tline\\x1b") || strings.Contains(result.stdout, "\x1b") {
 		t.Errorf("stdout = %q, want linefeeds preserved and other controls escaped", result.stdout)
-	}
-	normalizedRows := make(map[string]bool)
-	for _, line := range strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n") {
-		normalizedRows[strings.Join(strings.Fields(line), " ")] = true
-	}
-	if !normalizedRows["Tags Errands, Home"] {
-		t.Errorf("stdout = %q, want rendered tags row", result.stdout)
 	}
 }
 
@@ -408,7 +410,7 @@ func TestAreaEditAdaptsOnlyChangedFieldsAndWritesHumanOutput(t *testing.T) {
 		strings.NewReader(note),
 		"area", "edit", "7", "--title", title, "--note", "-",
 	)
-	if result.exitCode != 0 || result.stderr != "" || result.stdout != "Edited: area 7  House\n" {
+	if result.exitCode != 0 || result.stderr != "" || result.stdout != "~ Edited: area 7  House\n" {
 		t.Fatalf("result = %#v, want edit narration", result)
 	}
 	if application.editID != 7 || application.editFields.Title == nil ||
@@ -425,7 +427,7 @@ func TestAreaArchiveAndUnarchiveAdaptLifecycleAndOutput(t *testing.T) {
 	archived := area.Area{ID: 7, Title: "Home\x1b", ArchivedAt: &archivedAt, Position: 2}
 	archiveApplication := &fakeAreaApplication{archiveResult: archived}
 	archive := runAreaCommand(t, archiveApplication, "area", "archive", "007")
-	if archive.exitCode != 0 || archive.stderr != "" || archive.stdout != "Archived: area 7  Home\\x1b\n" {
+	if archive.exitCode != 0 || archive.stderr != "" || archive.stdout != "✗ Archived: area 7  Home\\x1b\n" {
 		t.Fatalf("archive = %#v, want escaped mutation narration", archive)
 	}
 	if archiveApplication.archiveID != 7 || archive.opens != 1 || archive.closes != 1 {
@@ -520,7 +522,7 @@ func TestAreaDeleteHumanNarrationIncludesOnlyNonemptySections(t *testing.T) {
 		&fakeAreaApplication{deleteResult: area.Deletion{Area: area.Area{ID: 8, Title: "Empty"}}},
 		"area", "delete", "8", "--recursive",
 	)
-	if empty.exitCode != 0 || empty.stderr != "" || empty.stdout != "Deleted: area 8  Empty\n" {
+	if empty.exitCode != 0 || empty.stderr != "" || empty.stdout != "− Deleted: area 8  Empty\n" {
 		t.Errorf("empty recursive deletion = %#v, want mutation line without empty sections", empty)
 	}
 }
