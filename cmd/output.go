@@ -251,9 +251,6 @@ func (o humanOutput) writeNarratedProjects(projects []project.Project) error {
 }
 
 func (o humanOutput) writeOpenTaskList(tasks []task.ViewTask) error {
-	if len(tasks) == 0 {
-		return nil
-	}
 	rows := make([][]string, 0, len(tasks))
 	for _, current := range tasks {
 		rows = append(rows, []string{
@@ -271,9 +268,6 @@ func (o humanOutput) writeOpenTaskList(tasks []task.ViewTask) error {
 }
 
 func (o humanOutput) writeTaskList(tasks []task.Task) error {
-	if len(tasks) == 0 {
-		return nil
-	}
 	rows := make([][]string, 0, len(tasks))
 	for _, current := range tasks {
 		rows = append(rows, []string{
@@ -392,9 +386,6 @@ func (o humanOutput) writeNarration(action, noun string, rows []narratedRow) err
 }
 
 func (o humanOutput) writeProjectList(projects []project.Project) error {
-	if len(projects) == 0 {
-		return nil
-	}
 	rows := make([][]string, 0, len(projects))
 	for _, current := range projects {
 		rows = append(rows, []string{
@@ -412,9 +403,6 @@ func (o humanOutput) writeProjectList(projects []project.Project) error {
 }
 
 func (o humanOutput) writeTagList(tags []tag.ListedTag) error {
-	if len(tags) == 0 {
-		return nil
-	}
 	nameWidth := 0
 	visible := make([]string, len(tags))
 	for index, current := range tags {
@@ -436,9 +424,6 @@ func (o humanOutput) writeTagList(tags []tag.ListedTag) error {
 }
 
 func (o humanOutput) writeAreaList(areas []area.Area) error {
-	if len(areas) == 0 {
-		return nil
-	}
 	rows := make([][]string, 0, len(areas))
 	for _, current := range areas {
 		state := ""
@@ -617,6 +602,9 @@ func (o humanOutput) writeCollection(
 	rightAlignedColumn int,
 	faintColumns ...int,
 ) error {
+	if len(rows) == 0 {
+		return nil
+	}
 	columnCount := len(headers)
 	renderer := table.New().
 		Headers(headers...).

@@ -35,10 +35,6 @@ func newLogbookCommand(
 }
 
 func (o humanOutput) writeLogbook(entries []logbook.Entry, location *time.Location) error {
-	if len(entries) == 0 {
-		return nil
-	}
-
 	rows := make([][]string, 0, len(entries))
 	for _, entry := range entries {
 		resolvedAt, err := time.Parse(time.RFC3339Nano, entry.ResolvedAt)
