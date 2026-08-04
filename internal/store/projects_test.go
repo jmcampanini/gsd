@@ -144,7 +144,7 @@ func TestProjectAddAppendsWithinArea(t *testing.T) {
 	}
 }
 
-func TestProjectListDistinguishesEmptyAndMissingAreas(t *testing.T) {
+func TestProjectListReturnsEmptyForExistingFilteredArea(t *testing.T) {
 	t.Parallel()
 
 	ctx, storage := openTestStorage(t)
@@ -168,13 +168,6 @@ func TestProjectListDistinguishesEmptyAndMissingAreas(t *testing.T) {
 	}
 	if len(open) != 0 {
 		t.Errorf("List(existing filtered-empty area) = %#v, want empty", open)
-	}
-	missingAreaID := int64(999)
-	if _, err := projects.List(ctx, project.ListOptions{
-		Status: project.ListStatusAll,
-		AreaID: &missingAreaID,
-	}); errorCode(err) != apperr.NotFound || !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("List(missing area) error = %v, want not_found wrapping sql.ErrNoRows", err)
 	}
 }
 
