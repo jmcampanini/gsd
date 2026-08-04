@@ -7,12 +7,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
@@ -32,6 +34,45 @@ const (
 	glyphBranch      = "├"
 	glyphLastBranch  = "└"
 )
+
+type glyphAccent int
+
+const (
+	accentNone glyphAccent = iota
+	accentGreen
+	accentRed
+)
+
+// mutationVerb pairs a mutation's human label with its glyph class so a verb
+// cannot be reworded without carrying its glyph along.
+type mutationVerb struct {
+	label  string
+	glyph  string
+	accent glyphAccent
+}
+
+var (
+	verbDeleted    = mutationVerb{label: "Deleted", glyph: glyphDeleted, accent: accentRed}
+	verbDone       = mutationVerb{label: "Done", glyph: glyphDone, accent: accentGreen}
+	verbCancelled  = mutationVerb{label: "Cancelled", glyph: glyphCancelled, accent: accentRed}
+	verbArchived   = mutationVerb{label: "Archived", glyph: glyphCancelled, accent: accentRed}
+	verbEdited     = mutationVerb{label: "Edited", glyph: glyphNeutral}
+	verbReopened   = mutationVerb{label: "Reopened", glyph: glyphNeutral}
+	verbUnarchived = mutationVerb{label: "Unarchived", glyph: glyphNeutral}
+	verbTagged     = mutationVerb{label: "Tagged", glyph: glyphAdded, accent: accentGreen}
+	verbUntagged   = mutationVerb{label: "Untagged", glyph: glyphDeleted, accent: accentRed}
+)
+
+func (o humanOutput) verbGlyph(verb mutationVerb) string {
+	switch verb.accent {
+	case accentGreen:
+		return o.styles.green.Render(verb.glyph)
+	case accentRed:
+		return o.styles.red.Render(verb.glyph)
+	default:
+		return verb.glyph
+	}
+}
 
 type errorEnvelope struct {
 	Error errorPayload `json:"error"`
@@ -84,6 +125,12 @@ func writeJSON(writer io.Writer, value any) error {
 	return nil
 }
 
+// writeCommandOutput is the JSON/human dispatch point for every site whose two
+// modes share one payload; only tagging, recursive delete, and tag rename
+// branch by hand because their JSON payloads differ. If a cross-cutting output
+// policy lands (--quiet, another machine surface such as CSV), the next
+// refactor is moving dispatch into the with*Application wrappers so it exists
+// in exactly one place.
 func writeCommandOutput[T any](
 	command *cobra.Command,
 	options *rootOptions,
@@ -94,6 +141,36 @@ func writeCommandOutput[T any](
 		return writeJSON(command.OutOrStdout(), value)
 	}
 	return writeHuman(options.presentation.output(command), value)
+}
+
+func taskMutationWriter(verb mutationVerb) func(humanOutput, task.Task) error {
+	return func(output humanOutput, current task.Task) error {
+		return output.writeTaskMutation(verb, current)
+	}
+}
+
+func projectMutationWriter(verb mutationVerb) func(humanOutput, project.Project) error {
+	return func(output humanOutput, current project.Project) error {
+		return output.writeProjectMutation(verb, current)
+	}
+}
+
+func projectResolutionWriter(verb mutationVerb) func(humanOutput, project.Resolution) error {
+	return func(output humanOutput, resolution project.Resolution) error {
+		return output.writeProjectResolution(verb, resolution)
+	}
+}
+
+func areaMutationWriter(verb mutationVerb) func(humanOutput, area.Area) error {
+	return func(output humanOutput, current area.Area) error {
+		return output.writeAreaMutation(verb, current)
+	}
+}
+
+func logbookWriter(location *time.Location) func(humanOutput, []logbook.Entry) error {
+	return func(output humanOutput, entries []logbook.Entry) error {
+		return output.writeLogbook(entries, location)
+	}
 }
 
 func writeCommandError(writer io.Writer, jsonMode bool, err error) error {
@@ -173,24 +250,25 @@ func (o humanOutput) writeTagDeletion(deletion tag.Deletion) error {
 	return err
 }
 
-func (o humanOutput) writeTaskTagging(action string, tagging task.Tagging) error {
-	return o.writeEntityTagging(action, "task", tagging.Task.ID, tagging.TagTitles)
+func (o humanOutput) writeTaskTagging(verb mutationVerb, tagging task.Tagging) error {
+	return o.writeEntityTagging(verb, "task", tagging.Task.ID, tagging.TagTitles)
 }
 
-func (o humanOutput) writeProjectTagging(action string, tagging project.Tagging) error {
-	return o.writeEntityTagging(action, "project", tagging.Project.ID, tagging.TagTitles)
+func (o humanOutput) writeProjectTagging(verb mutationVerb, tagging project.Tagging) error {
+	return o.writeEntityTagging(verb, "project", tagging.Project.ID, tagging.TagTitles)
 }
 
-func (o humanOutput) writeAreaTagging(action string, tagging area.Tagging) error {
-	return o.writeEntityTagging(action, "area", tagging.Area.ID, tagging.TagTitles)
+func (o humanOutput) writeAreaTagging(verb mutationVerb, tagging area.Tagging) error {
+	return o.writeEntityTagging(verb, "area", tagging.Area.ID, tagging.TagTitles)
 }
 
-func (o humanOutput) writeEntityTagging(action, noun string, id int64, titles []string) error {
+func (o humanOutput) writeEntityTagging(verb mutationVerb, noun string, id int64, titles []string) error {
 	_, err := fmt.Fprintf(
 		o.writer,
-		"%s %s: %s %s  %s\n",
-		o.tagMutationGlyph(action),
-		action,
+		"%s%s %s: %s %s  %s\n",
+		o.verbGlyph(verb),
+		o.styles.faint.Render(glyphTag),
+		verb.label,
 		o.styles.faint.Render(noun),
 		o.styles.faint.Render(strconv.FormatInt(id, 10)),
 		o.humanTagTitles(titles),
@@ -198,23 +276,12 @@ func (o humanOutput) writeEntityTagging(action, noun string, id int64, titles []
 	return err
 }
 
-func (o humanOutput) tagMutationGlyph(action string) string {
-	if action == "Tagged" {
-		return o.styles.green.Render(glyphAdded) + o.styles.faint.Render(glyphTag)
-	}
-	return o.styles.red.Render(glyphDeleted) + o.styles.faint.Render(glyphTag)
-}
-
-func (o humanOutput) writeEditedArea(edited area.Area) error {
-	return o.writeAreaMutation("Edited", edited)
-}
-
-func (o humanOutput) writeAreaMutation(action string, current area.Area) error {
+func (o humanOutput) writeAreaMutation(verb mutationVerb, current area.Area) error {
 	_, err := fmt.Fprintf(
 		o.writer,
 		"%s %s: area %s  %s\n",
-		o.mutationGlyph(action),
-		action,
+		o.verbGlyph(verb),
+		verb.label,
 		o.styles.faint.Render(strconv.FormatInt(current.ID, 10)),
 		humanText(current.Title, false),
 	)
@@ -222,7 +289,7 @@ func (o humanOutput) writeAreaMutation(action string, current area.Area) error {
 }
 
 func (o humanOutput) writeAreaDeletion(deletion area.Deletion) error {
-	if err := o.writeAreaMutation("Deleted", deletion.Area); err != nil {
+	if err := o.writeAreaMutation(verbDeleted, deletion.Area); err != nil {
 		return err
 	}
 	if err := o.writeNarratedProjects(deletion.DeletedProjects); err != nil {
@@ -274,54 +341,39 @@ func (o humanOutput) writeTaskList(tasks []task.Task) error {
 	)
 }
 
-func (o humanOutput) writeTaskMutation(action string, current task.Task) error {
+func (o humanOutput) writeTaskMutation(verb mutationVerb, current task.Task) error {
 	_, err := fmt.Fprintf(
 		o.writer,
 		"%s %s: %s  %s\n",
-		o.mutationGlyph(action),
-		action,
+		o.verbGlyph(verb),
+		verb.label,
 		o.styles.faint.Render(strconv.FormatInt(current.ID, 10)),
 		humanText(current.Title, false),
 	)
 	return err
 }
 
-func (o humanOutput) writeProjectMutation(action string, current project.Project) error {
+func (o humanOutput) writeProjectMutation(verb mutationVerb, current project.Project) error {
 	_, err := fmt.Fprintf(
 		o.writer,
 		"%s %s: project %s  %s\n",
-		o.mutationGlyph(action),
-		action,
+		o.verbGlyph(verb),
+		verb.label,
 		o.styles.faint.Render(strconv.FormatInt(current.ID, 10)),
 		humanText(current.Title, false),
 	)
 	return err
 }
 
-func (o humanOutput) mutationGlyph(action string) string {
-	switch action {
-	case "Added":
-		return o.styles.green.Render(glyphAdded)
-	case "Deleted":
-		return o.styles.red.Render(glyphDeleted)
-	case "Done":
-		return o.styles.green.Render(glyphDone)
-	case "Cancelled", "Archived":
-		return o.styles.red.Render(glyphCancelled)
-	default:
-		return glyphNeutral
-	}
-}
-
-func (o humanOutput) writeProjectResolution(action string, resolution project.Resolution) error {
-	if err := o.writeProjectMutation(action, resolution.Project); err != nil {
+func (o humanOutput) writeProjectResolution(verb mutationVerb, resolution project.Resolution) error {
+	if err := o.writeProjectMutation(verb, resolution.Project); err != nil {
 		return err
 	}
 	return o.writeNarratedTasks("Cancelled", "open task", resolution.CancelledTasks)
 }
 
 func (o humanOutput) writeProjectDeletion(deletion project.Deletion) error {
-	if err := o.writeProjectMutation("Deleted", deletion.Project); err != nil {
+	if err := o.writeProjectMutation(verbDeleted, deletion.Project); err != nil {
 		return err
 	}
 	return o.writeNarratedTasks("Deleted", "task", deletion.DeletedTasks)
@@ -430,6 +482,30 @@ func (o humanOutput) writeAreaList(areas []area.Area) error {
 		rows,
 		0,
 		0,
+	)
+}
+
+func (o humanOutput) writeLogbook(entries []logbook.Entry, location *time.Location) error {
+	rows := make([][]string, 0, len(entries))
+	for _, entry := range entries {
+		resolvedAt, err := time.Parse(time.RFC3339Nano, entry.ResolvedAt)
+		if err != nil {
+			return fmt.Errorf("parse logbook resolved_at for %s %d: %w", entry.Kind, entry.ID, err)
+		}
+		rows = append(rows, []string{
+			humanText(entry.Kind, false),
+			strconv.FormatInt(entry.ID, 10),
+			humanText(entry.Title, false),
+			o.statusWord(entry.Status),
+			resolvedAt.In(location).Format(time.DateOnly),
+		})
+	}
+
+	return o.writeCollection(
+		[]string{"kind", "id", "title", "status", "date"},
+		rows,
+		1,
+		0, 1, 4,
 	)
 }
 

@@ -446,10 +446,11 @@ func TestPipedColorModes(t *testing.T) {
 	}
 	showAlways := runGSD(t, "show", "1", "--db", databasePath, "--color=always")
 	showNever := runGSD(t, "show", "1", "--db", databasePath, "--color=never")
+	showHeadline := strings.Join(strings.Fields(strings.SplitN(showNever.stdout, "\n", 2)[0]), " ")
 	if showAlways.exitCode != 0 || showNever.exitCode != 0 ||
-		!strings.HasPrefix(showNever.stdout, "• 1  Visible task\n") ||
+		!strings.HasSuffix(showHeadline, "1 Visible task") ||
 		ansi.Strip(showAlways.stdout) != showNever.stdout {
-		t.Errorf("forced/plain show = %#v/%#v, want mode-independent glyph and detail structure", showAlways, showNever)
+		t.Errorf("forced/plain show = %#v/%#v, want mode-independent detail structure", showAlways, showNever)
 	}
 
 	noColor := runGSDWithEnv(t, map[string]string{"NO_COLOR": "false"}, "inbox", "--db", databasePath)

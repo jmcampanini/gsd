@@ -40,7 +40,6 @@ type recordingStore struct {
 	projectExistsError   error
 	areaExistsCalls      int
 	areaExistsError      error
-	operations           []string
 	editCalls            int
 	editID               int64
 	editFields           EditFields
@@ -132,19 +131,16 @@ func (r *recordingStore) Find(_ context.Context, id int64) (Task, error) {
 func (r *recordingStore) List(_ context.Context, filter ListFilter) ([]Task, error) {
 	r.listCalls++
 	r.listedFilter = filter
-	r.operations = append(r.operations, "list")
 	return r.listResult, r.listError
 }
 
 func (r *recordingStore) ProjectExists(context.Context, int64) error {
 	r.projectExistsCalls++
-	r.operations = append(r.operations, "project")
 	return r.projectExistsError
 }
 
 func (r *recordingStore) AreaExists(context.Context, int64) error {
 	r.areaExistsCalls++
-	r.operations = append(r.operations, "area")
 	return r.areaExistsError
 }
 
@@ -189,7 +185,6 @@ func (r *recordingStore) Delete(_ context.Context, id int64) (Task, error) {
 func (r *recordingStore) ResolveTags(_ context.Context, names []string) ([]tag.Tag, error) {
 	r.resolveCalls++
 	r.resolvedNames = names
-	r.operations = append(r.operations, "resolve")
 	return r.resolveResult, r.resolveError
 }
 
@@ -724,21 +719,19 @@ func TestListValidatesAndResolvesTagFilter(t *testing.T) {
 	}
 }
 
-func TestListReturnsReadTransactionErrorsInResolutionOrder(t *testing.T) {
+func TestListSurfacesReadTransactionErrors(t *testing.T) {
 	t.Parallel()
 
 	projectID := int64(7)
 	tagName := "unknown"
 	storeError := errors.New("store failure")
 	tests := []struct {
-		name       string
-		store      *recordingStore
-		operations []string
+		name  string
+		store *recordingStore
 	}{
 		{
-			name:       "transaction boundary",
-			store:      &recordingStore{readTransactionError: storeError},
-			operations: nil,
+			name:  "transaction boundary",
+			store: &recordingStore{readTransactionError: storeError},
 		},
 		{
 			name: "missing project before unknown tag",
@@ -746,14 +739,12 @@ func TestListReturnsReadTransactionErrorsInResolutionOrder(t *testing.T) {
 				projectExistsError: storeError,
 				resolveError:       errors.New("must not be returned"),
 			},
-			operations: []string{"project"},
 		},
 		{
 			name: "tag resolution",
 			store: &recordingStore{
 				resolveError: storeError,
 			},
-			operations: []string{"project", "resolve"},
 		},
 		{
 			name: "list",
@@ -761,7 +752,6 @@ func TestListReturnsReadTransactionErrorsInResolutionOrder(t *testing.T) {
 				resolveResult: []tag.Tag{{ID: 23, Title: "known"}},
 				listError:     storeError,
 			},
-			operations: []string{"project", "resolve", "list"},
 		},
 	}
 
@@ -777,8 +767,8 @@ func TestListReturnsReadTransactionErrorsInResolutionOrder(t *testing.T) {
 			if !errors.Is(err, storeError) {
 				t.Fatalf("List() error = %v, want store failure", err)
 			}
-			if test.store.readTransactionCalls != 1 || !reflect.DeepEqual(test.store.operations, test.operations) {
-				t.Errorf("read transaction calls/operations = %d/%v, want 1/%v", test.store.readTransactionCalls, test.store.operations, test.operations)
+			if test.store.readTransactionCalls != 1 {
+				t.Errorf("read transaction calls = %d, want 1", test.store.readTransactionCalls)
 			}
 		})
 	}

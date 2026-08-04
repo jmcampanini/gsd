@@ -54,9 +54,6 @@ func execute(root *cobra.Command, args []string) int {
 	root.SetArgs(args)
 	if err := root.Execute(); err != nil {
 		jsonMode, _ := root.PersistentFlags().GetBool("json")
-		if available := presentationFrom(root); available != nil {
-			_, _ = available.profile(root.ErrOrStderr(), root.PersistentFlags().Changed("color"))
-		}
 		_ = writeCommandError(root.ErrOrStderr(), jsonMode, err)
 		return exitCodeForError(err)
 	}
@@ -127,7 +124,6 @@ func newRootCommandWithRuntimeDependencies(
 		"color",
 		"control color output: auto, always, or never",
 	)
-	root.SetContext(context.WithValue(context.Background(), presentationContextKey{}, availablePresentation))
 	root.AddCommand(
 		newAddCommand(options, factory),
 		newAreaCommand(options, factory),
@@ -300,6 +296,13 @@ func appendRecoveryGuidance(message, verb, command string, ids []int64) string {
 	}
 
 	return message + "; " + verb + " first: " + strings.Join(commands, "; ")
+}
+
+// usageError builds an error the root adapter maps to exit 2: exitCodeForError
+// treats every uncoded error as usage because Cobra parse failures arrive
+// uncoded. Application errors must pass through normalizeApplicationError.
+func usageError(message string) error {
+	return errors.New(message)
 }
 
 func exitCodeForError(err error) int {

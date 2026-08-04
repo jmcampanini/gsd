@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"errors"
-
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/spf13/cobra"
 )
@@ -13,7 +11,7 @@ func newTagsCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 		Short: "Manage tags",
 		Args:  cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
-			return errors.New("tags requires a subcommand")
+			return usageError("tags requires a subcommand")
 		},
 	}
 	command.AddCommand(

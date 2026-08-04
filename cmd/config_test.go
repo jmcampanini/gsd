@@ -49,7 +49,7 @@ func TestWriteConfigReportRendersRedirectableTOMLAndActionableProvenance(t *test
 			t.Parallel()
 
 			var output bytes.Buffer
-			report := configloader.LoadReport{Updates: configloader.Updates{dbPathReportKey: test.source}}
+			report := configloader.LoadReport{Updates: configloader.Updates{config.DBPathKey: test.source}}
 			if err := writeConfigReport(&output, loaded, report, true); err != nil {
 				t.Fatalf("writeConfigReport(provenance) error = %v", err)
 			}
@@ -76,7 +76,7 @@ func TestConfigCommandLoadsConfigurationWithoutOpeningDatabase(t *testing.T) {
 			t.Errorf("load inputs = (%q, %t, %q), want chosen paths", path, explicit, databasePath)
 		}
 		return config.Config{DBPath: databasePath}, configloader.LoadReport{
-			Updates: configloader.Updates{dbPathReportKey: pflagloader.SourcePFlag},
+			Updates: configloader.Updates{config.DBPathKey: pflagloader.SourcePFlag},
 		}, nil
 	}
 

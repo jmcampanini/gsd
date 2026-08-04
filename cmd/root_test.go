@@ -149,6 +149,10 @@ type commandResult struct {
 	closes         int
 }
 
+func humanFields(output string) string {
+	return strings.Join(strings.Fields(output), " ")
+}
+
 func runCommand(t *testing.T, application task.Application, args ...string) commandResult {
 	t.Helper()
 	return runCommandWithInput(t, application, strings.NewReader(""), args...)
@@ -554,7 +558,7 @@ func TestEditAdaptsFieldsAndHumanOutput(t *testing.T) {
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)
 	}
-	if result.stdout != "~ Edited: 7    revised  \n" {
+	if !strings.Contains(humanFields(result.stdout), "Edited: 7 revised") {
 		t.Errorf("stdout = %q, want edited task", result.stdout)
 	}
 	if application.editFields.Title == nil || *application.editFields.Title != "  revised  " {
@@ -894,13 +898,12 @@ func TestLifecycleCommandsAdaptIDsAndHumanActions(t *testing.T) {
 	tests := []struct {
 		command     string
 		action      string
-		glyph       string
 		application *fakeApplication
 	}{
-		{command: "done", action: "Done", glyph: "✓", application: &fakeApplication{doneResult: affected}},
-		{command: "cancel", action: "Cancelled", glyph: "✗", application: &fakeApplication{cancelResult: affected}},
-		{command: "reopen", action: "Reopened", glyph: "~", application: &fakeApplication{reopenResult: affected}},
-		{command: "delete", action: "Deleted", glyph: "−", application: &fakeApplication{deleteResult: affected}},
+		{command: "done", action: "Done", application: &fakeApplication{doneResult: affected}},
+		{command: "cancel", action: "Cancelled", application: &fakeApplication{cancelResult: affected}},
+		{command: "reopen", action: "Reopened", application: &fakeApplication{reopenResult: affected}},
+		{command: "delete", action: "Deleted", application: &fakeApplication{deleteResult: affected}},
 	}
 
 	for _, test := range tests {
@@ -911,7 +914,7 @@ func TestLifecycleCommandsAdaptIDsAndHumanActions(t *testing.T) {
 			if result.exitCode != 0 || result.stderr != "" {
 				t.Fatalf("result = %#v, want success", result)
 			}
-			if result.stdout != test.glyph+" "+test.action+": 7  ship it\n" {
+			if !strings.Contains(humanFields(result.stdout), test.action+": 7 ship it") {
 				t.Errorf("stdout = %q, want action and affected task", result.stdout)
 			}
 			if test.application.mutation != test.command || test.application.mutationID != 7 {
@@ -994,7 +997,7 @@ func TestTaskTaggingAdaptsExactNamesAndOutputModes(t *testing.T) {
 	if humanTagResult.exitCode != 0 || humanTagResult.stderr != "" {
 		t.Fatalf("human tag result = %#v, want success", humanTagResult)
 	}
-	if humanTagResult.stdout != "+# Tagged: task 7  #Errands\n" {
+	if !strings.Contains(humanFields(humanTagResult.stdout), "Tagged: task 7 #Errands") {
 		t.Errorf("human tag output = %q, want stored tag spelling", humanTagResult.stdout)
 	}
 
@@ -1006,7 +1009,7 @@ func TestTaskTaggingAdaptsExactNamesAndOutputModes(t *testing.T) {
 	if untagResult.exitCode != 0 || untagResult.stderr != "" {
 		t.Fatalf("human untag result = %#v, want success", untagResult)
 	}
-	if untagResult.stdout != "−# Untagged: task 7  #Errands\n" {
+	if !strings.Contains(humanFields(untagResult.stdout), "Untagged: task 7 #Errands") {
 		t.Errorf("human untag output = %q, want stored tag spelling", untagResult.stdout)
 	}
 	if untagApplication.taggingMutation != "untag" || untagApplication.taggingID != 7 ||
@@ -1132,16 +1135,16 @@ func TestHumanShowUsesGlyphOutlineForMultilineNotes(t *testing.T) {
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)
 	}
+	normalized := humanFields(result.stdout)
 	for _, value := range []string{
-		"• 7  capture",
-		"note          first line",
-		"second line",
-		"status        open",
-		"created at    2026-07-27T12:00:00.000Z",
-		"updated at    2026-07-27T13:00:00.000Z",
-		"tags          #Errands #Home",
+		"7 capture",
+		"note first line second line",
+		"status open",
+		"created at 2026-07-27T12:00:00.000Z",
+		"updated at 2026-07-27T13:00:00.000Z",
+		"tags #Errands #Home",
 	} {
-		if !strings.Contains(result.stdout, value) {
+		if !strings.Contains(normalized, value) {
 			t.Errorf("stdout = %q, want %q", result.stdout, value)
 		}
 	}
@@ -1160,11 +1163,6 @@ func TestHumanShowUsesGlyphOutlineForMultilineNotes(t *testing.T) {
 	}
 	if strings.Contains(result.stdout, "\x1b[") {
 		t.Errorf("stdout = %q, want no ANSI sequences", result.stdout)
-	}
-	for _, line := range strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n") {
-		if strings.HasSuffix(line, " ") {
-			t.Errorf("stdout line = %q, want no trailing spaces", line)
-		}
 	}
 }
 

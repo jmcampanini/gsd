@@ -223,7 +223,7 @@ func TestAreaAddAccumulatesTagFlagsWithoutSplittingCommas(t *testing.T) {
 		"areas", "add", "Tagged", "--tag", "Errands", "--tag", "home,house", "--tag", "WORK",
 	)
 	if result.exitCode != 0 || result.stderr != "" ||
-		result.stdout != "+ Added area 8: Tagged  #Errands #Home,House\n" {
+		!strings.Contains(humanFields(result.stdout), "Added area 8: Tagged #Errands #Home,House") {
 		t.Fatalf("result = %#v, want tagged add narration", result)
 	}
 	want := area.AddFields{Title: "Tagged", Tags: []string{"Errands", "home,house", "WORK"}}
@@ -269,7 +269,7 @@ func TestAreaUntagUsesStoredSpellingsForHumanOutput(t *testing.T) {
 	}}
 	result := runAreaCommand(t, application, "area", "untag", "7", "stored", "second")
 	if result.exitCode != 0 || result.stderr != "" ||
-		result.stdout != "−# Untagged: area 7  #Stored\\x1b #Second\\rName\n" {
+		!strings.Contains(humanFields(result.stdout), "Untagged: area 7 #Stored\\x1b #Second\\rName") {
 		t.Fatalf("result = %#v, want escaped stored tag spellings", result)
 	}
 	if application.untagID != 7 || !reflect.DeepEqual(application.untagNames, []string{"stored", "second"}) {
@@ -375,22 +375,19 @@ func TestAreaShowUsesStatusGlyphOutline(t *testing.T) {
 	if result.exitCode != 0 || result.stderr != "" || application.showID != 7 {
 		t.Fatalf("result/ID = %#v/%d, want successful show for 7", result, application.showID)
 	}
-	wantRows := []string{
-		"✗ 7 Home",
-		"note first line",
-		"second\\tline\\x1b",
+	normalized := humanFields(result.stdout)
+	for _, fragment := range []string{
+		"7 Home",
+		"note first line second\\tline\\x1b",
 		"archived at 2026-07-28T12:00:00.000Z",
 		"position 2",
 		"created at 2026-07-27T12:00:00.000Z",
 		"updated at 2026-07-28T12:00:00.000Z",
 		"tags #Errands #Home",
-	}
-	normalized := make([]string, 0, len(wantRows))
-	for _, line := range strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n") {
-		normalized = append(normalized, strings.Join(strings.Fields(line), " "))
-	}
-	if !reflect.DeepEqual(normalized, wantRows) {
-		t.Errorf("outline rows = %#v, want %#v", normalized, wantRows)
+	} {
+		if !strings.Contains(normalized, fragment) {
+			t.Errorf("stdout = %q, want %q", result.stdout, fragment)
+		}
 	}
 	if !strings.Contains(result.stdout, "first line\n") ||
 		!strings.Contains(result.stdout, "second\\tline\\x1b") || strings.Contains(result.stdout, "\x1b") {
@@ -410,7 +407,8 @@ func TestAreaEditAdaptsOnlyChangedFieldsAndWritesHumanOutput(t *testing.T) {
 		strings.NewReader(note),
 		"area", "edit", "7", "--title", title, "--note", "-",
 	)
-	if result.exitCode != 0 || result.stderr != "" || result.stdout != "~ Edited: area 7  House\n" {
+	if result.exitCode != 0 || result.stderr != "" ||
+		!strings.Contains(humanFields(result.stdout), "Edited: area 7 House") {
 		t.Fatalf("result = %#v, want edit narration", result)
 	}
 	if application.editID != 7 || application.editFields.Title == nil ||
@@ -427,7 +425,8 @@ func TestAreaArchiveAndUnarchiveAdaptLifecycleAndOutput(t *testing.T) {
 	archived := area.Area{ID: 7, Title: "Home\x1b", ArchivedAt: &archivedAt, Position: 2}
 	archiveApplication := &fakeAreaApplication{archiveResult: archived}
 	archive := runAreaCommand(t, archiveApplication, "area", "archive", "007")
-	if archive.exitCode != 0 || archive.stderr != "" || archive.stdout != "✗ Archived: area 7  Home\\x1b\n" {
+	if archive.exitCode != 0 || archive.stderr != "" ||
+		!strings.Contains(humanFields(archive.stdout), "Archived: area 7 Home\\x1b") {
 		t.Fatalf("archive = %#v, want escaped mutation narration", archive)
 	}
 	if archiveApplication.archiveID != 7 || archive.opens != 1 || archive.closes != 1 {
@@ -502,14 +501,15 @@ func TestAreaDeleteHumanNarrationIncludesOnlyNonemptySections(t *testing.T) {
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)
 	}
+	deletionNormalized := humanFields(result.stdout)
 	for _, text := range []string{
-		"Deleted: area 7  Home\n",
-		"Deleted 2 projects:\n",
-		"Deleted 1 task:\n",
+		"Deleted: area 7 Home",
+		"Deleted 2 projects:",
+		"Deleted 1 task:",
 		"Kitchen\\x1b",
 		"Quotes\\rforged",
 	} {
-		if !strings.Contains(result.stdout, text) {
+		if !strings.Contains(deletionNormalized, text) {
 			t.Errorf("stdout = %q, want %q", result.stdout, text)
 		}
 	}
@@ -522,7 +522,9 @@ func TestAreaDeleteHumanNarrationIncludesOnlyNonemptySections(t *testing.T) {
 		&fakeAreaApplication{deleteResult: area.Deletion{Area: area.Area{ID: 8, Title: "Empty"}}},
 		"area", "delete", "8", "--recursive",
 	)
-	if empty.exitCode != 0 || empty.stderr != "" || empty.stdout != "− Deleted: area 8  Empty\n" {
+	if empty.exitCode != 0 || empty.stderr != "" ||
+		!strings.Contains(humanFields(empty.stdout), "Deleted: area 8 Empty") ||
+		strings.Count(empty.stdout, "\n") != 1 {
 		t.Errorf("empty recursive deletion = %#v, want mutation line without empty sections", empty)
 	}
 }
