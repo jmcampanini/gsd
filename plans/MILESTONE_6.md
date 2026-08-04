@@ -222,10 +222,10 @@ $ gsd show 12          # • headline, faint field labels, #tags
 
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
-- [ ] `COMMANDS.md` § Output, § Configuration, and § Database rechecked
+- [x] `COMMANDS.md` § Output, § Configuration, and § Database rechecked
       against the shipped styling, precedence, report, and color behavior
       before Go live starts.
-- [ ] **Schema convergence audit re-run** after the ordering change:
+- [x] **Schema convergence audit re-run** after the ordering change:
       dev database schema byte-comparable to `SCHEMA.md`.
 
 ## Standards
