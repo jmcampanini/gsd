@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"errors"
-	"io"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
@@ -46,7 +45,7 @@ func newAreasAddCommand(options *rootOptions, factory applicationFactory) *cobra
 				if addErr != nil {
 					return addErr
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, created, writeAddedArea)
+				return writeCommandOutput(command, options, created, humanOutput.writeAddedArea)
 			})
 		},
 	}
@@ -77,7 +76,7 @@ func newAreasListCommand(options *rootOptions, factory applicationFactory) *cobr
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, areas, writeAreaList)
+				return writeCommandOutput(command, options, areas, humanOutput.writeAreaList)
 			})
 		},
 	}
@@ -126,7 +125,7 @@ func newAreaShowCommand(options *rootOptions, factory applicationFactory) *cobra
 				if showErr != nil {
 					return showErr
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, found, writeArea)
+				return writeCommandOutput(command, options, found, humanOutput.writeArea)
 			})
 		},
 	}
@@ -187,7 +186,7 @@ func newAreaTaggingCommand(
 					return writeJSON(command.OutOrStdout(), tagging.Area)
 				}
 
-				return writeAreaTagging(command.OutOrStdout(), action, tagging)
+				return options.presentation.output(command).writeAreaTagging(action, tagging)
 			})
 		},
 	}
@@ -244,14 +243,10 @@ func newAreaMutationCommand(
 				if mutationErr != nil {
 					return mutationErr
 				}
-				return writeCommandOutput(
-					command.OutOrStdout(),
-					options.json,
-					affected,
-					func(writer io.Writer, current area.Area) error {
-						return writeAreaMutation(writer, action, current)
-					},
-				)
+				if options.json {
+					return writeJSON(command.OutOrStdout(), affected)
+				}
+				return options.presentation.output(command).writeAreaMutation(action, affected)
 			})
 		},
 	}
@@ -288,7 +283,7 @@ func newAreaDeleteCommand(options *rootOptions, factory applicationFactory) *cob
 					return writeJSON(command.OutOrStdout(), deletion.Area)
 				}
 
-				return writeAreaDeletion(command.OutOrStdout(), deletion)
+				return options.presentation.output(command).writeAreaDeletion(deletion)
 			})
 		},
 	}
@@ -335,7 +330,7 @@ func newAreaEditCommand(options *rootOptions, factory applicationFactory) *cobra
 				if editErr != nil {
 					return editErr
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, edited, writeEditedArea)
+				return writeCommandOutput(command, options, edited, humanOutput.writeEditedArea)
 			})
 		},
 	}

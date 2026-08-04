@@ -251,28 +251,31 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
   error. Fine distinctions live in the JSON error code.
 - Human collections are aligned tables with lowercase faint column headers,
   rendered only when rows exist; empty collections print nothing. `show` is a
-  field/value outline beneath a status-glyph headline, mutations use concise
-  glyph-prefixed action payloads, and `tags list` prints `#`-prefixed stored
-  names with cross-entity usage counts, ordered alphabetically with `NOCASE`,
-  without IDs or a header. Task, project, and area `show` include a `tags`
-  row of `#`-prefixed stored names, blank when untagged; collection rows
-  gain no tags column.
+  field/value outline beneath a status-glyph headline: `•` open task, `◆` open
+  project, `●` active area, `✓` done task/project, and `✗` cancelled
+  task/project or archived area. Mutations use concise glyph-prefixed action
+  payloads, and `tags list` prints `#`-prefixed stored names with cross-entity
+  usage counts, ordered alphabetically with `NOCASE`, without IDs or a header.
+  Task, project, and area `show` include a `tags` row of `#`-prefixed stored
+  names, blank when untagged; collection rows gain no tags column.
 - Successful tag mutation lines are concise and action-prefixed:
   `Added tag NAME`, `Renamed tag OLD to NEW`,
-  `Deleted tag NAME (detached from N items)`, `Tagged: KIND ID  NAME`, and
-  `Untagged: KIND ID  NAME`, each behind its verb-class glyph. They use
-  stored spelling after case-insensitive resolution; rename prints both the
-  stored previous and new titles.
+  `Deleted tag NAME (detached from N items)`, `Tagged: KIND ID  #NAME`, and
+  `Untagged: KIND ID  #NAME`, each behind its verb-class glyph. Tagging uses
+  `+#`; untagging uses `−#`. They use stored spelling after case-insensitive
+  resolution; rename prints both the stored previous and new titles.
 - Styling grammar: faint marks metadata (IDs, kinds, counts, timestamps,
-  headers, non-urgent dates), bold marks urgency (due today or overdue),
-  glyphs mark records and events (`+` add, `−` delete, `✓` done, `✗`
-  cancel, `#` tag verbs and tag names, `•` other mutations and open
-  records, `└` cascade children), and hue marks state change only — green
-  for done/added, red for cancelled/deleted/urgent — drawn from Catppuccin
-  Latte on light terminal backgrounds and Frappé on dark, accents-only.
-  Identity markers and metadata stay monochrome; stderr diagnostics are
-  unstyled in v1. Structure (headers, glyphs, layout) is identical across
-  color modes; modes control only ANSI styling.
+  headers, non-urgent dates), bold marks urgency (due today or overdue on open
+  tasks), and glyphs mark records and events. Events use `+` add, `−` delete,
+  `✓` done, `✗` cancel/archive, `+#` tag, `−#` untag, and `~` neutral
+  mutations. Record glyphs follow the `show` mapping above; cascade children
+  use `├` until the final `└`. Hue marks state change only — green for
+  done/added, red for cancelled/archived/deleted/urgent — drawn from
+  Catppuccin Latte on light terminal backgrounds and Frappé on dark,
+  accents-only. Identity markers, structural glyphs, and metadata stay
+  monochrome; stderr diagnostics are unstyled in v1. Structure (headers,
+  glyphs, layout) is identical across color modes; modes control only ANSI
+  styling.
 - Bare `gsd tags`, `gsd tag`, and `gsd untag` are usage errors (exit `2`) and
   do not open the database.
 - Human output escapes ASCII control characters (`show` preserves note line

@@ -554,7 +554,7 @@ func TestEditAdaptsFieldsAndHumanOutput(t *testing.T) {
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)
 	}
-	if result.stdout != "Edited: 7    revised  \n" {
+	if result.stdout != "~ Edited: 7    revised  \n" {
 		t.Errorf("stdout = %q, want edited task", result.stdout)
 	}
 	if application.editFields.Title == nil || *application.editFields.Title != "  revised  " {
@@ -710,8 +710,10 @@ func TestAvailableAdaptsOutputModes(t *testing.T) {
 	if humanResult.exitCode != 0 || humanResult.stderr != "" {
 		t.Fatalf("human available result = %#v, want success", humanResult)
 	}
-	if strings.Join(strings.Fields(humanResult.stdout), " ") != "7 actionable defer 2026-07-28" {
-		t.Errorf("human available = %q, want inbox-style row without status", humanResult.stdout)
+	lines := strings.Split(strings.TrimSuffix(humanResult.stdout, "\n"), "\n")
+	if len(lines) != 2 || strings.Join(strings.Fields(lines[0]), " ") != "id title dates" ||
+		strings.Join(strings.Fields(lines[1]), " ") != "7 actionable defer 2026-07-28" {
+		t.Errorf("human available = %q, want headed inbox-style row without status", humanResult.stdout)
 	}
 
 	emptyResult := runCommand(t, &fakeApplication{availableResult: []task.ViewTask{}}, "available", "--json")
@@ -793,10 +795,11 @@ func TestListAdaptsStatusAndOutputMode(t *testing.T) {
 		t.Errorf("default list options = %#v, want open without date selector", humanApplication.listOptions)
 	}
 	lines := strings.Split(strings.TrimSpace(humanResult.stdout), "\n")
-	if len(lines) != 2 ||
-		strings.Join(strings.Fields(lines[0]), " ") != "1 first done" ||
-		strings.Join(strings.Fields(lines[1]), " ") != "2 second cancelled" {
-		t.Errorf("human list = %q, want distinct ID, title, and status columns", humanResult.stdout)
+	if len(lines) != 3 ||
+		strings.Join(strings.Fields(lines[0]), " ") != "id title status dates" ||
+		strings.Join(strings.Fields(lines[1]), " ") != "1 first done" ||
+		strings.Join(strings.Fields(lines[2]), " ") != "2 second cancelled" {
+		t.Errorf("human list = %q, want headed ID, title, status, and dates columns", humanResult.stdout)
 	}
 
 	emptyResult := runCommand(t, &fakeApplication{listResult: []task.Task{}}, "list")
@@ -891,12 +894,13 @@ func TestLifecycleCommandsAdaptIDsAndHumanActions(t *testing.T) {
 	tests := []struct {
 		command     string
 		action      string
+		glyph       string
 		application *fakeApplication
 	}{
-		{command: "done", action: "Done", application: &fakeApplication{doneResult: affected}},
-		{command: "cancel", action: "Cancelled", application: &fakeApplication{cancelResult: affected}},
-		{command: "reopen", action: "Reopened", application: &fakeApplication{reopenResult: affected}},
-		{command: "delete", action: "Deleted", application: &fakeApplication{deleteResult: affected}},
+		{command: "done", action: "Done", glyph: "✓", application: &fakeApplication{doneResult: affected}},
+		{command: "cancel", action: "Cancelled", glyph: "✗", application: &fakeApplication{cancelResult: affected}},
+		{command: "reopen", action: "Reopened", glyph: "~", application: &fakeApplication{reopenResult: affected}},
+		{command: "delete", action: "Deleted", glyph: "−", application: &fakeApplication{deleteResult: affected}},
 	}
 
 	for _, test := range tests {
@@ -907,7 +911,7 @@ func TestLifecycleCommandsAdaptIDsAndHumanActions(t *testing.T) {
 			if result.exitCode != 0 || result.stderr != "" {
 				t.Fatalf("result = %#v, want success", result)
 			}
-			if result.stdout != test.action+": 7  ship it\n" {
+			if result.stdout != test.glyph+" "+test.action+": 7  ship it\n" {
 				t.Errorf("stdout = %q, want action and affected task", result.stdout)
 			}
 			if test.application.mutation != test.command || test.application.mutationID != 7 {
@@ -990,7 +994,7 @@ func TestTaskTaggingAdaptsExactNamesAndOutputModes(t *testing.T) {
 	if humanTagResult.exitCode != 0 || humanTagResult.stderr != "" {
 		t.Fatalf("human tag result = %#v, want success", humanTagResult)
 	}
-	if humanTagResult.stdout != "Tagged: task 7  Errands\n" {
+	if humanTagResult.stdout != "+# Tagged: task 7  #Errands\n" {
 		t.Errorf("human tag output = %q, want stored tag spelling", humanTagResult.stdout)
 	}
 
@@ -1002,7 +1006,7 @@ func TestTaskTaggingAdaptsExactNamesAndOutputModes(t *testing.T) {
 	if untagResult.exitCode != 0 || untagResult.stderr != "" {
 		t.Fatalf("human untag result = %#v, want success", untagResult)
 	}
-	if untagResult.stdout != "Untagged: task 7  Errands\n" {
+	if untagResult.stdout != "−# Untagged: task 7  #Errands\n" {
 		t.Errorf("human untag output = %q, want stored tag spelling", untagResult.stdout)
 	}
 	if untagApplication.taggingMutation != "untag" || untagApplication.taggingID != 7 ||
@@ -1108,7 +1112,7 @@ func TestHumanOutputUsesPlainTables(t *testing.T) {
 	}
 }
 
-func TestHumanShowUsesPlainFieldValueTableForMultilineNotes(t *testing.T) {
+func TestHumanShowUsesGlyphOutlineForMultilineNotes(t *testing.T) {
 	t.Parallel()
 
 	dueOn := "2026-07-28"
@@ -1129,15 +1133,13 @@ func TestHumanShowUsesPlainFieldValueTableForMultilineNotes(t *testing.T) {
 		t.Fatalf("result = %#v, want success", result)
 	}
 	for _, value := range []string{
-		"ID",
-		"Title",
-		"Note",
-		"first line",
+		"• 7  capture",
+		"note          first line",
 		"second line",
-		"Status",
-		"Created at",
-		"Updated at",
-		"Tags",
+		"status        open",
+		"created at    2026-07-27T12:00:00.000Z",
+		"updated at    2026-07-27T13:00:00.000Z",
+		"tags          #Errands #Home",
 	} {
 		if !strings.Contains(result.stdout, value) {
 			t.Errorf("stdout = %q, want %q", result.stdout, value)
@@ -1148,9 +1150,9 @@ func TestHumanShowUsesPlainFieldValueTableForMultilineNotes(t *testing.T) {
 		normalizedRows[strings.Join(strings.Fields(line), " ")] = true
 	}
 	for _, row := range []string{
-		"Due on 2026-07-28",
-		"Defer until 2026-07-29",
-		"Tags Errands, Home",
+		"due on 2026-07-28",
+		"defer until 2026-07-29",
+		"tags #Errands #Home",
 	} {
 		if !normalizedRows[row] {
 			t.Errorf("stdout = %q, want associated row %q", result.stdout, row)

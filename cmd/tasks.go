@@ -56,7 +56,7 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, created, writeAddedTask)
+				return writeCommandOutput(command, options, created, humanOutput.writeAddedTask)
 			})
 		},
 	}
@@ -81,7 +81,7 @@ func newInboxCommand(options *rootOptions, factory applicationFactory) *cobra.Co
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, tasks, writeOpenTaskList)
+				return writeCommandOutput(command, options, tasks, humanOutput.writeOpenTaskList)
 			})
 		},
 	}
@@ -98,7 +98,7 @@ func newAvailableCommand(options *rootOptions, factory applicationFactory) *cobr
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, tasks, writeOpenTaskList)
+				return writeCommandOutput(command, options, tasks, humanOutput.writeOpenTaskList)
 			})
 		},
 	}
@@ -120,7 +120,7 @@ func newShowCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, found, writeTask)
+				return writeCommandOutput(command, options, found, humanOutput.writeTask)
 			})
 		},
 	}
@@ -200,7 +200,7 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 					return writeJSON(command.OutOrStdout(), edited)
 				}
 
-				return writeTaskMutation(command.OutOrStdout(), "Edited", edited)
+				return options.presentation.output(command).writeTaskMutation("Edited", edited)
 			})
 		},
 	}
@@ -269,7 +269,7 @@ func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(command.OutOrStdout(), options.json, tasks, writeTaskList)
+				return writeCommandOutput(command, options, tasks, humanOutput.writeTaskList)
 			})
 		},
 	}
@@ -445,7 +445,7 @@ func newTaskTaggingCommand(
 					return writeJSON(command.OutOrStdout(), tagging.Task)
 				}
 
-				return writeTaskTagging(command.OutOrStdout(), action, tagging)
+				return options.presentation.output(command).writeTaskTagging(action, tagging)
 			})
 		},
 	}
@@ -480,7 +480,7 @@ func newTaskMutationCommand(
 					return writeJSON(command.OutOrStdout(), affected)
 				}
 
-				return writeTaskMutation(command.OutOrStdout(), action, affected)
+				return options.presentation.output(command).writeTaskMutation(action, affected)
 			})
 		},
 	}

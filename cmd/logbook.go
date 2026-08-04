@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 	"strconv"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/spf13/cobra"
 )
@@ -29,13 +29,13 @@ func newLogbookCommand(
 					return writeJSON(command.OutOrStdout(), entries)
 				}
 
-				return writeLogbook(command.OutOrStdout(), entries, location)
+				return options.presentation.output(command).writeLogbook(entries, location)
 			})
 		},
 	}
 }
 
-func writeLogbook(writer io.Writer, entries []logbook.Entry, location *time.Location) error {
+func (o humanOutput) writeLogbook(entries []logbook.Entry, location *time.Location) error {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -50,10 +50,22 @@ func writeLogbook(writer io.Writer, entries []logbook.Entry, location *time.Loca
 			humanText(entry.Kind, false),
 			strconv.FormatInt(entry.ID, 10),
 			humanText(entry.Title, false),
-			humanText(entry.Status, false),
+			o.statusWord(entry.Status),
 			resolvedAt.In(location).Format(time.DateOnly),
 		})
 	}
 
-	return writeTable(writer, rows)
+	return o.writeCollection(
+		[]string{"kind", "id", "title", "status", "date"},
+		rows,
+		1,
+		func(_ int, column int) lipgloss.Style {
+			switch column {
+			case 0, 1, 4:
+				return o.styles.faint
+			default:
+				return lipgloss.NewStyle()
+			}
+		},
+	)
 }

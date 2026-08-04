@@ -89,6 +89,7 @@ func TestConfigCommandLoadsConfigurationWithoutOpeningDatabase(t *testing.T) {
 		"--db",
 		"chosen.db",
 		"--provenance",
+		"--color=always",
 	)
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)

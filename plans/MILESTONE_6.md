@@ -79,17 +79,18 @@ any future sensitive key is added.
 ## Styled human output
 
 The visual system was settled by blind pairwise testing on 2026-08-02
-(structure, then chrome volume, then hue); root `PLAN.md` carries the full
-style guide. The acceptance boundary:
+(structure, then chrome volume, then hue) and the follow-up glyph tournament;
+root `PLAN.md` carries the full style guide. The acceptance boundary:
 
 - Collections render as aligned tables with lowercase faint headers (only
   when rows exist — empty collections still print nothing), faint
   right-aligned IDs and metadata, plain titles, and bold-red due-today or
   overdue dates.
 - `tags` renders headerless `#name  count` rows. `show` renders a
-  status-glyph headline over indented faint field labels. Mutation and
-  narration lines carry verb-class glyph prefixes (`+` `−` `✓` `✗` `#` `•`,
-  `└`-tree cascade children).
+  status-glyph headline over indented faint field labels: `•` open task, `◆`
+  open project, `●` active area, `✓` done, and `✗` cancelled/archived.
+  Mutation and narration lines carry verb-class glyph prefixes (`+` `−` `✓`
+  `✗` `+#` `−#` `~`, with `├`/`└` cascade children).
 - Hue marks state change only — green done/added, red cancelled/deleted/
   urgent — drawn from Catppuccin Latte on light terminal backgrounds and
   Frappé on dark, accents-only; identity markers and metadata stay
