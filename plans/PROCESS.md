@@ -117,7 +117,11 @@ may rerun any command by hand. Review-only chunks produce no demo.
 ## Milestone consolidation
 
 Consolidation turns an execution branch into an authoritative product
-baseline:
+baseline. It lands as two sequential pull requests targeting the milestone
+branch — a consolidation pull request, then, after the foundation review, a
+wrap-up pull request — followed by the milestone pull request to `main`.
+
+The consolidation pull request:
 
 - Reconcile `OVERVIEW.md`, `COMMANDS.md`, and `SCHEMA.md` with all decided
   behavior. Fold in accepted proposed defaults and correct any temporary
@@ -129,10 +133,21 @@ baseline:
 - Reconcile tests with the stable observable contract and verify the complete
   workflow. For completed capabilities, current code, tests, and canonical
   specifications become authoritative together.
-- Have Javier run `/review-foundation` in a Fable session against the
-  milestone branch, then resolve the findings Javier accepts on the milestone
-  branch before the milestone pull request opens. Accepted findings that must
-  hold in future work feed the guardrails below.
+
+The foundation review, after the consolidation pull request merges:
+
+- Have Javier run `/review-foundation` in a fresh Fable session against the
+  milestone branch. Javier triages each accepted finding at review time:
+  **fix now**, resolved before the milestone pull request opens, or
+  **scheduled**, deferred into the next milestone. The milestone pull request
+  never blocks on scheduled structural work.
+
+The wrap-up pull request:
+
+- Resolve the fix-now findings on the milestone branch.
+- Record scheduled findings as a complete chunk 0 manifest in the next
+  milestone's file, including any deliberately deferred items with their
+  revisit triggers.
 - Codify review findings that must hold in future work in `AGENTS.md`, lint or
   build configuration, or tests. Do not leave permanent guardrails only in
   review comments or memory.
@@ -157,8 +172,9 @@ criteria, hold:
 - [ ] Javier successfully demoed the milestone's user stories.
 - [ ] Canonical documentation was reconciled with decided and shipped
       behavior, and temporary divergence entries due now were removed.
-- [ ] Javier ran `/review-foundation` in a Fable session against the
-      milestone branch, and the accepted findings were resolved.
+- [ ] Javier ran `/review-foundation` in a fresh Fable session against the
+      milestone branch, and every accepted finding was resolved on the branch
+      or scheduled as the next milestone's chunk 0 manifest.
 - [ ] Review-derived guardrails were codified in the repository.
 - [ ] The completed milestone file and root `PLAN.md` were deleted, and
       roadmap/document links were checked.

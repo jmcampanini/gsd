@@ -283,10 +283,6 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
 
 ## Configuration
 
-The Config milestone implements this canonical v1 contract; specifying it here
-before implementation keeps the v1 target authoritative while earlier
-milestones use the narrower baseline behavior.
-
 - The discovered config file is TOML at
   `$XDG_CONFIG_HOME/gsd/config.toml`. It is optional. When `--config PATH` is
   given, that exact file is required: a missing, unreadable, or invalid file
