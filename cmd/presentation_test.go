@@ -98,6 +98,7 @@ func TestPresentationQueriesBackgroundOnceOnlyForStyledTerminalStdout(t *testing
 		wantANSI    bool
 	}{
 		{name: "detected terminal", mode: colorAuto, terminal: true, detected: colorprofile.ANSI, wantQueries: 1, wantANSI: true},
+		{name: "detected ASCII terminal", mode: colorAuto, terminal: true, detected: colorprofile.ASCII, wantANSI: true},
 		{name: "detected no-style terminal", mode: colorAuto, terminal: true, detected: colorprofile.NoTTY},
 		{name: "forced pipe", mode: colorAlways, explicit: true, detected: colorprofile.NoTTY, wantANSI: true},
 		{name: "never terminal", mode: colorNever, explicit: true, terminal: true, detected: colorprofile.TrueColor},
@@ -148,7 +149,7 @@ func TestPresentationQueriesBackgroundOnceOnlyForStyledTerminalStdout(t *testing
 	}
 }
 
-func TestPresentationResolvesErrorStreamIndependentlyWithoutStylingIt(t *testing.T) {
+func TestPresentationResolvesAndEscapesErrorStreamWithoutStylingIt(t *testing.T) {
 	t.Parallel()
 
 	var detected []io.Writer
@@ -171,7 +172,9 @@ func TestPresentationResolvesErrorStreamIndependentlyWithoutStylingIt(t *testing
 		bool,
 		*pflag.FlagSet,
 	) (applications, io.Closer, error) {
-		return applications{tasks: &fakeApplication{inboxError: errors.New("failed")}}, closeRecorder{close: func() {}}, nil
+		return applications{
+			tasks: &fakeApplication{inboxError: errors.New("tag already exists: Evil\x1b]8;;https://example.com\a")},
+		}, closeRecorder{close: func() {}}, nil
 	}
 	root := newRootCommandWithRuntimeDependencies(factory, nil, time.UTC, dependencies)
 	var stdout bytes.Buffer
@@ -184,8 +187,8 @@ func TestPresentationResolvesErrorStreamIndependentlyWithoutStylingIt(t *testing
 	if len(detected) != 1 || detected[0] != &stderr {
 		t.Errorf("detected streams = %#v, want stderr only", detected)
 	}
-	if stdout.String() != "" || stderr.String() != "Error: failed\n" {
-		t.Errorf("stdout/stderr = %q/%q, want plain stderr error", stdout.String(), stderr.String())
+	if stdout.String() != "" || stderr.String() != "Error: tag already exists: Evil\\x1b]8;;https://example.com\\a\n" {
+		t.Errorf("stdout/stderr = %q/%q, want escaped plain stderr error", stdout.String(), stderr.String())
 	}
 }
 

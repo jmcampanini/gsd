@@ -101,7 +101,7 @@ func writeCommandError(writer io.Writer, jsonMode bool, err error) error {
 	if code, ok := apperr.CodeOf(err); ok && jsonMode {
 		return writeJSON(writer, errorEnvelope{Error: errorPayload{Code: code, Message: err.Error()}})
 	}
-	_, writeErr := fmt.Fprintf(writer, "Error: %v\n", err)
+	_, writeErr := fmt.Fprintf(writer, "Error: %s\n", humanText(err.Error(), false))
 	return writeErr
 }
 

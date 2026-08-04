@@ -11,7 +11,7 @@ acceptance boundary. Both artifacts are retired at consolidation.
 - [x] Chunk 0 — Milestone 5 consolidation
 - [x] Chunk 1 — Config loader integration
 - [x] Chunk 2 — `gsd config` report
-- [ ] Chunk 3 — Color resolution and styled human output
+- [x] Chunk 3 — Color resolution and styled human output
 
 ## Settled contract deltas
 
@@ -231,7 +231,7 @@ redirected and JSON output stay byte-clean.
       `--color=auto|always|never` (bare or invalid value → usage, exit 2),
       `TERM=dumb` and non-terminal disable in auto, scrubbed-env
       colorprofile detection, `always` → TrueColor.
-- [x] Background query once via `HasDarkBackground` when stdout styling is
+- [x] Background query once via `HasDarkBackground` when stdout color styling is
       active on a terminal; Frappé default otherwise; `LightDark` accent
       selection.
 - [x] Shared writers restyled to the style guide: quiet-headed collection

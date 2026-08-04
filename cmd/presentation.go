@@ -141,7 +141,7 @@ func (p presentation) output(command *cobra.Command) humanOutput {
 	writer := command.OutOrStdout()
 	profile, terminal := p.profile(writer, command.Root().PersistentFlags().Changed("color"))
 	dark := true
-	if profile > colorprofile.NoTTY && terminal {
+	if profile >= colorprofile.ANSI && terminal {
 		dark = p.dependencies.hasDarkBackground(command.InOrStdin(), writer)
 	}
 	return newHumanOutput(
