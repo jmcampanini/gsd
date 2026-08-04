@@ -105,37 +105,26 @@ func writeCommandError(writer io.Writer, jsonMode bool, err error) error {
 }
 
 func (o humanOutput) writeAddedTask(created task.Task) error {
-	_, err := fmt.Fprintf(
-		o.writer,
-		"%s Added task %s: %s%s\n",
-		o.styles.green.Render(glyphAdded),
-		o.styles.faint.Render(strconv.FormatInt(created.ID, 10)),
-		humanText(created.Title, false),
-		o.addedTagSuffix(created.Tags),
-	)
-	return err
+	return o.writeAddedEntity("task", created.ID, created.Title, created.Tags)
 }
 
 func (o humanOutput) writeAddedProject(created project.Project) error {
-	_, err := fmt.Fprintf(
-		o.writer,
-		"%s Added project %s: %s%s\n",
-		o.styles.green.Render(glyphAdded),
-		o.styles.faint.Render(strconv.FormatInt(created.ID, 10)),
-		humanText(created.Title, false),
-		o.addedTagSuffix(created.Tags),
-	)
-	return err
+	return o.writeAddedEntity("project", created.ID, created.Title, created.Tags)
 }
 
 func (o humanOutput) writeAddedArea(created area.Area) error {
+	return o.writeAddedEntity("area", created.ID, created.Title, created.Tags)
+}
+
+func (o humanOutput) writeAddedEntity(noun string, id int64, title string, tags []string) error {
 	_, err := fmt.Fprintf(
 		o.writer,
-		"%s Added area %s: %s%s\n",
+		"%s Added %s %s: %s%s\n",
 		o.styles.green.Render(glyphAdded),
-		o.styles.faint.Render(strconv.FormatInt(created.ID, 10)),
-		humanText(created.Title, false),
-		o.addedTagSuffix(created.Tags),
+		noun,
+		o.styles.faint.Render(strconv.FormatInt(id, 10)),
+		humanText(title, false),
+		o.addedTagSuffix(tags),
 	)
 	return err
 }
