@@ -12,16 +12,32 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
+const (
+	latteGreenSGR  = "38;2;64;160;43"
+	frappeGreenSGR = "38;2;166;209;137"
+	frappeRedSGR   = "38;2;231;130;132"
+)
+
 func renderHuman(
 	t *testing.T,
 	profile colorprofile.Profile,
 	render func(humanOutput) error,
 ) string {
 	t.Helper()
+	return renderHumanOnBackground(t, profile, true, render)
+}
+
+func renderHumanOnBackground(
+	t *testing.T,
+	profile colorprofile.Profile,
+	dark bool,
+	render func(humanOutput) error,
+) string {
+	t.Helper()
 	var output bytes.Buffer
 	human := newHumanOutput(
 		&colorprofile.Writer{Forward: &output, Profile: profile},
-		true,
+		dark,
 		"2026-08-02",
 	)
 	if err := render(human); err != nil {
@@ -62,13 +78,16 @@ func TestHumanCollectionStructureIsModeIndependent(t *testing.T) {
 func TestHumanOutputSelectsBackgroundAdaptiveAccents(t *testing.T) {
 	t.Parallel()
 
-	light := newHumanOutput(&bytes.Buffer{}, false, "2026-08-02").styles.green.Render("+")
-	dark := newHumanOutput(&bytes.Buffer{}, true, "2026-08-02").styles.green.Render("+")
-	if !strings.Contains(light, "38;2;64;160;43") {
-		t.Errorf("light accent = %q, want Catppuccin Latte green", light)
+	render := func(output humanOutput) error {
+		return output.writeTaskMutation(verbDone, task.Task{ID: 5, Title: "Take out recycling"})
 	}
-	if !strings.Contains(dark, "38;2;166;209;137") {
-		t.Errorf("dark accent = %q, want Catppuccin Frappé green", dark)
+	light := renderHumanOnBackground(t, colorprofile.TrueColor, false, render)
+	dark := renderHumanOnBackground(t, colorprofile.TrueColor, true, render)
+	if !strings.Contains(light, latteGreenSGR) {
+		t.Errorf("light mutation = %q, want Catppuccin Latte green", light)
+	}
+	if !strings.Contains(dark, frappeGreenSGR) {
+		t.Errorf("dark mutation = %q, want Catppuccin Frappé green", dark)
 	}
 }
 
@@ -76,14 +95,26 @@ func TestUrgentDatesApplyOnlyToOpenTasks(t *testing.T) {
 	t.Parallel()
 
 	due := "2026-08-02"
-	output := newHumanOutput(&bytes.Buffer{}, true, "2026-08-02")
-	open := output.taskDateTokens(task.Task{DueOn: &due}, true)
-	resolved := output.taskDateTokens(task.Task{DueOn: &due}, false)
-	if !strings.Contains(open, "\x1b[1;") || !strings.Contains(open, "38;2;231;130;132") {
-		t.Errorf("open due token = %q, want bold Frappé red", open)
+	styled := renderHuman(t, colorprofile.TrueColor, func(output humanOutput) error {
+		return output.writeTaskList([]task.Task{
+			{ID: 1, Title: "Urgent", Status: "open", DueOn: &due},
+			{ID: 2, Title: "Settled", Status: "done", DueOn: &due},
+		})
+	})
+	var urgentRow, settledRow string
+	for _, line := range strings.Split(styled, "\n") {
+		if strings.Contains(line, "Urgent") {
+			urgentRow = line
+		}
+		if strings.Contains(line, "Settled") {
+			settledRow = line
+		}
 	}
-	if strings.Contains(resolved, "\x1b[1;") || !strings.Contains(resolved, "\x1b[2m") {
-		t.Errorf("resolved due token = %q, want faint without bold urgency", resolved)
+	if !strings.Contains(urgentRow, "\x1b[1;") || !strings.Contains(urgentRow, frappeRedSGR) {
+		t.Errorf("open due row = %q, want bold Frappé red", urgentRow)
+	}
+	if settledRow == "" || strings.Contains(settledRow, "\x1b[1;") {
+		t.Errorf("resolved due row = %q, want no bold urgency", settledRow)
 	}
 }
 
@@ -124,22 +155,31 @@ func TestFinalGlyphVocabulary(t *testing.T) {
 			return o.writeAddedTask(task.Task{ID: 1, Title: "Task"})
 		}},
 		{name: "delete", prefix: "− Deleted: 1", render: func(o humanOutput) error {
-			return o.writeTaskMutation("Deleted", task.Task{ID: 1, Title: "Task"})
+			return o.writeTaskMutation(verbDeleted, task.Task{ID: 1, Title: "Task"})
 		}},
 		{name: "complete", prefix: "✓ Done: 1", render: func(o humanOutput) error {
-			return o.writeTaskMutation("Done", task.Task{ID: 1, Title: "Task"})
+			return o.writeTaskMutation(verbDone, task.Task{ID: 1, Title: "Task"})
 		}},
 		{name: "cancel", prefix: "✗ Cancelled: 1", render: func(o humanOutput) error {
-			return o.writeTaskMutation("Cancelled", task.Task{ID: 1, Title: "Task"})
+			return o.writeTaskMutation(verbCancelled, task.Task{ID: 1, Title: "Task"})
 		}},
-		{name: "neutral", prefix: "~ Edited: 1", render: func(o humanOutput) error {
-			return o.writeTaskMutation("Edited", task.Task{ID: 1, Title: "Task"})
+		{name: "edit", prefix: "~ Edited: 1", render: func(o humanOutput) error {
+			return o.writeTaskMutation(verbEdited, task.Task{ID: 1, Title: "Task"})
+		}},
+		{name: "reopen", prefix: "~ Reopened: 1", render: func(o humanOutput) error {
+			return o.writeTaskMutation(verbReopened, task.Task{ID: 1, Title: "Task"})
+		}},
+		{name: "archive", prefix: "✗ Archived: area 3", render: func(o humanOutput) error {
+			return o.writeAreaMutation(verbArchived, area.Area{ID: 3, Title: "Area"})
+		}},
+		{name: "unarchive", prefix: "~ Unarchived: area 3", render: func(o humanOutput) error {
+			return o.writeAreaMutation(verbUnarchived, area.Area{ID: 3, Title: "Area"})
 		}},
 		{name: "tag", prefix: "+# Tagged: task 1", render: func(o humanOutput) error {
-			return o.writeTaskTagging("Tagged", task.Tagging{Task: task.Task{ID: 1}, TagTitles: []string{"Home"}})
+			return o.writeTaskTagging(verbTagged, task.Tagging{Task: task.Task{ID: 1}, TagTitles: []string{"Home"}})
 		}},
 		{name: "untag", prefix: "−# Untagged: task 1", render: func(o humanOutput) error {
-			return o.writeTaskTagging("Untagged", task.Tagging{Task: task.Task{ID: 1}, TagTitles: []string{"Home"}})
+			return o.writeTaskTagging(verbUntagged, task.Tagging{Task: task.Task{ID: 1}, TagTitles: []string{"Home"}})
 		}},
 	}
 	for _, test := range tests {

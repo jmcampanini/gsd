@@ -338,11 +338,18 @@ func TestLoadTreatsOnlyAbsentDiscoveredConfigAsOptional(t *testing.T) {
 		name    string
 		content string
 		makeDir bool
+		env     string
 		wantErr bool
 	}{
 		{name: "missing"},
 		{name: "directory at discovered path", makeDir: true},
 		{name: "invalid existing file", content: "db_path = [\n", wantErr: true},
+		{
+			name:    "invalid existing file with valid env override",
+			content: "db_path = [\n",
+			env:     "override.db",
+			wantErr: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -352,7 +359,7 @@ func TestLoadTreatsOnlyAbsentDiscoveredConfigAsOptional(t *testing.T) {
 			t.Setenv("HOME", filepath.Join(dir, "home"))
 			t.Setenv("XDG_CONFIG_HOME", configHome)
 			t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data"))
-			t.Setenv("GSD_DB", "")
+			t.Setenv("GSD_DB", test.env)
 
 			path := filepath.Join(configHome, "gsd", "config.toml")
 			switch {

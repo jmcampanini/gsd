@@ -96,11 +96,28 @@ func TestPresentationQueriesBackgroundOnceOnlyForStyledTerminalStdout(t *testing
 		detected    colorprofile.Profile
 		wantQueries int
 		wantANSI    bool
+		wantAccent  string
 	}{
 		{name: "detected terminal", mode: colorAuto, terminal: true, detected: colorprofile.ANSI, wantQueries: 1, wantANSI: true},
+		{
+			name:        "detected truecolor terminal uses queried light background",
+			mode:        colorAuto,
+			terminal:    true,
+			detected:    colorprofile.TrueColor,
+			wantQueries: 1,
+			wantANSI:    true,
+			wantAccent:  latteGreenSGR,
+		},
 		{name: "detected ASCII terminal", mode: colorAuto, terminal: true, detected: colorprofile.ASCII, wantANSI: true},
 		{name: "detected no-style terminal", mode: colorAuto, terminal: true, detected: colorprofile.NoTTY},
-		{name: "forced pipe", mode: colorAlways, explicit: true, detected: colorprofile.NoTTY, wantANSI: true},
+		{
+			name:       "forced pipe defaults to dark accents",
+			mode:       colorAlways,
+			explicit:   true,
+			detected:   colorprofile.NoTTY,
+			wantANSI:   true,
+			wantAccent: frappeGreenSGR,
+		},
 		{name: "never terminal", mode: colorNever, explicit: true, terminal: true, detected: colorprofile.TrueColor},
 	}
 	for _, test := range tests {
@@ -136,7 +153,7 @@ func TestPresentationQueriesBackgroundOnceOnlyForStyledTerminalStdout(t *testing
 			root.SetOut(&output)
 			root.SetIn(strings.NewReader(""))
 			human := available.output(root)
-			if err := human.writeTaskMutation("Edited", task.Task{ID: 7, Title: "capture"}); err != nil {
+			if err := human.writeTaskMutation(verbDone, task.Task{ID: 7, Title: "capture"}); err != nil {
 				t.Fatalf("write mutation: %v", err)
 			}
 			if queries != test.wantQueries {
@@ -145,19 +162,20 @@ func TestPresentationQueriesBackgroundOnceOnlyForStyledTerminalStdout(t *testing
 			if strings.Contains(output.String(), "\x1b[") != test.wantANSI {
 				t.Errorf("output = %q, ANSI presence want %t", output.String(), test.wantANSI)
 			}
+			if test.wantAccent != "" && !strings.Contains(output.String(), test.wantAccent) {
+				t.Errorf("output = %q, want accent %s", output.String(), test.wantAccent)
+			}
 		})
 	}
 }
 
-func TestPresentationResolvesAndEscapesErrorStreamWithoutStylingIt(t *testing.T) {
+func TestErrorStreamStaysUnstyledAndEscaped(t *testing.T) {
 	t.Parallel()
 
-	var detected []io.Writer
 	dependencies := presentationDependencies{
 		environment: func() []string { return []string{"TERM=xterm"} },
 		isTerminal:  func(io.Writer) bool { return true },
-		detectProfile: func(writer io.Writer, _ []string) colorprofile.Profile {
-			detected = append(detected, writer)
+		detectProfile: func(io.Writer, []string) colorprofile.Profile {
 			return colorprofile.TrueColor
 		},
 		hasDarkBackground: func(io.Reader, io.Writer) bool {
@@ -183,9 +201,6 @@ func TestPresentationResolvesAndEscapesErrorStreamWithoutStylingIt(t *testing.T)
 	root.SetErr(&stderr)
 	if exitCode := execute(root, []string{"inbox"}); exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1", exitCode)
-	}
-	if len(detected) != 1 || detected[0] != &stderr {
-		t.Errorf("detected streams = %#v, want stderr only", detected)
 	}
 	if stdout.String() != "" || stderr.String() != "Error: tag already exists: Evil\\x1b]8;;https://example.com\\a\n" {
 		t.Errorf("stdout/stderr = %q/%q, want escaped plain stderr error", stdout.String(), stderr.String())

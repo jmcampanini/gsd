@@ -64,13 +64,27 @@ schema byte-for-byte with `SCHEMA.md`. Consolidation also landed the
 store transaction seam across all stores, read-then-validate guard
 classification, and the shared `internal/domain` validation package.
 
+### Milestone 6 — Config
+
+Delivered the canonical v1 config contract: a discovered or explicit
+TOML file loaded through go-config-loader with defaults → file → env →
+flag precedence and fail-loud invalid-file handling, db-path resolution
+moved onto the loaded config, and the TOML-only `gsd config` report
+with normalized `--provenance` source comments. Landed the settled
+visual system — standards-pure per-stream color modes,
+background-adaptive Catppuccin accents, quiet-headed collection tables,
+glyph-led records and mutation lines, and `├`/`└` cascade trees — while
+JSON envelopes stayed byte-identical to Milestone 5. Consolidation also
+landed the root/core store split, read-then-delete cascades,
+service-owned read-path tag resolution, `domain.TagNames`, and
+alphabetical tag arrays (`user_version` 9006).
+
 ## Active roadmap
 
-Active planning begins with the Config milestone:
+Active planning begins with the Reorder milestone:
 
 | # | Milestone | Capability delivered | Data mode |
 |---|-----------|----------------------|-----------|
-| 6 | [Config](MILESTONE_6.md) | Config file via go-config-loader; color modes; styled human output | throwaway |
 | 7 | [Reorder](MILESTONE_7.md) | Manual ordering | throwaway |
 | 8 | [Search](MILESTONE_8.md) | FTS5 `search` | throwaway |
 | 9 | [Query](MILESTONE_9.md) | Read-only SQL; schema as public contract | throwaway |

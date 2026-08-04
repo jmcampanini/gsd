@@ -11,7 +11,33 @@ import (
 	"github.com/spf13/pflag"
 )
 
-const dbPathConfigKey = "dbpath"
+// DBPathKey is the load-report key go-config-loader derives for DBPath.
+const DBPathKey = "dbpath"
+
+// SourceKind classifies a load-report source value.
+type SourceKind int
+
+const (
+	SourceKindDefault SourceKind = iota
+	SourceKindEnv
+	SourceKindFlag
+	SourceKindFile
+)
+
+// ClassifySource maps a load-report source to its kind. For SourceKindFile the
+// second result is the config file path that supplied the value.
+func ClassifySource(source string) (SourceKind, string) {
+	switch source {
+	case configloader.SourceEnv:
+		return SourceKindEnv, ""
+	case pflagloader.SourcePFlag:
+		return SourceKindFlag, ""
+	case "", configloader.SourceDefault:
+		return SourceKindDefault, ""
+	default:
+		return SourceKindFile, source
+	}
+}
 
 type Config struct {
 	DBPath string `toml:"db_path" config:"db" help:"path to the SQLite database"`
@@ -54,13 +80,13 @@ func Load(
 		return Config{}, configloader.LoadReport{}, err
 	}
 	if loaded.DBPath == "" {
-		if report.Updates[dbPathConfigKey] == configloader.SourceDefault && defaultError != nil {
+		if report.Updates[DBPathKey] == configloader.SourceDefault && defaultError != nil {
 			return Config{}, configloader.LoadReport{}, defaultError
 		}
 		return Config{}, configloader.LoadReport{}, invalidEmptyDBPath()
 	}
 
-	loaded.DBPath = resolveFileRelativeDBPath(loaded.DBPath, report.Updates[dbPathConfigKey])
+	loaded.DBPath = resolveFileRelativeDBPath(loaded.DBPath, report.Updates[DBPathKey])
 	return loaded, report, nil
 }
 
@@ -107,7 +133,7 @@ func validatedFileLoader(
 		if err != nil {
 			return base, configloader.LoadReport{}, invalidConfig(err)
 		}
-		if _, updated := report.Updates[dbPathConfigKey]; updated && loaded.DBPath == "" {
+		if _, updated := report.Updates[DBPathKey]; updated && loaded.DBPath == "" {
 			return base, configloader.LoadReport{}, invalidEmptyDBPath()
 		}
 		return loaded, report, nil
@@ -126,26 +152,18 @@ func ignoreEmptyDBFlag(
 		flag := flags.Lookup("db")
 		if flag != nil && flag.Changed && flag.Value.String() == "" {
 			loaded.DBPath = base.DBPath
-			delete(report.Updates, dbPathConfigKey)
+			delete(report.Updates, DBPathKey)
 		}
 		return loaded, report, nil
 	}
 }
 
 func resolveFileRelativeDBPath(path, source string) string {
-	if filepath.IsAbs(path) || !sourceIsFile(source) {
+	kind, filePath := ClassifySource(source)
+	if filepath.IsAbs(path) || kind != SourceKindFile {
 		return path
 	}
-	return filepath.Join(filepath.Dir(source), path)
-}
-
-func sourceIsFile(source string) bool {
-	switch source {
-	case "", configloader.SourceDefault, configloader.SourceEnv, pflagloader.SourcePFlag:
-		return false
-	default:
-		return true
-	}
+	return filepath.Join(filepath.Dir(filePath), path)
 }
 
 func invalidEmptyDBPath() error {

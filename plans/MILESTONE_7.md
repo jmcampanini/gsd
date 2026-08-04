@@ -33,8 +33,37 @@ gsd area reorder N     (--after M | --before M | --first | --last)
 
 ## Chunks
 
+0. **Milestone 6 consolidation** — the scheduled findings from the
+   Milestone 6 foundation review, applied before Reorder work begins
+   (see below).
 1. **The whole verb** — grammar, all three nouns, renumbering, errors,
    e2e. Single chunk; split only if review wants it.
+
+### Chunk 0: Milestone 6 consolidation
+
+Behavior-preserving. The manifest:
+
+- **Service-owned filtered-list validation for projects.** Mirror the
+  task sibling: `AreaExists` joins `project.Transaction`, the project
+  store gains a `WithinReadTransaction` path, the area-existence check
+  moves from the store's `listArea` into the project service, and
+  `listArea` drops its leading `findArea`. Store tests pinning the
+  unknown-area error migrate to project service tests, mirroring the
+  task side's tag-resolution migration.
+
+Deliberately deferred, with revisit triggers:
+
+- **Config report generalization** — on config key #2: add source
+  classification and tag-derived env/flag spellings to go-config-loader's
+  `configreporter` so gsd's renderer becomes a generic provenance-row
+  loop like the sibling CLIs, and revisit the reporting/redaction
+  contract at the same moment. No load-request struct — positional load
+  parameters are the family idiom.
+- **Genericizing the intentionally-parallel tag service flows** — carried
+  from Milestone 6: revisit on the first sibling-divergence bug or a
+  post-v1 attach-semantics change.
+- **Typed transition spec for `applyTransition`** — carried from
+  Milestone 6: revisit if post-v1 work adds transitions.
 
 ## User stories
 

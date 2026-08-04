@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -9,13 +8,10 @@ import (
 
 	"github.com/jmcampanini/go-config-loader/configloader"
 	"github.com/jmcampanini/go-config-loader/configreporter"
-	"github.com/jmcampanini/go-config-loader/pflagloader"
 	"github.com/jmcampanini/gsd/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
-
-const dbPathReportKey = "dbpath"
 
 type configurationLoader func(
 	string,
@@ -37,7 +33,7 @@ format.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if options.json {
-				return errors.New("--json is not supported by gsd config; use the TOML output")
+				return usageError("--json is not supported by gsd config; use the TOML output")
 			}
 
 			flags := command.Root().PersistentFlags()
@@ -84,7 +80,7 @@ func writeConfigReport(
 		return err
 	}
 	rows := reporter.ProvenanceRows()
-	if len(rows) != 1 || len(rows[0]) != 3 || rows[0][0] != dbPathReportKey {
+	if len(rows) != 1 || len(rows[0]) != 3 || rows[0][0] != config.DBPathKey {
 		return fmt.Errorf("config report has unexpected provenance shape")
 	}
 
@@ -97,14 +93,14 @@ func writeConfigReport(
 }
 
 func configSourceDescription(source string) string {
-	switch source {
-	case configloader.SourceDefault:
-		return "default"
-	case configloader.SourceEnv:
+	switch kind, path := config.ClassifySource(source); kind {
+	case config.SourceKindEnv:
 		return "env: GSD_DB"
-	case pflagloader.SourcePFlag:
+	case config.SourceKindFlag:
 		return "flag: --db"
+	case config.SourceKindFile:
+		return "file: " + humanText(path, false)
 	default:
-		return "file: " + humanText(source, false)
+		return "default"
 	}
 }

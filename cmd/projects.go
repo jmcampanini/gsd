@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/project"
@@ -15,7 +14,7 @@ func newProjectsCommand(options *rootOptions, factory applicationFactory) *cobra
 		Short: "Manage projects",
 		Args:  cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
-			return errors.New("projects requires a subcommand")
+			return usageError("projects requires a subcommand")
 		},
 	}
 	command.AddCommand(
@@ -104,7 +103,7 @@ func newProjectCommand(options *rootOptions, factory applicationFactory) *cobra.
 		Short: "Manage a project",
 		Args:  cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
-			return errors.New("project requires a subcommand")
+			return usageError("project requires a subcommand")
 		},
 	}
 	command.AddCommand(
@@ -151,7 +150,7 @@ func newProjectTagCommand(options *rootOptions, factory applicationFactory) *cob
 		factory,
 		"tag ID NAME...",
 		"Tag a project",
-		"Tagged",
+		verbTagged,
 		func(ctx context.Context, application project.Application, id int64, names []string) (project.Tagging, error) {
 			return application.Tag(ctx, id, names)
 		},
@@ -164,7 +163,7 @@ func newProjectUntagCommand(options *rootOptions, factory applicationFactory) *c
 		factory,
 		"untag ID NAME...",
 		"Untag a project",
-		"Untagged",
+		verbUntagged,
 		func(ctx context.Context, application project.Application, id int64, names []string) (project.Tagging, error) {
 			return application.Untag(ctx, id, names)
 		},
@@ -176,7 +175,7 @@ func newProjectTaggingCommand(
 	factory applicationFactory,
 	use string,
 	short string,
-	action string,
+	verb mutationVerb,
 	mutate projectTaggingMutation,
 ) *cobra.Command {
 	return &cobra.Command{
@@ -198,7 +197,7 @@ func newProjectTaggingCommand(
 					return writeJSON(command.OutOrStdout(), tagging.Project)
 				}
 
-				return options.presentation.output(command).writeProjectTagging(action, tagging)
+				return options.presentation.output(command).writeProjectTagging(verb, tagging)
 			})
 		},
 	}
@@ -210,7 +209,7 @@ func newProjectDoneCommand(options *rootOptions, factory applicationFactory) *co
 		factory,
 		"done ID",
 		"Complete a project",
-		"Done",
+		verbDone,
 		project.ExitDone,
 	)
 }
@@ -221,7 +220,7 @@ func newProjectCancelCommand(options *rootOptions, factory applicationFactory) *
 		factory,
 		"cancel ID",
 		"Cancel a project",
-		"Cancelled",
+		verbCancelled,
 		project.ExitCancelled,
 	)
 }
@@ -231,7 +230,7 @@ func newProjectResolveCommand(
 	factory applicationFactory,
 	use string,
 	short string,
-	action string,
+	verb mutationVerb,
 	exit project.Exit,
 ) *cobra.Command {
 	return &cobra.Command{
@@ -249,11 +248,7 @@ func newProjectResolveCommand(
 				if err != nil {
 					return err
 				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), resolution)
-				}
-
-				return options.presentation.output(command).writeProjectResolution(action, resolution)
+				return writeCommandOutput(command, options, resolution, projectResolutionWriter(verb))
 			})
 		},
 	}
@@ -275,11 +270,7 @@ func newProjectReopenCommand(options *rootOptions, factory applicationFactory) *
 				if err != nil {
 					return err
 				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), reopened)
-				}
-
-				return options.presentation.output(command).writeProjectMutation("Reopened", reopened)
+				return writeCommandOutput(command, options, reopened, projectMutationWriter(verbReopened))
 			})
 		},
 	}
@@ -372,11 +363,7 @@ func newProjectEditCommand(options *rootOptions, factory applicationFactory) *co
 				if editErr != nil {
 					return editErr
 				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), edited)
-				}
-
-				return options.presentation.output(command).writeProjectMutation("Edited", edited)
+				return writeCommandOutput(command, options, edited, projectMutationWriter(verbEdited))
 			})
 		},
 	}

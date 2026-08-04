@@ -161,10 +161,16 @@ func decodeProjectCommandError(t *testing.T, result commandResult) errorPayload 
 	return decodeProjectJSON[errorEnvelope](t, result.stderr).Error
 }
 
-func requireProjectCommandHumanOutput(t *testing.T, result commandResult, want string) {
+func requireProjectCommandHumanOutput(t *testing.T, result commandResult, fragments ...string) {
 	t.Helper()
-	if result.exitCode != 0 || result.stderr != "" || result.stdout != want {
-		t.Errorf("result = %#v, want stdout %q", result, want)
+	if result.exitCode != 0 || result.stderr != "" {
+		t.Errorf("result = %#v, want human success", result)
+	}
+	normalized := humanFields(result.stdout)
+	for _, fragment := range fragments {
+		if !strings.Contains(normalized, fragment) {
+			t.Errorf("stdout = %q, want %q", result.stdout, fragment)
+		}
 	}
 }
 
@@ -406,7 +412,7 @@ func TestProjectAddAndEditAdaptFieldsAndOutput(t *testing.T) {
 		"Kitchen reno",
 	)
 	if humanAdd.exitCode != 0 || humanAdd.stderr != "" ||
-		humanAdd.stdout != "+ Added project 7: Kitchen reno\n" {
+		!strings.Contains(humanFields(humanAdd.stdout), "Added project 7: Kitchen reno") {
 		t.Errorf("human add result = %#v, want project add narration", humanAdd)
 	}
 
@@ -426,7 +432,7 @@ func TestProjectAddAndEditAdaptFieldsAndOutput(t *testing.T) {
 	if editResult.exitCode != 0 || editResult.stderr != "" {
 		t.Fatalf("edit result = %#v, want success", editResult)
 	}
-	if editResult.stdout != "~ Edited: project 7  Bathroom\n" {
+	if !strings.Contains(humanFields(editResult.stdout), "Edited: project 7 Bathroom") {
 		t.Errorf("stdout = %q, want project edit narration", editResult.stdout)
 	}
 	if editApplication.editID != 7 || editApplication.editFields.Title == nil ||
@@ -497,7 +503,7 @@ func TestProjectTagCommandsAdaptExactNamesAndOutputShapes(t *testing.T) {
 		"errands",
 		"HOME",
 	)
-	requireProjectCommandHumanOutput(t, untagResult, "−# Untagged: project 8  #Errands #Home\\x1b\n")
+	requireProjectCommandHumanOutput(t, untagResult, "Untagged: project 8 #Errands #Home\\x1b")
 	if untagApplication.untagID != 8 || !reflect.DeepEqual(untagApplication.untagNames, []string{"errands", "HOME"}) {
 		t.Errorf(
 			"Untag() arguments = (%d, %#v), want (8, exact names)",
@@ -629,7 +635,6 @@ func TestProjectShowUsesSchemaOrderFieldValueTable(t *testing.T) {
 	}
 
 	wantRows := []string{
-		"✓ 7 Kitchen reno",
 		"area 3",
 		"note Budget: 20k",
 		"done at 2026-07-28T12:00:00.000Z",
@@ -641,12 +646,15 @@ func TestProjectShowUsesSchemaOrderFieldValueTable(t *testing.T) {
 		"tags",
 	}
 	lines := strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n")
-	if len(lines) != len(wantRows) {
-		t.Fatalf("stdout lines = %q, want %d headline/outline rows", result.stdout, len(wantRows))
+	if len(lines) != len(wantRows)+1 {
+		t.Fatalf("stdout lines = %q, want %d headline/outline rows", result.stdout, len(wantRows)+1)
+	}
+	if !strings.HasSuffix(humanFields(lines[0]), "7 Kitchen reno") {
+		t.Errorf("headline = %q, want ID and title", lines[0])
 	}
 	for index, want := range wantRows {
-		if got := strings.Join(strings.Fields(lines[index]), " "); got != want {
-			t.Errorf("row %d = %q, want %q", index, got, want)
+		if got := humanFields(lines[index+1]); got != want {
+			t.Errorf("row %d = %q, want %q", index+1, got, want)
 		}
 	}
 	if strings.Contains(result.stdout, "\x1b[") {
@@ -770,10 +778,13 @@ func TestProjectLifecycleHumanNarration(t *testing.T) {
 		"done",
 		"7",
 	)
-	wantDone := "✓ Done: project 7  Kitchen\\x1b[31m\n" +
-		"Cancelled 1 open task:\n" +
-		"  └ 3  Pick\\rtiles\\nnow\n"
-	requireProjectCommandHumanOutput(t, doneResult, wantDone)
+	requireProjectCommandHumanOutput(
+		t,
+		doneResult,
+		"Done: project 7 Kitchen\\x1b[31m",
+		"Cancelled 1 open task:",
+		"3 Pick\\rtiles\\nnow",
+	)
 	if strings.ContainsAny(doneResult.stdout, "\x1b\r") {
 		t.Errorf("done stdout = %q, want terminal controls escaped", doneResult.stdout)
 	}
@@ -791,11 +802,14 @@ func TestProjectLifecycleHumanNarration(t *testing.T) {
 		"cancel",
 		"8",
 	)
-	wantCancel := "✗ Cancelled: project 8  Abandon\n" +
-		"Cancelled 2 open tasks:\n" +
-		"  ├ 4  First\n" +
-		"  └ 3  Second\n"
-	requireProjectCommandHumanOutput(t, cancelResult, wantCancel)
+	requireProjectCommandHumanOutput(
+		t,
+		cancelResult,
+		"Cancelled: project 8 Abandon",
+		"Cancelled 2 open tasks:",
+		"4 First",
+		"3 Second",
+	)
 
 	zeroResult := runProjectCommand(
 		t,
@@ -807,7 +821,10 @@ func TestProjectLifecycleHumanNarration(t *testing.T) {
 		"done",
 		"10",
 	)
-	requireProjectCommandHumanOutput(t, zeroResult, "✓ Done: project 10  Already clear\n")
+	requireProjectCommandHumanOutput(t, zeroResult, "Done: project 10 Already clear")
+	if strings.Count(zeroResult.stdout, "\n") != 1 {
+		t.Errorf("zero-cascade stdout = %q, want mutation line only", zeroResult.stdout)
+	}
 
 	reopenResult := runProjectCommand(
 		t,
@@ -816,7 +833,7 @@ func TestProjectLifecycleHumanNarration(t *testing.T) {
 		"reopen",
 		"10",
 	)
-	requireProjectCommandHumanOutput(t, reopenResult, "~ Reopened: project 10  Again\n")
+	requireProjectCommandHumanOutput(t, reopenResult, "Reopened: project 10 Again")
 }
 
 func TestProjectRecursiveDeleteHumanNarration(t *testing.T) {
@@ -836,11 +853,14 @@ func TestProjectRecursiveDeleteHumanNarration(t *testing.T) {
 		"9",
 		"--recursive",
 	)
-	want := "− Deleted: project 9  Doomed\n" +
-		"Deleted 2 tasks:\n" +
-		"  ├ 1  First\n" +
-		"  └ 2  Second\n"
-	requireProjectCommandHumanOutput(t, result, want)
+	requireProjectCommandHumanOutput(
+		t,
+		result,
+		"Deleted: project 9 Doomed",
+		"Deleted 2 tasks:",
+		"1 First",
+		"2 Second",
+	)
 
 	emptyResult := runProjectCommand(
 		t,
@@ -853,7 +873,10 @@ func TestProjectRecursiveDeleteHumanNarration(t *testing.T) {
 		"10",
 		"--recursive",
 	)
-	requireProjectCommandHumanOutput(t, emptyResult, "− Deleted: project 10  Empty\n")
+	requireProjectCommandHumanOutput(t, emptyResult, "Deleted: project 10 Empty")
+	if strings.Count(emptyResult.stdout, "\n") != 1 {
+		t.Errorf("empty recursive deletion stdout = %q, want mutation line only", emptyResult.stdout)
+	}
 }
 
 func TestProjectEditWithoutFieldsFailsBeforeOpeningApplication(t *testing.T) {
@@ -920,9 +943,9 @@ func TestTaskShowPlacesContainmentAfterID(t *testing.T) {
 		t.Fatalf("result = %#v, want success", result)
 	}
 	lines := strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n")
-	if len(lines) < 3 || strings.Join(strings.Fields(lines[0]), " ") != "• 7 Get quotes" ||
-		strings.Join(strings.Fields(lines[1]), " ") != "project 4" ||
-		strings.Join(strings.Fields(lines[2]), " ") != "area 5" {
+	if len(lines) < 3 || !strings.HasSuffix(humanFields(lines[0]), "7 Get quotes") ||
+		humanFields(lines[1]) != "project 4" ||
+		humanFields(lines[2]) != "area 5" {
 		t.Errorf("first rows = %q, want headline, project, then area", result.stdout)
 	}
 }

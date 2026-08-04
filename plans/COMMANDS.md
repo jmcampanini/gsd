@@ -324,11 +324,10 @@ keys. Relative file values are resolved from the config file's directory;
 relative env and flag values are resolved from the working directory. The
 `gsd config` report uses the corresponding absolute runtime location so
 redirected TOML preserves that location when reloaded from another directory.
-Parent
-directories are created when opening the database. During throwaway-data
-milestones, only a genuinely empty version-0 database is bootstrapped; a
-nonempty version-0 or differently
-versioned database fails with `conflict` and delete-your-dev-db guidance.
+Parent directories are created when opening the database. During
+throwaway-data milestones, only a genuinely empty version-0 database is
+bootstrapped; a nonempty version-0 or differently versioned database fails
+with `conflict` and delete-your-dev-db guidance.
 
 ## TUI (post-v1)
 

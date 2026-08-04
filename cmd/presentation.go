@@ -175,10 +175,3 @@ func scrubColorEnvironment(environment []string) []string {
 	}
 	return scrubbed
 }
-
-type presentationContextKey struct{}
-
-func presentationFrom(command *cobra.Command) *presentation {
-	available, _ := command.Context().Value(presentationContextKey{}).(*presentation)
-	return available
-}
