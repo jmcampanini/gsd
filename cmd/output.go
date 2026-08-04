@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -43,7 +44,6 @@ type errorPayload struct {
 
 type humanStyles struct {
 	faint      lipgloss.Style
-	bold       lipgloss.Style
 	green      lipgloss.Style
 	red        lipgloss.Style
 	faintGreen lipgloss.Style
@@ -65,7 +65,6 @@ func newHumanOutput(writer io.Writer, dark bool, today string) humanOutput {
 		writer: writer,
 		styles: humanStyles{
 			faint:      lipgloss.NewStyle().Faint(true),
-			bold:       lipgloss.NewStyle().Bold(true),
 			green:      lipgloss.NewStyle().Foreground(green),
 			red:        lipgloss.NewStyle().Foreground(red),
 			faintGreen: lipgloss.NewStyle().Faint(true).Foreground(green),
@@ -267,12 +266,7 @@ func (o humanOutput) writeOpenTaskList(tasks []task.ViewTask) error {
 		[]string{"id", "title", "dates"},
 		rows,
 		0,
-		func(_ int, column int) lipgloss.Style {
-			if column == 0 {
-				return o.styles.faint
-			}
-			return lipgloss.NewStyle()
-		},
+		0,
 	)
 }
 
@@ -293,12 +287,7 @@ func (o humanOutput) writeTaskList(tasks []task.Task) error {
 		[]string{"id", "title", "status", "dates"},
 		rows,
 		0,
-		func(_ int, column int) lipgloss.Style {
-			if column == 0 {
-				return o.styles.faint
-			}
-			return lipgloss.NewStyle()
-		},
+		0,
 	)
 }
 
@@ -418,12 +407,7 @@ func (o humanOutput) writeProjectList(projects []project.Project) error {
 		[]string{"id", "title", "status"},
 		rows,
 		0,
-		func(_ int, column int) lipgloss.Style {
-			if column == 0 {
-				return o.styles.faint
-			}
-			return lipgloss.NewStyle()
-		},
+		0,
 	)
 }
 
@@ -471,12 +455,7 @@ func (o humanOutput) writeAreaList(areas []area.Area) error {
 		[]string{"id", "title", "state"},
 		rows,
 		0,
-		func(_ int, column int) lipgloss.Style {
-			if column == 0 {
-				return o.styles.faint
-			}
-			return lipgloss.NewStyle()
-		},
+		0,
 	)
 }
 
@@ -636,7 +615,7 @@ func (o humanOutput) writeCollection(
 	headers []string,
 	rows [][]string,
 	rightAlignedColumn int,
-	bodyStyle func(int, int) lipgloss.Style,
+	faintColumns ...int,
 ) error {
 	columnCount := len(headers)
 	renderer := table.New().
@@ -652,10 +631,8 @@ func (o humanOutput) writeCollection(
 		Wrap(false).
 		StyleFunc(func(row, column int) lipgloss.Style {
 			var style lipgloss.Style
-			if row == table.HeaderRow {
+			if row == table.HeaderRow || slices.Contains(faintColumns, column) {
 				style = o.styles.faint
-			} else {
-				style = bodyStyle(row, column)
 			}
 			if column == rightAlignedColumn {
 				style = style.Align(lipgloss.Right)

@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"time"
 
-	"charm.land/lipgloss/v2"
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/spf13/cobra"
 )
@@ -59,13 +58,6 @@ func (o humanOutput) writeLogbook(entries []logbook.Entry, location *time.Locati
 		[]string{"kind", "id", "title", "status", "date"},
 		rows,
 		1,
-		func(_ int, column int) lipgloss.Style {
-			switch column {
-			case 0, 1, 4:
-				return o.styles.faint
-			default:
-				return lipgloss.NewStyle()
-			}
-		},
+		0, 1, 4,
 	)
 }
