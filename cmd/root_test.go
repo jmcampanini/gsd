@@ -19,46 +19,50 @@ import (
 )
 
 type fakeApplication struct {
-	addResult       task.Task
-	addError        error
-	inboxResult     []task.ViewTask
-	inboxError      error
-	availableResult []task.ViewTask
-	availableError  error
-	listResult      []task.Task
-	listError       error
-	showResult      task.Task
-	showError       error
-	editResult      task.Task
-	editError       error
-	doneResult      task.Task
-	doneError       error
-	cancelResult    task.Task
-	cancelError     error
-	reopenResult    task.Task
-	reopenError     error
-	deleteResult    task.Task
-	deleteError     error
-	tagResult       task.Tagging
-	tagError        error
-	untagResult     task.Tagging
-	untagError      error
-	addTitle        string
-	addNote         string
-	addProjectID    *int64
-	addAreaID       *int64
-	addDueOn        *string
-	addDeferUntil   *string
-	addTags         []string
-	listOptions     task.ListOptions
-	showID          int64
-	editID          int64
-	editFields      task.EditFields
-	mutation        string
-	mutationID      int64
-	taggingMutation string
-	taggingID       int64
-	taggingNames    []string
+	addResult        task.Task
+	addError         error
+	inboxResult      []task.ViewTask
+	inboxError       error
+	availableResult  []task.ViewTask
+	availableError   error
+	listResult       []task.Task
+	listError        error
+	showResult       task.Task
+	showError        error
+	editResult       task.Task
+	editError        error
+	doneResult       task.Task
+	doneError        error
+	cancelResult     task.Task
+	cancelError      error
+	reopenResult     task.Task
+	reopenError      error
+	reorderResult    task.Task
+	reorderError     error
+	deleteResult     task.Task
+	deleteError      error
+	tagResult        task.Tagging
+	tagError         error
+	untagResult      task.Tagging
+	untagError       error
+	addTitle         string
+	addNote          string
+	addProjectID     *int64
+	addAreaID        *int64
+	addDueOn         *string
+	addDeferUntil    *string
+	addTags          []string
+	listOptions      task.ListOptions
+	showID           int64
+	editID           int64
+	editFields       task.EditFields
+	reorderID        int64
+	reorderPlacement domain.Placement
+	mutation         string
+	mutationID       int64
+	taggingMutation  string
+	taggingID        int64
+	taggingNames     []string
 }
 
 func (f *fakeApplication) Add(_ context.Context, fields task.AddFields) (task.Task, error) {
@@ -116,6 +120,16 @@ func (f *fakeApplication) Reopen(_ context.Context, id int64) (task.Task, error)
 	f.mutation = "reopen"
 	f.mutationID = id
 	return f.reopenResult, f.reopenError
+}
+
+func (f *fakeApplication) Reorder(
+	_ context.Context,
+	id int64,
+	placement domain.Placement,
+) (task.Task, error) {
+	f.reorderID = id
+	f.reorderPlacement = placement
+	return f.reorderResult, f.reorderError
 }
 
 func (f *fakeApplication) Tag(_ context.Context, id int64, names []string) (task.Tagging, error) {
@@ -888,6 +902,185 @@ func TestDateFlagConflictsAreUsageErrorsWithoutOpeningDatabase(t *testing.T) {
 				t.Errorf("stderr = %q, want human-readable usage diagnostic", result.stderr)
 			}
 		})
+	}
+}
+
+func TestTaskReorderAdaptsEveryPlacementAndWritesBareJSON(t *testing.T) {
+	t.Parallel()
+
+	wantTask := task.Task{
+		ID: 7, Title: "ship it", Status: "open", Position: 3, Tags: domain.TagNames{},
+	}
+	for _, test := range []struct {
+		name string
+		flag string
+		want domain.Placement
+	}{
+		{name: "after", flag: "--after=008", want: domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: 8}},
+		{name: "before", flag: "--before=008", want: domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: 8}},
+		{name: "first", flag: "--first", want: domain.Placement{Anchor: domain.PlacementFirst}},
+		{name: "last", flag: "--last", want: domain.Placement{Anchor: domain.PlacementLast}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			application := &fakeApplication{reorderResult: wantTask}
+			result := runCommand(t, application, "reorder", "007", test.flag, "--json")
+			if result.exitCode != 0 || result.stderr != "" || result.opens != 1 || result.closes != 1 {
+				t.Fatalf("result = %#v, want JSON success and one factory lifecycle", result)
+			}
+			if application.reorderID != 7 || !reflect.DeepEqual(application.reorderPlacement, test.want) {
+				t.Errorf("Reorder() input = (%d, %#v), want (7, %#v)", application.reorderID, application.reorderPlacement, test.want)
+			}
+			if !strings.HasSuffix(result.stdout, "\n") || strings.Count(result.stdout, "\n") != 1 {
+				t.Fatalf("stdout = %q, want one newline-terminated JSON value", result.stdout)
+			}
+			var got task.Task
+			if err := json.Unmarshal([]byte(result.stdout), &got); err != nil {
+				t.Fatalf("decode reorder JSON: %v", err)
+			}
+			if !reflect.DeepEqual(got, wantTask) {
+				t.Errorf("reorder JSON = %#v, want bare task %#v", got, wantTask)
+			}
+		})
+	}
+}
+
+func TestTaskReorderWritesExactHumanMutation(t *testing.T) {
+	t.Parallel()
+
+	result := runCommand(
+		t,
+		&fakeApplication{reorderResult: task.Task{ID: 7, Title: "ship it"}},
+		"reorder", "7", "--first",
+	)
+	if result.exitCode != 0 || result.stdout != "~ Reordered: 7  ship it\n" || result.stderr != "" {
+		t.Errorf("result = %#v, want exact stdout-only reorder mutation", result)
+	}
+}
+
+func TestReorderUsageFailuresDoNotOpenApplications(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		run  func(*testing.T) commandResult
+	}{
+		{name: "task missing placement", run: func(t *testing.T) commandResult {
+			return runCommand(t, &fakeApplication{}, "reorder", "7", "--json")
+		}},
+		{name: "task multiple placements", run: func(t *testing.T) commandResult {
+			return runCommand(t, &fakeApplication{}, "reorder", "7", "--first", "--last", "--json")
+		}},
+		{name: "task false placement", run: func(t *testing.T) commandResult {
+			return runCommand(t, &fakeApplication{}, "reorder", "7", "--first=false", "--json")
+		}},
+		{name: "task missing ID", run: func(t *testing.T) commandResult {
+			return runCommand(t, &fakeApplication{}, "reorder", "--first", "--json")
+		}},
+		{name: "task extra ID", run: func(t *testing.T) commandResult {
+			return runCommand(t, &fakeApplication{}, "reorder", "7", "8", "--first", "--json")
+		}},
+		{name: "project missing placement", run: func(t *testing.T) commandResult {
+			return runProjectCommand(t, &fakeProjectApplication{}, "project", "reorder", "7", "--json")
+		}},
+		{name: "project multiple placements", run: func(t *testing.T) commandResult {
+			return runProjectCommand(t, &fakeProjectApplication{}, "project", "reorder", "7", "--after", "8", "--before", "9", "--json")
+		}},
+		{name: "project false placement", run: func(t *testing.T) commandResult {
+			return runProjectCommand(t, &fakeProjectApplication{}, "project", "reorder", "7", "--last=false", "--json")
+		}},
+		{name: "project missing ID", run: func(t *testing.T) commandResult {
+			return runProjectCommand(t, &fakeProjectApplication{}, "project", "reorder", "--first", "--json")
+		}},
+		{name: "project extra ID", run: func(t *testing.T) commandResult {
+			return runProjectCommand(t, &fakeProjectApplication{}, "project", "reorder", "7", "8", "--first", "--json")
+		}},
+		{name: "area missing placement", run: func(t *testing.T) commandResult {
+			return runAreaCommand(t, &fakeAreaApplication{}, "area", "reorder", "7", "--json")
+		}},
+		{name: "area multiple placements", run: func(t *testing.T) commandResult {
+			return runAreaCommand(t, &fakeAreaApplication{}, "area", "reorder", "7", "--first", "--last", "--json")
+		}},
+		{name: "area false placement", run: func(t *testing.T) commandResult {
+			return runAreaCommand(t, &fakeAreaApplication{}, "area", "reorder", "7", "--first=false", "--json")
+		}},
+		{name: "area missing ID", run: func(t *testing.T) commandResult {
+			return runAreaCommand(t, &fakeAreaApplication{}, "area", "reorder", "--first", "--json")
+		}},
+		{name: "area extra ID", run: func(t *testing.T) commandResult {
+			return runAreaCommand(t, &fakeAreaApplication{}, "area", "reorder", "7", "8", "--first", "--json")
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := test.run(t)
+			if result.exitCode != 2 || result.opens != 0 || result.closes != 0 || result.stdout != "" || result.stderr == "" {
+				t.Errorf("result = %#v, want stderr-only usage failure without application lifecycle", result)
+			}
+		})
+	}
+}
+
+func TestReorderIDValidationDoesNotOpenApplications(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		run  func(*testing.T) commandResult
+	}{
+		{name: "task ID", run: func(t *testing.T) commandResult {
+			return runCommand(t, &fakeApplication{}, "reorder", "nope", "--first", "--json")
+		}},
+		{name: "task reference", run: func(t *testing.T) commandResult {
+			return runCommand(t, &fakeApplication{}, "reorder", "7", "--after", "0", "--json")
+		}},
+		{name: "project ID", run: func(t *testing.T) commandResult {
+			return runProjectCommand(t, &fakeProjectApplication{}, "project", "reorder", "nope", "--first", "--json")
+		}},
+		{name: "project reference", run: func(t *testing.T) commandResult {
+			return runProjectCommand(t, &fakeProjectApplication{}, "project", "reorder", "7", "--before", "0", "--json")
+		}},
+		{name: "area ID", run: func(t *testing.T) commandResult {
+			return runAreaCommand(t, &fakeAreaApplication{}, "area", "reorder", "nope", "--last", "--json")
+		}},
+		{name: "area reference", run: func(t *testing.T) commandResult {
+			return runAreaCommand(t, &fakeAreaApplication{}, "area", "reorder", "7", "--after", "0", "--json")
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := test.run(t)
+			if result.exitCode != 1 || result.opens != 0 || result.closes != 0 || result.stdout != "" || result.stderr == "" {
+				t.Errorf("result = %#v, want stderr-only invalid_argument without application lifecycle", result)
+			}
+			var envelope errorEnvelope
+			if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
+				t.Fatalf("decode error JSON: %v", err)
+			}
+			if envelope.Error.Code != apperr.InvalidArgument {
+				t.Errorf("error code = %q, want invalid_argument", envelope.Error.Code)
+			}
+		})
+	}
+}
+
+func TestTaskReorderApplicationErrorUsesOnlyStderr(t *testing.T) {
+	t.Parallel()
+
+	application := &fakeApplication{reorderError: apperr.New(apperr.NotFound, "no task 99", nil)}
+	result := runCommand(t, application, "reorder", "99", "--last", "--json")
+	if result.exitCode != 1 || result.stdout != "" || result.opens != 1 || result.closes != 1 {
+		t.Fatalf("result = %#v, want stderr-only application failure and one factory lifecycle", result)
+	}
+	var envelope errorEnvelope
+	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
+		t.Fatalf("decode error JSON: %v", err)
+	}
+	if envelope.Error.Code != apperr.NotFound || envelope.Error.Message != "no task 99" {
+		t.Errorf("error = %#v, want task not_found diagnostic", envelope.Error)
 	}
 }
 

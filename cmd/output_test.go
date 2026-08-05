@@ -169,6 +169,9 @@ func TestFinalGlyphVocabulary(t *testing.T) {
 		{name: "reopen", prefix: "~ Reopened: 1", render: func(o humanOutput) error {
 			return o.writeTaskMutation(verbReopened, task.Task{ID: 1, Title: "Task"})
 		}},
+		{name: "reorder", prefix: "~ Reordered: 1", render: func(o humanOutput) error {
+			return o.writeTaskMutation(verbReordered, task.Task{ID: 1, Title: "Task"})
+		}},
 		{name: "archive", prefix: "✗ Archived: area 3", render: func(o humanOutput) error {
 			return o.writeAreaMutation(verbArchived, area.Area{ID: 3, Title: "Area"})
 		}},

@@ -14,38 +14,42 @@ import (
 )
 
 type fakeProjectApplication struct {
-	addResult       project.Project
-	addError        error
-	listResult      []project.Project
-	listError       error
-	showResult      project.Project
-	showError       error
-	editResult      project.Project
-	editError       error
-	resolveResult   project.Resolution
-	resolveError    error
-	reopenResult    project.Project
-	reopenError     error
-	tagResult       project.Tagging
-	tagError        error
-	untagResult     project.Tagging
-	untagError      error
-	deleteResult    project.Deletion
-	deleteError     error
-	addFields       project.AddFields
-	listOptions     project.ListOptions
-	showID          int64
-	editID          int64
-	editFields      project.EditFields
-	resolveID       int64
-	resolveExit     project.Exit
-	reopenID        int64
-	tagID           int64
-	tagNames        []string
-	untagID         int64
-	untagNames      []string
-	deleteID        int64
-	deleteRecursive bool
+	addResult        project.Project
+	addError         error
+	listResult       []project.Project
+	listError        error
+	showResult       project.Project
+	showError        error
+	editResult       project.Project
+	editError        error
+	resolveResult    project.Resolution
+	resolveError     error
+	reopenResult     project.Project
+	reopenError      error
+	reorderResult    project.Project
+	reorderError     error
+	tagResult        project.Tagging
+	tagError         error
+	untagResult      project.Tagging
+	untagError       error
+	deleteResult     project.Deletion
+	deleteError      error
+	addFields        project.AddFields
+	listOptions      project.ListOptions
+	showID           int64
+	editID           int64
+	editFields       project.EditFields
+	resolveID        int64
+	resolveExit      project.Exit
+	reopenID         int64
+	reorderID        int64
+	reorderPlacement domain.Placement
+	tagID            int64
+	tagNames         []string
+	untagID          int64
+	untagNames       []string
+	deleteID         int64
+	deleteRecursive  bool
 }
 
 func (f *fakeProjectApplication) Add(
@@ -98,6 +102,16 @@ func (f *fakeProjectApplication) Reopen(
 ) (project.Project, error) {
 	f.reopenID = id
 	return f.reopenResult, f.reopenError
+}
+
+func (f *fakeProjectApplication) Reorder(
+	_ context.Context,
+	id int64,
+	placement domain.Placement,
+) (project.Project, error) {
+	f.reorderID = id
+	f.reorderPlacement = placement
+	return f.reorderResult, f.reorderError
 }
 
 func (f *fakeProjectApplication) Tag(
@@ -697,6 +711,65 @@ func TestProjectResolveCommandsAdaptExitAndJSONEnvelope(t *testing.T) {
 				t.Errorf("factory lifecycle = %#v, want one open and close", result)
 			}
 		})
+	}
+}
+
+func TestProjectReorderAdaptsEveryPlacementAndWritesBareJSON(t *testing.T) {
+	t.Parallel()
+
+	wantProject := project.Project{
+		ID: 7, Title: "Kitchen", Status: "open", Position: 3, Tags: domain.TagNames{},
+	}
+	for _, test := range []struct {
+		name string
+		flag string
+		want domain.Placement
+	}{
+		{name: "after", flag: "--after=008", want: domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: 8}},
+		{name: "before", flag: "--before=008", want: domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: 8}},
+		{name: "first", flag: "--first", want: domain.Placement{Anchor: domain.PlacementFirst}},
+		{name: "last", flag: "--last", want: domain.Placement{Anchor: domain.PlacementLast}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			application := &fakeProjectApplication{reorderResult: wantProject}
+			result := runProjectCommand(t, application, "project", "reorder", "007", test.flag, "--json")
+			requireProjectCommandJSON(t, result, wantProject)
+			if application.reorderID != 7 || !reflect.DeepEqual(application.reorderPlacement, test.want) {
+				t.Errorf("Reorder() input = (%d, %#v), want (7, %#v)", application.reorderID, application.reorderPlacement, test.want)
+			}
+			if result.opens != 1 || result.closes != 1 {
+				t.Errorf("factory lifecycle = %#v, want one open and close", result)
+			}
+		})
+	}
+}
+
+func TestProjectReorderWritesExactHumanMutation(t *testing.T) {
+	t.Parallel()
+
+	result := runProjectCommand(
+		t,
+		&fakeProjectApplication{reorderResult: project.Project{ID: 7, Title: "Kitchen"}},
+		"project", "reorder", "7", "--first",
+	)
+	if result.exitCode != 0 || result.stdout != "~ Reordered: project 7  Kitchen\n" || result.stderr != "" {
+		t.Errorf("result = %#v, want exact stdout-only reorder mutation", result)
+	}
+}
+
+func TestProjectReorderApplicationErrorUsesOnlyStderr(t *testing.T) {
+	t.Parallel()
+
+	application := &fakeProjectApplication{reorderError: apperr.New(apperr.NotFound, "no project 99", nil)}
+	result := runProjectCommand(t, application, "project", "reorder", "99", "--last", "--json")
+	got := decodeProjectCommandError(t, result)
+	if got.Code != apperr.NotFound || got.Message != "no project 99" {
+		t.Errorf("error = %#v, want project not_found diagnostic", got)
+	}
+	if result.exitCode != 1 || result.stdout != "" || result.opens != 1 || result.closes != 1 {
+		t.Errorf("result = %#v, want stderr-only application failure and one factory lifecycle", result)
 	}
 }
 

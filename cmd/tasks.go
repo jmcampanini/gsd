@@ -320,6 +320,40 @@ func newReopenCommand(options *rootOptions, factory applicationFactory) *cobra.C
 	)
 }
 
+func newReorderCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	flags := reorderFlags{}
+	command := &cobra.Command{
+		Use:   "reorder ID",
+		Short: "Reorder a task",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := flags.validate(command); err != nil {
+				return err
+			}
+
+			id, err := task.ParseID(args[0])
+			if err != nil {
+				return err
+			}
+			placement, err := flags.placement(command, task.ParseID)
+			if err != nil {
+				return err
+			}
+
+			return withTaskApplication(command, options, factory, func(application task.Application) error {
+				reordered, reorderErr := application.Reorder(command.Context(), id, placement)
+				if reorderErr != nil {
+					return reorderErr
+				}
+				return writeCommandOutput(command, options, reordered, taskMutationWriter(verbReordered))
+			})
+		},
+	}
+	flags.register(command, "task")
+
+	return command
+}
+
 func newTagCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
 	return newTaskTaggingCommand(
 		options,

@@ -77,8 +77,25 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Project, err
 	if err := validateAreaID(options.AreaID); err != nil {
 		return nil, err
 	}
+	if options.AreaID == nil {
+		return domain.NormalizeSliceResult(s.store.List(ctx, options))
+	}
 
-	return domain.NormalizeSliceResult(s.store.List(ctx, options))
+	var listed []Project
+	err := s.store.WithinReadTransaction(ctx, func(transaction Transaction) error {
+		if err := transaction.AreaExists(ctx, *options.AreaID); err != nil {
+			return err
+		}
+
+		var err error
+		listed, err = transaction.List(ctx, options)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return domain.NormalizeSliceResult(listed, nil)
 }
 
 func (s *Service) Show(ctx context.Context, id int64) (Project, error) {
@@ -122,6 +139,17 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Projec
 	}
 
 	return s.store.Edit(ctx, id, fields, domain.FormatTimestamp(s.now()))
+}
+
+func (s *Service) Reorder(ctx context.Context, id int64, placement domain.Placement) (Project, error) {
+	if err := validateID(id); err != nil {
+		return Project{}, err
+	}
+	if err := domain.ValidatePlacement(placement); err != nil {
+		return Project{}, err
+	}
+
+	return s.store.Reorder(ctx, id, placement, domain.FormatTimestamp(s.now()))
 }
 
 func (s *Service) Resolve(ctx context.Context, id int64, exit Exit) (Resolution, error) {

@@ -223,6 +223,17 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, 
 	return s.store.Edit(ctx, id, fields, domain.FormatTimestamp(reference))
 }
 
+func (s *Service) Reorder(ctx context.Context, id int64, placement domain.Placement) (Task, error) {
+	if err := validateID(id); err != nil {
+		return Task{}, err
+	}
+	if err := domain.ValidatePlacement(placement); err != nil {
+		return Task{}, err
+	}
+
+	return s.store.Reorder(ctx, id, placement, domain.FormatTimestamp(s.now()))
+}
+
 func (s *Service) Done(ctx context.Context, id int64) (Task, error) {
 	if err := validateID(id); err != nil {
 		return Task{}, err

@@ -29,11 +29,20 @@ type recordingStore struct {
 	listOptions          ListOptions
 	listResult           []Project
 	listError            error
+	areaExistsCalls      int
+	areaExistsID         int64
+	areaExistsError      error
 	editCalls            int
 	editID               int64
 	editFields           EditFields
 	editTimestamp        string
 	editError            error
+	reorderCalls         int
+	reorderID            int64
+	reorderPlacement     domain.Placement
+	reorderTimestamp     string
+	reorderResult        Project
+	reorderError         error
 	resolveCalls         int
 	resolveID            int64
 	resolveExit          Exit
@@ -73,6 +82,9 @@ type recordingStore struct {
 	transactionCalls     int
 	transactionStore     Transaction
 	transactionError     error
+	readTransactionCalls int
+	readTransactionStore Transaction
+	readTransactionError error
 }
 
 func (r *recordingStore) Add(
@@ -120,6 +132,12 @@ func (r *recordingStore) List(_ context.Context, options ListOptions) ([]Project
 	return r.listResult, r.listError
 }
 
+func (r *recordingStore) AreaExists(_ context.Context, id int64) error {
+	r.areaExistsCalls++
+	r.areaExistsID = id
+	return r.areaExistsError
+}
+
 func (r *recordingStore) Edit(
 	_ context.Context,
 	id int64,
@@ -132,6 +150,19 @@ func (r *recordingStore) Edit(
 	r.editTimestamp = timestamp
 
 	return Project{ID: id, UpdatedAt: timestamp}, r.editError
+}
+
+func (r *recordingStore) Reorder(
+	_ context.Context,
+	id int64,
+	placement domain.Placement,
+	timestamp string,
+) (Project, error) {
+	r.reorderCalls++
+	r.reorderID = id
+	r.reorderPlacement = placement
+	r.reorderTimestamp = timestamp
+	return r.reorderResult, r.reorderError
 }
 
 func (r *recordingStore) Resolve(
@@ -236,6 +267,21 @@ func (r *recordingStore) WithinTransaction(
 		return r.transactionError
 	}
 	store := r.transactionStore
+	if store == nil {
+		store = r
+	}
+	return operation(store)
+}
+
+func (r *recordingStore) WithinReadTransaction(
+	ctx context.Context,
+	operation func(Transaction) error,
+) error {
+	r.readTransactionCalls++
+	if r.readTransactionError != nil {
+		return r.readTransactionError
+	}
+	store := r.readTransactionStore
 	if store == nil {
 		store = r
 	}
@@ -512,8 +558,18 @@ func TestListValidatesAndDelegatesArea(t *testing.T) {
 	if _, err := NewService(store).List(context.Background(), options); err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if store.listCalls != 1 || store.listOptions != options {
-		t.Errorf("store List() calls/options = %d/%#v, want 1/%#v", store.listCalls, store.listOptions, options)
+	if store.readTransactionCalls != 1 || store.areaExistsCalls != 1 ||
+		store.areaExistsID != areaID || store.listCalls != 1 || store.listOptions != options {
+		t.Errorf(
+			"store read/area/ID/list/options = %d/%d/%d/%d/%#v, want 1/1/%d/1/%#v",
+			store.readTransactionCalls,
+			store.areaExistsCalls,
+			store.areaExistsID,
+			store.listCalls,
+			store.listOptions,
+			areaID,
+			options,
+		)
 	}
 
 	invalidAreaID := int64(0)
@@ -522,8 +578,36 @@ func TestListValidatesAndDelegatesArea(t *testing.T) {
 	if errorCode(err) != apperr.InvalidArgument {
 		t.Errorf("List() error = %v, want invalid_argument", err)
 	}
-	if store.listCalls != 0 {
-		t.Errorf("store List() calls = %d, want 0", store.listCalls)
+	if store.readTransactionCalls != 0 || store.areaExistsCalls != 0 || store.listCalls != 0 {
+		t.Errorf(
+			"store read/area/list calls = %d/%d/%d, want 0/0/0",
+			store.readTransactionCalls,
+			store.areaExistsCalls,
+			store.listCalls,
+		)
+	}
+}
+
+func TestListReturnsUnknownAreaErrorBeforeListing(t *testing.T) {
+	t.Parallel()
+
+	areaID := int64(999)
+	missingArea := apperr.New(apperr.NotFound, "no area 999", errors.New("missing area"))
+	store := &recordingStore{areaExistsError: missingArea}
+	_, err := NewService(store).List(context.Background(), ListOptions{
+		Status: ListStatusAll,
+		AreaID: &areaID,
+	})
+	if !errors.Is(err, missingArea) {
+		t.Fatalf("List(missing area) error = %v, want preserved %v", err, missingArea)
+	}
+	if store.readTransactionCalls != 1 || store.areaExistsCalls != 1 || store.listCalls != 0 {
+		t.Errorf(
+			"store read/area/list calls = %d/%d/%d, want 1/1/0",
+			store.readTransactionCalls,
+			store.areaExistsCalls,
+			store.listCalls,
+		)
 	}
 }
 
@@ -641,6 +725,75 @@ func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
 				t.Errorf("store Edit() calls = %d, want 0", store.editCalls)
 			}
 		})
+	}
+}
+
+func TestReorderRejectsInvalidInputBeforeClockOrStore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		id        int64
+		placement domain.Placement
+	}{
+		{name: "moved ID", placement: domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: 3}},
+		{name: "missing relative reference", id: 7, placement: domain.Placement{Anchor: domain.PlacementAfter}},
+		{name: "nonpositive relative reference", id: 7, placement: domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: -1}},
+		{name: "unknown anchor", id: 7, placement: domain.Placement{Anchor: domain.PlacementAnchor("middle")}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &recordingStore{}
+			service := NewService(store)
+			nowCalls := 0
+			service.now = func() time.Time {
+				nowCalls++
+				return time.Time{}
+			}
+
+			_, err := service.Reorder(context.Background(), test.id, test.placement)
+			if errorCode(err) != apperr.InvalidArgument {
+				t.Errorf("Reorder() error = %v, want invalid_argument", err)
+			}
+			if store.reorderCalls != 0 || nowCalls != 0 {
+				t.Errorf("store/clock calls = %d/%d, want 0/0", store.reorderCalls, nowCalls)
+			}
+		})
+	}
+}
+
+func TestReorderDelegatesExactPlacementTimestampAndStoreError(t *testing.T) {
+	t.Parallel()
+
+	placement := domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: 11}
+	want := Project{ID: 7, Title: "moved", Position: 2}
+	storeError := apperr.New(apperr.Conflict, "store conflict", nil)
+	store := &recordingStore{reorderResult: want}
+	service := NewService(store)
+	nowCalls := 0
+	service.now = func() time.Time {
+		nowCalls++
+		return time.Date(2026, time.July, 27, 12, 34, 56, 987654321, time.FixedZone("offset", -4*60*60))
+	}
+
+	got, err := service.Reorder(context.Background(), 7, placement)
+	if err != nil {
+		t.Fatalf("Reorder() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, want) || store.reorderCalls != 1 || store.reorderID != 7 ||
+		store.reorderPlacement != placement {
+		t.Errorf("Reorder() result/delegation = %#v/%#v, want %#v and exact intent", got, store, want)
+	}
+	if nowCalls != 1 || store.reorderTimestamp != "2026-07-27T16:34:56.987Z" {
+		t.Errorf("clock calls/timestamp = %d/%q, want 1/UTC milliseconds", nowCalls, store.reorderTimestamp)
+	}
+
+	store.reorderError = storeError
+	if _, err := service.Reorder(context.Background(), 7, placement); !errors.Is(err, storeError) {
+		t.Errorf("Reorder() error = %v, want preserved %v", err, storeError)
 	}
 }
 

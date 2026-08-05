@@ -81,6 +81,7 @@ func TestAreaContainmentAcrossBinaryInvocations(t *testing.T) {
 	}
 	assertJSONError(t, runJSON("add", "Missing area", "--area", "99"), apperr.NotFound)
 	assertJSONError(t, runJSON("list", "--area", "99"), apperr.NotFound)
+	assertJSONError(t, runJSON("projects", "list", "--area", "99"), apperr.NotFound)
 
 	movedToArea := decodeTask(t, runJSON("edit", fmt.Sprint(projectTask.ID), "--area", fmt.Sprint(home.ID)))
 	if movedToArea.ProjectID != nil || !pointsTo(movedToArea.AreaID, home.ID) || movedToArea.Position != loose.Position+1 {

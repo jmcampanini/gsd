@@ -27,6 +27,9 @@ richer capture build their result rendering on.
   done/cancel) narrate through the same feedback surface.
 - **Reorder chunk**: grab-and-move on the selection, pure presentation
   over Milestone 7's reorder operations — no new ordering model.
+  Drop-commit semantics: one reorder call per completed drop, no
+  intermediate persistence while dragging; multi-select reordering is out
+  of scope unless a later milestone deliberately adds it.
 
 ## Chunks
 

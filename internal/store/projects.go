@@ -10,6 +10,7 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
@@ -50,13 +51,11 @@ func (s *Projects) Find(ctx context.Context, id int64) (project.Project, error) 
 }
 
 func (s *Projects) List(ctx context.Context, options project.ListOptions) ([]project.Project, error) {
-	if options.AreaID == nil {
-		return s.poolCore().List(ctx, options)
-	}
+	return s.poolCore().List(ctx, options)
+}
 
-	return runInTransaction(ctx, s.withinReadTransaction, func(transaction project.Transaction) ([]project.Project, error) {
-		return transaction.List(ctx, options)
-	})
+func (s *Projects) AreaExists(ctx context.Context, id int64) error {
+	return s.poolCore().AreaExists(ctx, id)
 }
 
 func (s *Projects) Edit(
@@ -67,6 +66,17 @@ func (s *Projects) Edit(
 ) (project.Project, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Transaction) (project.Project, error) {
 		return transaction.Edit(ctx, id, fields, timestamp)
+	})
+}
+
+func (s *Projects) Reorder(
+	ctx context.Context,
+	id int64,
+	placement domain.Placement,
+	timestamp string,
+) (project.Project, error) {
+	return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Transaction) (project.Project, error) {
+		return transaction.Reorder(ctx, id, placement, timestamp)
 	})
 }
 
@@ -116,7 +126,7 @@ func (s *Projects) ResolveTags(ctx context.Context, names []string) ([]tag.Tag, 
 		return s.poolCore().ResolveTags(ctx, names)
 	}
 
-	return runInTransaction(ctx, s.withinReadTransaction, func(transaction project.Transaction) ([]tag.Tag, error) {
+	return runInTransaction(ctx, s.WithinReadTransaction, func(transaction project.Transaction) ([]tag.Tag, error) {
 		return transaction.ResolveTags(ctx, names)
 	})
 }
@@ -148,7 +158,7 @@ func (s *Projects) WithinTransaction(
 	})
 }
 
-func (s *Projects) withinReadTransaction(
+func (s *Projects) WithinReadTransaction(
 	ctx context.Context,
 	apply func(project.Transaction) error,
 ) error {
@@ -245,6 +255,11 @@ func (s *projectsCore) List(ctx context.Context, options project.ListOptions) ([
 	return collectRows(rows, scanProject, "scan listed project", "iterate listed projects")
 }
 
+func (s *projectsCore) AreaExists(ctx context.Context, id int64) error {
+	_, err := s.findArea(ctx, id)
+	return err
+}
+
 func (s *projectsCore) Edit(
 	ctx context.Context,
 	id int64,
@@ -321,6 +336,61 @@ func (s *projectsCore) Edit(
 	}
 
 	return edited, nil
+}
+
+func (s *projectsCore) Reorder(
+	ctx context.Context,
+	id int64,
+	placement domain.Placement,
+	timestamp string,
+) (project.Project, error) {
+	moved, err := s.Find(ctx, id)
+	if err != nil {
+		return project.Project{}, err
+	}
+	if placement.Anchor == domain.PlacementAfter || placement.Anchor == domain.PlacementBefore {
+		reference, findErr := s.Find(ctx, placement.ReferenceID)
+		if findErr != nil {
+			return project.Project{}, findErr
+		}
+		if id == placement.ReferenceID {
+			return project.Project{}, apperr.New(
+				apperr.InvalidArgument,
+				fmt.Sprintf("cannot reorder project %d relative to itself", id),
+				nil,
+			)
+		}
+		if !sameProjectArea(moved.AreaID, reference.AreaID) {
+			return project.Project{}, apperr.New(
+				apperr.InvalidArgument,
+				fmt.Sprintf("project %d is in a different container", placement.ReferenceID),
+				nil,
+			)
+		}
+	}
+
+	areaID := nullableID(moved.AreaID)
+	rows, err := s.executor.QueryContext(ctx, `
+SELECT id
+FROM projects
+WHERE area_id IS ?
+ORDER BY position, id`, areaID)
+	if err != nil {
+		return project.Project{}, fmt.Errorf("list project reorder siblings: %w", err)
+	}
+	ordered, err := collectSiblingIDs(rows, "project")
+	if err != nil {
+		return project.Project{}, err
+	}
+	ordered, err = spliceOrderedIDs(ordered, id, placement)
+	if err != nil {
+		return project.Project{}, fmt.Errorf("reorder project positions: %w", err)
+	}
+	clause, arguments := reorderCaseUpdate(ordered, id, timestamp)
+	if _, err := s.executor.ExecContext(ctx, "UPDATE projects SET "+clause, arguments...); err != nil {
+		return project.Project{}, fmt.Errorf("reorder project: %w", err)
+	}
+	return s.Find(ctx, id)
 }
 
 func (s *projectsCore) Resolve(
@@ -535,10 +605,6 @@ func (s *projectsCore) listArea(
 	conditions []string,
 	arguments []any,
 ) ([]project.Project, error) {
-	if _, err := s.findArea(ctx, areaID); err != nil {
-		return nil, err
-	}
-
 	query := "SELECT " + projectColumnsWithTags("projects.id") + " FROM projects WHERE area_id = ?"
 	if len(conditions) > 0 {
 		query += " AND " + strings.Join(conditions, " AND ")
