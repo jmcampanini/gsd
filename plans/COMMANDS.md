@@ -121,8 +121,12 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
   (`--area N --no-area`) is a usage error. Neither = inbox.
 - **Re-parenting appends** to the end of the destination container;
   re-stating the current container is a no-op and does not move the entity.
-- **Reorder is sibling-relative**; referencing an entity in a different
-  container is an error.
+- **Reorder is sibling-relative**: the reference entity must live in the
+  same container as the moved one; a cross-container reference or a
+  self-reference is `invalid_argument`. Reordering is status-blind — done,
+  cancelled, and archived siblings keep their positions, can be moved, and
+  can serve as references — and a placement that lands the entity where it
+  already sits succeeds as an ordinary reorder.
 - **Tag names use title validation**: they must be valid UTF-8 and nonblank
   after surrounding-space inspection, and accepted spelling is stored
   unchanged. The stored spelling (initially the first-created spelling) is
@@ -214,9 +218,11 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
 - JSON output is exactly one compact value followed by a newline. Tags
   complete the v1 entity field set, but field order remains unstable; field
   names, types, and error codes are stable, while message wording is not.
-- **Mutations echo the affected entity**: the three `add` commands and all
-  `tag`/`untag` commands return the complete entity row, so agents can capture
-  an ID or the resulting tags without another call.
+- **Mutations echo the affected entity**: the three `add` commands, all
+  `tag`/`untag` commands, and the three `reorder` commands return the
+  complete entity row, so agents can capture an ID, the resulting tags, or
+  the new `position` without another call. An agent wanting the container's
+  resulting order follows with a position-ordered collection command.
 - **Tag administration returns complete rows and envelopes**: a tag row is
   `{"id":N,"title":"...","created_at":"...","updated_at":"..."}`;
   `tags add` and `tags rename` return that row. `tags list` returns an array
