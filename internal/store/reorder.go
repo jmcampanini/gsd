@@ -1,12 +1,21 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/jmcampanini/gsd/internal/domain"
 )
+
+func collectSiblingIDs(rows *sql.Rows, entity string) ([]int64, error) {
+	return collectRows(rows, func(scanner rowScanner) (int64, error) {
+		var id int64
+		err := scanner.Scan(&id)
+		return id, err
+	}, "scan "+entity+" reorder sibling", "iterate "+entity+" reorder siblings")
+}
 
 func spliceOrderedIDs(
 	ordered []int64,
@@ -56,6 +65,8 @@ func spliceOrderedIDs(
 	return result, nil
 }
 
+// IDs and positions are inlined because binding them would exceed SQLite's
+// bind-variable limit on containers above roughly ten thousand rows.
 func reorderCaseUpdate(ordered []int64, movedID int64, timestamp string) (string, []any) {
 	positionCases := make([]string, 0, len(ordered))
 	identifiers := make([]string, 0, len(ordered))

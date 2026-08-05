@@ -256,8 +256,7 @@ func (s *projectsCore) List(ctx context.Context, options project.ListOptions) ([
 }
 
 func (s *projectsCore) AreaExists(ctx context.Context, id int64) error {
-	// This intentionally duplicates findArea to keep AreaExists parallel with the task store.
-	_, err := (&areasCore{executor: s.executor}).Find(ctx, id)
+	_, err := s.findArea(ctx, id)
 	return err
 }
 
@@ -379,11 +378,7 @@ ORDER BY position, id`, areaID)
 	if err != nil {
 		return project.Project{}, fmt.Errorf("list project reorder siblings: %w", err)
 	}
-	ordered, err := collectRows(rows, func(scanner rowScanner) (int64, error) {
-		var siblingID int64
-		err := scanner.Scan(&siblingID)
-		return siblingID, err
-	}, "scan project reorder sibling", "iterate project reorder siblings")
+	ordered, err := collectSiblingIDs(rows, "project")
 	if err != nil {
 		return project.Project{}, err
 	}

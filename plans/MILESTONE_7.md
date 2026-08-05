@@ -61,7 +61,9 @@ Deliberately deferred, with revisit triggers:
   parameters are the family idiom.
 - **Genericizing the intentionally-parallel tag service flows** — carried
   from Milestone 6: revisit on the first sibling-divergence bug or a
-  post-v1 attach-semantics change.
+  post-v1 attach-semantics change. The reorder verb added a third
+  concretely-parallel flow family; weighed against this trigger at the
+  Milestone 7 foundation review, the convention held.
 - **Typed transition spec for `applyTransition`** — carried from
   Milestone 6: revisit if post-v1 work adds transitions.
 
