@@ -130,12 +130,20 @@ func TestContainedListingsDoNotReserveWriter(t *testing.T) {
 	}
 	defer func() { _, _ = writerConnection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK") }()
 
-	listedProjects, err := projects.List(
-		ctx,
-		project.ListOptions{Status: project.ListStatusAll, AreaID: &container.ID},
-	)
+	var listedProjects []project.Project
+	err = projects.WithinReadTransaction(ctx, func(transaction project.Transaction) error {
+		if existsErr := transaction.AreaExists(ctx, container.ID); existsErr != nil {
+			return existsErr
+		}
+		var listErr error
+		listedProjects, listErr = transaction.List(
+			ctx,
+			project.ListOptions{Status: project.ListStatusAll, AreaID: &container.ID},
+		)
+		return listErr
+	})
 	if err != nil {
-		t.Fatalf("List(projects while writer reserved) error = %v", err)
+		t.Fatalf("WithinReadTransaction(projects while writer reserved) error = %v", err)
 	}
 	if len(listedProjects) != 1 || listedProjects[0].ID != contained.ID {
 		t.Errorf("List(projects while writer reserved) = %#v, want project %d", listedProjects, contained.ID)

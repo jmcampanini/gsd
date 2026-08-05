@@ -29,6 +29,9 @@ type recordingStore struct {
 	listOptions          ListOptions
 	listResult           []Project
 	listError            error
+	areaExistsCalls      int
+	areaExistsID         int64
+	areaExistsError      error
 	editCalls            int
 	editID               int64
 	editFields           EditFields
@@ -73,6 +76,9 @@ type recordingStore struct {
 	transactionCalls     int
 	transactionStore     Transaction
 	transactionError     error
+	readTransactionCalls int
+	readTransactionStore Transaction
+	readTransactionError error
 }
 
 func (r *recordingStore) Add(
@@ -118,6 +124,12 @@ func (r *recordingStore) List(_ context.Context, options ListOptions) ([]Project
 	r.listCalls++
 	r.listOptions = options
 	return r.listResult, r.listError
+}
+
+func (r *recordingStore) AreaExists(_ context.Context, id int64) error {
+	r.areaExistsCalls++
+	r.areaExistsID = id
+	return r.areaExistsError
 }
 
 func (r *recordingStore) Edit(
@@ -236,6 +248,21 @@ func (r *recordingStore) WithinTransaction(
 		return r.transactionError
 	}
 	store := r.transactionStore
+	if store == nil {
+		store = r
+	}
+	return operation(store)
+}
+
+func (r *recordingStore) WithinReadTransaction(
+	ctx context.Context,
+	operation func(Transaction) error,
+) error {
+	r.readTransactionCalls++
+	if r.readTransactionError != nil {
+		return r.readTransactionError
+	}
+	store := r.readTransactionStore
 	if store == nil {
 		store = r
 	}
@@ -512,8 +539,18 @@ func TestListValidatesAndDelegatesArea(t *testing.T) {
 	if _, err := NewService(store).List(context.Background(), options); err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if store.listCalls != 1 || store.listOptions != options {
-		t.Errorf("store List() calls/options = %d/%#v, want 1/%#v", store.listCalls, store.listOptions, options)
+	if store.readTransactionCalls != 1 || store.areaExistsCalls != 1 ||
+		store.areaExistsID != areaID || store.listCalls != 1 || store.listOptions != options {
+		t.Errorf(
+			"store read/area/ID/list/options = %d/%d/%d/%d/%#v, want 1/1/%d/1/%#v",
+			store.readTransactionCalls,
+			store.areaExistsCalls,
+			store.areaExistsID,
+			store.listCalls,
+			store.listOptions,
+			areaID,
+			options,
+		)
 	}
 
 	invalidAreaID := int64(0)
@@ -522,8 +559,36 @@ func TestListValidatesAndDelegatesArea(t *testing.T) {
 	if errorCode(err) != apperr.InvalidArgument {
 		t.Errorf("List() error = %v, want invalid_argument", err)
 	}
-	if store.listCalls != 0 {
-		t.Errorf("store List() calls = %d, want 0", store.listCalls)
+	if store.readTransactionCalls != 0 || store.areaExistsCalls != 0 || store.listCalls != 0 {
+		t.Errorf(
+			"store read/area/list calls = %d/%d/%d, want 0/0/0",
+			store.readTransactionCalls,
+			store.areaExistsCalls,
+			store.listCalls,
+		)
+	}
+}
+
+func TestListReturnsUnknownAreaErrorBeforeListing(t *testing.T) {
+	t.Parallel()
+
+	areaID := int64(999)
+	missingArea := apperr.New(apperr.NotFound, "no area 999", errors.New("missing area"))
+	store := &recordingStore{areaExistsError: missingArea}
+	_, err := NewService(store).List(context.Background(), ListOptions{
+		Status: ListStatusAll,
+		AreaID: &areaID,
+	})
+	if !errors.Is(err, missingArea) {
+		t.Fatalf("List(missing area) error = %v, want preserved %v", err, missingArea)
+	}
+	if store.readTransactionCalls != 1 || store.areaExistsCalls != 1 || store.listCalls != 0 {
+		t.Errorf(
+			"store read/area/list calls = %d/%d/%d, want 1/1/0",
+			store.readTransactionCalls,
+			store.areaExistsCalls,
+			store.listCalls,
+		)
 	}
 }
 

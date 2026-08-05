@@ -90,6 +90,7 @@ type Transaction interface {
 	Add(context.Context, AddFields, string) (Project, error)
 	Find(context.Context, int64) (Project, error)
 	List(context.Context, ListOptions) ([]Project, error)
+	AreaExists(context.Context, int64) error
 	Edit(context.Context, int64, EditFields, string) (Project, error)
 	Resolve(context.Context, int64, Exit, string) (Project, error)
 	CancelOpenTasks(context.Context, int64, string) ([]task.Task, error)
@@ -104,6 +105,7 @@ type Transaction interface {
 type Store interface {
 	Transaction
 	WithinTransaction(context.Context, func(Transaction) error) error
+	WithinReadTransaction(context.Context, func(Transaction) error) error
 }
 
 type Application interface {

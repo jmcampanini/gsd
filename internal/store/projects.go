@@ -50,13 +50,11 @@ func (s *Projects) Find(ctx context.Context, id int64) (project.Project, error) 
 }
 
 func (s *Projects) List(ctx context.Context, options project.ListOptions) ([]project.Project, error) {
-	if options.AreaID == nil {
-		return s.poolCore().List(ctx, options)
-	}
+	return s.poolCore().List(ctx, options)
+}
 
-	return runInTransaction(ctx, s.withinReadTransaction, func(transaction project.Transaction) ([]project.Project, error) {
-		return transaction.List(ctx, options)
-	})
+func (s *Projects) AreaExists(ctx context.Context, id int64) error {
+	return s.poolCore().AreaExists(ctx, id)
 }
 
 func (s *Projects) Edit(
@@ -116,7 +114,7 @@ func (s *Projects) ResolveTags(ctx context.Context, names []string) ([]tag.Tag, 
 		return s.poolCore().ResolveTags(ctx, names)
 	}
 
-	return runInTransaction(ctx, s.withinReadTransaction, func(transaction project.Transaction) ([]tag.Tag, error) {
+	return runInTransaction(ctx, s.WithinReadTransaction, func(transaction project.Transaction) ([]tag.Tag, error) {
 		return transaction.ResolveTags(ctx, names)
 	})
 }
@@ -148,7 +146,7 @@ func (s *Projects) WithinTransaction(
 	})
 }
 
-func (s *Projects) withinReadTransaction(
+func (s *Projects) WithinReadTransaction(
 	ctx context.Context,
 	apply func(project.Transaction) error,
 ) error {
@@ -243,6 +241,12 @@ func (s *projectsCore) List(ctx context.Context, options project.ListOptions) ([
 	}
 
 	return collectRows(rows, scanProject, "scan listed project", "iterate listed projects")
+}
+
+func (s *projectsCore) AreaExists(ctx context.Context, id int64) error {
+	// This intentionally duplicates findArea to keep AreaExists parallel with the task store.
+	_, err := (&areasCore{executor: s.executor}).Find(ctx, id)
+	return err
 }
 
 func (s *projectsCore) Edit(
@@ -535,10 +539,6 @@ func (s *projectsCore) listArea(
 	conditions []string,
 	arguments []any,
 ) ([]project.Project, error) {
-	if _, err := s.findArea(ctx, areaID); err != nil {
-		return nil, err
-	}
-
 	query := "SELECT " + projectColumnsWithTags("projects.id") + " FROM projects WHERE area_id = ?"
 	if len(conditions) > 0 {
 		query += " AND " + strings.Join(conditions, " AND ")

@@ -77,8 +77,25 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Project, err
 	if err := validateAreaID(options.AreaID); err != nil {
 		return nil, err
 	}
+	if options.AreaID == nil {
+		return domain.NormalizeSliceResult(s.store.List(ctx, options))
+	}
 
-	return domain.NormalizeSliceResult(s.store.List(ctx, options))
+	var listed []Project
+	err := s.store.WithinReadTransaction(ctx, func(transaction Transaction) error {
+		if err := transaction.AreaExists(ctx, *options.AreaID); err != nil {
+			return err
+		}
+
+		var err error
+		listed, err = transaction.List(ctx, options)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return domain.NormalizeSliceResult(listed, nil)
 }
 
 func (s *Service) Show(ctx context.Context, id int64) (Project, error) {

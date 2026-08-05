@@ -8,7 +8,7 @@ acceptance boundary. Both artifacts are retired at consolidation.
 
 ## Progress
 
-- [ ] Chunk 0 — Milestone 6 consolidation
+- [x] Chunk 0 — Milestone 6 consolidation
 - [ ] Chunk 1 — The reorder verb
 
 ## Settled contract deltas
@@ -88,14 +88,14 @@ Review-only (no new human-facing capability): applies the scheduled finding
 from the Milestone 6 foundation review before Reorder work begins.
 Behavior-preserving. No demo.
 
-- [ ] Service-owned filtered-list validation for projects, mirroring the
+- [x] Service-owned filtered-list validation for projects, mirroring the
       task sibling: `AreaExists` joins `project.Transaction`; the project
       store gains a `WithinReadTransaction` path; the area-existence check
       moves from the store's `listArea` into the project service's `List`;
       `listArea` drops its leading `findArea`.
-- [ ] Store tests pinning the unknown-area error migrate to project service
+- [x] Store tests pinning the unknown-area error migrate to project service
       tests, mirroring the task side's tag-resolution migration.
-- [ ] Verification: full `make check`; envelopes, exit codes, and error
+- [x] Verification: full `make check`; envelopes, exit codes, and error
       messages unchanged.
 
 The deliberately deferred items (config report generalization, genericizing
