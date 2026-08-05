@@ -89,6 +89,9 @@ Active planning begins with the Reorder milestone:
 | 8 | [Search](MILESTONE_8.md) | FTS5 `search` | throwaway |
 | 9 | [Query](MILESTONE_9.md) | Read-only SQL; schema as public contract | throwaway |
 | 10 | [Go live](MILESTONE_10.md) | Migrations, install story, real-data import | **live** |
+| 11 | [Serve](MILESTONE_11.md) | Loopback HTTP API | **live** |
+
+v1 closes with Go live; Serve is the first post-v1 milestone.
 
 The TUI is deliberately not in the v1 map. It remains a separate post-v1
 effort described as a forward-looking target in `COMMANDS.md` and
@@ -143,3 +146,16 @@ effort described as a forward-looking target in `COMMANDS.md` and
   records and mutation lines, standard `├`/`└` cascade trees, and red/green
   state accents drawn from Catppuccin Latte/Frappé selected by terminal
   background, accents-only.
+- 2026-08-04, Serve planning interview: Milestone 11 adds `gsd serve`, a
+  loopback-only, no-auth HTTP API with full CLI parity minus `query` and
+  `config`. Grammar: `/v1` resources, action endpoints for lifecycle
+  transitions (cascades return the CLI envelopes), merge-patch `PATCH`
+  with `null`-clears for edits; wire JSON and the error envelope are the
+  CLI `--json` shapes unchanged, mapped 404/400/409/500. The bind address
+  is config key #2 (`[serve] addr`, `GSD_SERVE_ADDR`, `--addr`, default
+  `127.0.0.1:8473` — "473" is gsd on a keypad), tripping Milestone 7's
+  deferred config-report generalization. The canonical contract is a new
+  `plans/API.md`; no OpenAPI in v1. Concurrency is documented, not
+  enforced (last-write-wins `PATCH`, non-idempotent creates); the
+  schema-skew guard and browser-borne hardening are deferred with
+  recorded revisit triggers in `MILESTONE_11.md`.
