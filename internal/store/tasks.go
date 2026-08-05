@@ -478,11 +478,7 @@ ORDER BY position, id`, projectID, areaID)
 	if err != nil {
 		return task.Task{}, fmt.Errorf("list task reorder siblings: %w", err)
 	}
-	ordered, err := collectRows(rows, func(scanner rowScanner) (int64, error) {
-		var siblingID int64
-		err := scanner.Scan(&siblingID)
-		return siblingID, err
-	}, "scan task reorder sibling", "iterate task reorder siblings")
+	ordered, err := collectSiblingIDs(rows, "task")
 	if err != nil {
 		return task.Task{}, err
 	}

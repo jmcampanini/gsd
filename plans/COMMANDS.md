@@ -126,7 +126,10 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
   self-reference is `invalid_argument`. Reordering is status-blind — done,
   cancelled, and archived siblings keep their positions, can be moved, and
   can serve as references — and a placement that lands the entity where it
-  already sits succeeds as an ordinary reorder.
+  already sits succeeds as an ordinary reorder. Exactly one placement flag
+  must be meaningfully given: an explicitly false boolean placement
+  (`--first=false`) is the same arity failure as omitting placement
+  entirely, a usage error.
 - **Tag names use title validation**: they must be valid UTF-8 and nonblank
   after surrounding-space inspection, and accepted spelling is stored
   unchanged. The stored spelling (initially the first-created spelling) is

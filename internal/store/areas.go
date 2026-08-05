@@ -282,11 +282,7 @@ func (s *areasCore) Reorder(
 	if err != nil {
 		return area.Area{}, fmt.Errorf("list area reorder siblings: %w", err)
 	}
-	ordered, err := collectRows(rows, func(scanner rowScanner) (int64, error) {
-		var siblingID int64
-		err := scanner.Scan(&siblingID)
-		return siblingID, err
-	}, "scan area reorder sibling", "iterate area reorder siblings")
+	ordered, err := collectSiblingIDs(rows, "area")
 	if err != nil {
 		return area.Area{}, err
 	}

@@ -69,7 +69,10 @@ by the CLI's insert statement (append =
 reordering rewrites it, at which point the CLI renumbers the container —
 contiguous from 0 across every row regardless of status, trivially cheap at
 single-user scale. Renumbering bumps `updated_at` on the moved row only;
-displaced siblings are rewritten silently.
+displaced siblings are rewritten silently. Between reorders positions are
+ordinal only — deletes leave gaps and appends continue past them — so
+consumers, including raw `query` SQL, must order by `position, id` and
+never address a row by its position value.
 
 **No length limits.** None of the local reference apps constrain length at
 the schema level; limits like Todoist's (500-char titles) exist to protect a
