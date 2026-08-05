@@ -331,8 +331,20 @@ with `conflict` and delete-your-dev-db guidance.
 
 ## TUI (post-v1)
 
-The planned TUI targets full parity with the CLI, achieved structurally:
+The TUI arrives as Milestones 12–15 and targets full parity with the
+CLI, achieved structurally:
 
+- **Full-screen views, no panes**: exactly one view at a time — a root
+  tree (Inbox, Available, Logbook, loose projects, then areas with
+  their open projects nested), container lists, and a detail view
+  rendering `show`. Every container list carries a compact selectable
+  header for the container itself; opening it shows that container's
+  detail. Navigation replaces the whole screen, so the same structure
+  works in a full terminal and a tmux popup. Pane and split layouts,
+  mouse support, and markdown note rendering are parked explorations.
+- **`gsd capture` is a popup-sized capture surface**: one input whose
+  text becomes an inbox task title; Enter writes and exits, Esc
+  cancels. It later grows inline syntax and a command-runner mode.
 - **`:` opens a command line that accepts the CLI grammar verbatim**,
   minus the binary name (`:projects add "Kitchen reno" --area 3`). It
   calls the same parser and core — parity is shared code, not discipline.
@@ -340,8 +352,5 @@ The planned TUI targets full parity with the CLI, achieved structurally:
   the selected row: `a` add, `d` done, `x` cancel, `e` edit, `t` tag,
   `o` reopen, `D` delete (with confirm). Reordering is grab-and-move on
   the selection. Keys are shorthand for verbs, never a second vocabulary.
-- **Three panes, Things-style**: sidebar (Inbox, Available, Logbook, then
-  areas with their projects nested), list pane, and a toggleable detail
-  pane rendering `show` (note as markdown, tags, dates).
 - **`/` is incremental search** over the same FTS index as `gsd search`,
   filtering the current view live.
