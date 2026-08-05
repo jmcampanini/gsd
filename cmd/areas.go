@@ -5,7 +5,6 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
-	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/spf13/cobra"
 )
 
@@ -251,45 +250,23 @@ func newAreaMutationCommand(
 }
 
 func newAreaReorderCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	var afterIDValue string
-	var beforeIDValue string
-	var first bool
-	var last bool
+	flags := reorderFlags{}
 	command := &cobra.Command{
 		Use:   "reorder ID",
 		Short: "Reorder an area",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			if command.Flags().Changed("first") && !first {
-				return usageError("--first cannot be false")
-			}
-			if command.Flags().Changed("last") && !last {
-				return usageError("--last cannot be false")
+			if err := flags.validate(command); err != nil {
+				return err
 			}
 
 			id, err := area.ParseID(args[0])
 			if err != nil {
 				return err
 			}
-
-			placement := domain.Placement{}
-			switch {
-			case command.Flags().Changed("after"):
-				referenceID, parseErr := area.ParseID(afterIDValue)
-				if parseErr != nil {
-					return parseErr
-				}
-				placement = domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: referenceID}
-			case command.Flags().Changed("before"):
-				referenceID, parseErr := area.ParseID(beforeIDValue)
-				if parseErr != nil {
-					return parseErr
-				}
-				placement = domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: referenceID}
-			case command.Flags().Changed("first"):
-				placement = domain.Placement{Anchor: domain.PlacementFirst}
-			case command.Flags().Changed("last"):
-				placement = domain.Placement{Anchor: domain.PlacementLast}
+			placement, err := flags.placement(command, area.ParseID)
+			if err != nil {
+				return err
 			}
 
 			return withAreaApplication(command, options, factory, func(application area.Application) error {
@@ -301,12 +278,7 @@ func newAreaReorderCommand(options *rootOptions, factory applicationFactory) *co
 			})
 		},
 	}
-	command.Flags().StringVar(&afterIDValue, "after", "", "place after area ID")
-	command.Flags().StringVar(&beforeIDValue, "before", "", "place before area ID")
-	command.Flags().BoolVar(&first, "first", false, "place first")
-	command.Flags().BoolVar(&last, "last", false, "place last")
-	command.MarkFlagsOneRequired("after", "before", "first", "last")
-	command.MarkFlagsMutuallyExclusive("after", "before", "first", "last")
+	flags.register(command, "area")
 
 	return command
 }

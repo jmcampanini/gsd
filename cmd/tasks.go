@@ -321,46 +321,78 @@ func newReopenCommand(options *rootOptions, factory applicationFactory) *cobra.C
 	)
 }
 
+type reorderFlags struct {
+	afterIDValue  string
+	beforeIDValue string
+	first         bool
+	last          bool
+}
+
+func (f *reorderFlags) register(command *cobra.Command, entity string) {
+	command.Flags().StringVar(&f.afterIDValue, "after", "", "place after "+entity+" ID")
+	command.Flags().StringVar(&f.beforeIDValue, "before", "", "place before "+entity+" ID")
+	command.Flags().BoolVar(&f.first, "first", false, "place first")
+	command.Flags().BoolVar(&f.last, "last", false, "place last")
+	command.MarkFlagsOneRequired("after", "before", "first", "last")
+	command.MarkFlagsMutuallyExclusive("after", "before", "first", "last")
+}
+
+func (f reorderFlags) validate(command *cobra.Command) error {
+	if command.Flags().Changed("first") && !f.first {
+		return usageError("--first cannot be false")
+	}
+	if command.Flags().Changed("last") && !f.last {
+		return usageError("--last cannot be false")
+	}
+	return nil
+}
+
+func (f reorderFlags) placement(
+	command *cobra.Command,
+	parseID func(string) (int64, error),
+) (domain.Placement, error) {
+	var anchor domain.PlacementAnchor
+	var referenceIDValue string
+	switch {
+	case command.Flags().Changed("after"):
+		anchor = domain.PlacementAfter
+		referenceIDValue = f.afterIDValue
+	case command.Flags().Changed("before"):
+		anchor = domain.PlacementBefore
+		referenceIDValue = f.beforeIDValue
+	case command.Flags().Changed("first"):
+		return domain.Placement{Anchor: domain.PlacementFirst}, nil
+	case command.Flags().Changed("last"):
+		return domain.Placement{Anchor: domain.PlacementLast}, nil
+	default:
+		return domain.Placement{}, nil
+	}
+
+	referenceID, err := parseID(referenceIDValue)
+	if err != nil {
+		return domain.Placement{}, err
+	}
+	return domain.Placement{Anchor: anchor, ReferenceID: referenceID}, nil
+}
+
 func newReorderCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	var afterIDValue string
-	var beforeIDValue string
-	var first bool
-	var last bool
+	flags := reorderFlags{}
 	command := &cobra.Command{
 		Use:   "reorder ID",
 		Short: "Reorder a task",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			if command.Flags().Changed("first") && !first {
-				return usageError("--first cannot be false")
-			}
-			if command.Flags().Changed("last") && !last {
-				return usageError("--last cannot be false")
+			if err := flags.validate(command); err != nil {
+				return err
 			}
 
 			id, err := task.ParseID(args[0])
 			if err != nil {
 				return err
 			}
-
-			placement := domain.Placement{}
-			switch {
-			case command.Flags().Changed("after"):
-				referenceID, parseErr := task.ParseID(afterIDValue)
-				if parseErr != nil {
-					return parseErr
-				}
-				placement = domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: referenceID}
-			case command.Flags().Changed("before"):
-				referenceID, parseErr := task.ParseID(beforeIDValue)
-				if parseErr != nil {
-					return parseErr
-				}
-				placement = domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: referenceID}
-			case command.Flags().Changed("first"):
-				placement = domain.Placement{Anchor: domain.PlacementFirst}
-			case command.Flags().Changed("last"):
-				placement = domain.Placement{Anchor: domain.PlacementLast}
+			placement, err := flags.placement(command, task.ParseID)
+			if err != nil {
+				return err
 			}
 
 			return withTaskApplication(command, options, factory, func(application task.Application) error {
@@ -372,12 +404,7 @@ func newReorderCommand(options *rootOptions, factory applicationFactory) *cobra.
 			})
 		},
 	}
-	command.Flags().StringVar(&afterIDValue, "after", "", "place after task ID")
-	command.Flags().StringVar(&beforeIDValue, "before", "", "place before task ID")
-	command.Flags().BoolVar(&first, "first", false, "place first")
-	command.Flags().BoolVar(&last, "last", false, "place last")
-	command.MarkFlagsOneRequired("after", "before", "first", "last")
-	command.MarkFlagsMutuallyExclusive("after", "before", "first", "last")
+	flags.register(command, "task")
 
 	return command
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
-	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/spf13/cobra"
 )
@@ -279,45 +278,23 @@ func newProjectReopenCommand(options *rootOptions, factory applicationFactory) *
 }
 
 func newProjectReorderCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	var afterIDValue string
-	var beforeIDValue string
-	var first bool
-	var last bool
+	flags := reorderFlags{}
 	command := &cobra.Command{
 		Use:   "reorder ID",
 		Short: "Reorder a project",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			if command.Flags().Changed("first") && !first {
-				return usageError("--first cannot be false")
-			}
-			if command.Flags().Changed("last") && !last {
-				return usageError("--last cannot be false")
+			if err := flags.validate(command); err != nil {
+				return err
 			}
 
 			id, err := project.ParseID(args[0])
 			if err != nil {
 				return err
 			}
-
-			placement := domain.Placement{}
-			switch {
-			case command.Flags().Changed("after"):
-				referenceID, parseErr := project.ParseID(afterIDValue)
-				if parseErr != nil {
-					return parseErr
-				}
-				placement = domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: referenceID}
-			case command.Flags().Changed("before"):
-				referenceID, parseErr := project.ParseID(beforeIDValue)
-				if parseErr != nil {
-					return parseErr
-				}
-				placement = domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: referenceID}
-			case command.Flags().Changed("first"):
-				placement = domain.Placement{Anchor: domain.PlacementFirst}
-			case command.Flags().Changed("last"):
-				placement = domain.Placement{Anchor: domain.PlacementLast}
+			placement, err := flags.placement(command, project.ParseID)
+			if err != nil {
+				return err
 			}
 
 			return withProjectApplication(command, options, factory, func(application project.Application) error {
@@ -329,12 +306,7 @@ func newProjectReorderCommand(options *rootOptions, factory applicationFactory) 
 			})
 		},
 	}
-	command.Flags().StringVar(&afterIDValue, "after", "", "place after project ID")
-	command.Flags().StringVar(&beforeIDValue, "before", "", "place before project ID")
-	command.Flags().BoolVar(&first, "first", false, "place first")
-	command.Flags().BoolVar(&last, "last", false, "place last")
-	command.MarkFlagsOneRequired("after", "before", "first", "last")
-	command.MarkFlagsMutuallyExclusive("after", "before", "first", "last")
+	flags.register(command, "project")
 
 	return command
 }
