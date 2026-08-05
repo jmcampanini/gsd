@@ -244,6 +244,7 @@ func (s *projectsCore) List(ctx context.Context, options project.ListOptions) ([
 }
 
 func (s *projectsCore) AreaExists(ctx context.Context, id int64) error {
+	// This intentionally duplicates findArea to keep AreaExists parallel with the task store.
 	_, err := (&areasCore{executor: s.executor}).Find(ctx, id)
 	return err
 }

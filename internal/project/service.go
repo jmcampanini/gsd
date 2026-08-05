@@ -82,13 +82,13 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Project, err
 	}
 
 	var listed []Project
-	err := s.store.WithinReadTransaction(ctx, func(store Transaction) error {
-		if err := store.AreaExists(ctx, *options.AreaID); err != nil {
+	err := s.store.WithinReadTransaction(ctx, func(transaction Transaction) error {
+		if err := transaction.AreaExists(ctx, *options.AreaID); err != nil {
 			return err
 		}
 
 		var err error
-		listed, err = store.List(ctx, options)
+		listed, err = transaction.List(ctx, options)
 		return err
 	})
 	if err != nil {
