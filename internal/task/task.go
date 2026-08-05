@@ -114,6 +114,7 @@ type Transaction interface {
 	ProjectExists(context.Context, int64) error
 	AreaExists(context.Context, int64) error
 	Edit(ctx context.Context, id int64, fields EditFields, timestamp string) (Task, error)
+	Reorder(ctx context.Context, id int64, placement domain.Placement, timestamp string) (Task, error)
 	Done(ctx context.Context, id int64, timestamp string) (Task, error)
 	Cancel(ctx context.Context, id int64, timestamp string) (Task, error)
 	Reopen(ctx context.Context, id int64, timestamp string) (Task, error)
@@ -136,6 +137,7 @@ type Application interface {
 	Show(ctx context.Context, id int64) (Task, error)
 	List(ctx context.Context, options ListOptions) ([]Task, error)
 	Edit(ctx context.Context, id int64, fields EditFields) (Task, error)
+	Reorder(ctx context.Context, id int64, placement domain.Placement) (Task, error)
 	Done(ctx context.Context, id int64) (Task, error)
 	Cancel(ctx context.Context, id int64) (Task, error)
 	Reopen(ctx context.Context, id int64) (Task, error)

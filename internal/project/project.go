@@ -92,6 +92,7 @@ type Transaction interface {
 	List(context.Context, ListOptions) ([]Project, error)
 	AreaExists(context.Context, int64) error
 	Edit(context.Context, int64, EditFields, string) (Project, error)
+	Reorder(context.Context, int64, domain.Placement, string) (Project, error)
 	Resolve(context.Context, int64, Exit, string) (Project, error)
 	CancelOpenTasks(context.Context, int64, string) ([]task.Task, error)
 	Reopen(context.Context, int64, string) (Project, error)
@@ -113,6 +114,7 @@ type Application interface {
 	List(context.Context, ListOptions) ([]Project, error)
 	Show(context.Context, int64) (Project, error)
 	Edit(context.Context, int64, EditFields) (Project, error)
+	Reorder(context.Context, int64, domain.Placement) (Project, error)
 	Resolve(context.Context, int64, Exit) (Resolution, error)
 	Reopen(context.Context, int64) (Project, error)
 	Tag(context.Context, int64, []string) (Tagging, error)

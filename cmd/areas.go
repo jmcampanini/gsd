@@ -99,6 +99,7 @@ func newAreaCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 		newAreaArchiveCommand(options, factory),
 		newAreaDeleteCommand(options, factory),
 		newAreaEditCommand(options, factory),
+		newAreaReorderCommand(options, factory),
 		newAreaShowCommand(options, factory),
 		newAreaTagCommand(options, factory),
 		newAreaUnarchiveCommand(options, factory),
@@ -246,6 +247,40 @@ func newAreaMutationCommand(
 			})
 		},
 	}
+}
+
+func newAreaReorderCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	flags := reorderFlags{}
+	command := &cobra.Command{
+		Use:   "reorder ID",
+		Short: "Reorder an area",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := flags.validate(command); err != nil {
+				return err
+			}
+
+			id, err := area.ParseID(args[0])
+			if err != nil {
+				return err
+			}
+			placement, err := flags.placement(command, area.ParseID)
+			if err != nil {
+				return err
+			}
+
+			return withAreaApplication(command, options, factory, func(application area.Application) error {
+				reordered, reorderErr := application.Reorder(command.Context(), id, placement)
+				if reorderErr != nil {
+					return reorderErr
+				}
+				return writeCommandOutput(command, options, reordered, areaMutationWriter(verbReordered))
+			})
+		},
+	}
+	flags.register(command, "area")
+
+	return command
 }
 
 func newAreaDeleteCommand(options *rootOptions, factory applicationFactory) *cobra.Command {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
@@ -87,6 +88,17 @@ func (s *Tasks) AreaExists(ctx context.Context, id int64) error {
 func (s *Tasks) Edit(ctx context.Context, id int64, fields task.EditFields, timestamp string) (task.Task, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction task.Transaction) (task.Task, error) {
 		return transaction.Edit(ctx, id, fields, timestamp)
+	})
+}
+
+func (s *Tasks) Reorder(
+	ctx context.Context,
+	id int64,
+	placement domain.Placement,
+	timestamp string,
+) (task.Task, error) {
+	return runInTransaction(ctx, s.WithinTransaction, func(transaction task.Transaction) (task.Task, error) {
+		return transaction.Reorder(ctx, id, placement, timestamp)
 	})
 }
 
@@ -423,6 +435,66 @@ func (s *tasksCore) Edit(
 	}
 
 	return edited, nil
+}
+
+func (s *tasksCore) Reorder(
+	ctx context.Context,
+	id int64,
+	placement domain.Placement,
+	timestamp string,
+) (task.Task, error) {
+	moved, err := s.Find(ctx, id)
+	if err != nil {
+		return task.Task{}, err
+	}
+	container := taskContainerOf(moved)
+	if placement.Anchor == domain.PlacementAfter || placement.Anchor == domain.PlacementBefore {
+		reference, findErr := s.Find(ctx, placement.ReferenceID)
+		if findErr != nil {
+			return task.Task{}, findErr
+		}
+		if id == placement.ReferenceID {
+			return task.Task{}, apperr.New(
+				apperr.InvalidArgument,
+				fmt.Sprintf("cannot reorder task %d relative to itself", id),
+				nil,
+			)
+		}
+		if taskContainerOf(reference) != container {
+			return task.Task{}, apperr.New(
+				apperr.InvalidArgument,
+				fmt.Sprintf("task %d is in a different container", placement.ReferenceID),
+				nil,
+			)
+		}
+	}
+
+	projectID, areaID := taskContainerIDs(container)
+	rows, err := s.executor.QueryContext(ctx, `
+SELECT id
+FROM tasks
+WHERE project_id IS ? AND area_id IS ?
+ORDER BY position, id`, projectID, areaID)
+	if err != nil {
+		return task.Task{}, fmt.Errorf("list task reorder siblings: %w", err)
+	}
+	ordered, err := collectRows(rows, func(scanner rowScanner) (int64, error) {
+		var siblingID int64
+		err := scanner.Scan(&siblingID)
+		return siblingID, err
+	}, "scan task reorder sibling", "iterate task reorder siblings")
+	if err != nil {
+		return task.Task{}, err
+	}
+	ordered, err = spliceOrderedIDs(ordered, id, placement)
+	if err != nil {
+		return task.Task{}, fmt.Errorf("reorder task positions: %w", err)
+	}
+	clause, arguments := reorderCaseUpdate(ordered, id, timestamp)
+	if _, err := s.executor.ExecContext(ctx, "UPDATE tasks SET "+clause, arguments...); err != nil {
+		return task.Task{}, fmt.Errorf("reorder task: %w", err)
+	}
+	return s.Find(ctx, id)
 }
 
 func (s *tasksCore) Done(ctx context.Context, id int64, timestamp string) (task.Task, error) {

@@ -112,6 +112,7 @@ func newProjectCommand(options *rootOptions, factory applicationFactory) *cobra.
 		newProjectDoneCommand(options, factory),
 		newProjectEditCommand(options, factory),
 		newProjectReopenCommand(options, factory),
+		newProjectReorderCommand(options, factory),
 		newProjectShowCommand(options, factory),
 		newProjectTagCommand(options, factory),
 		newProjectUntagCommand(options, factory),
@@ -274,6 +275,40 @@ func newProjectReopenCommand(options *rootOptions, factory applicationFactory) *
 			})
 		},
 	}
+}
+
+func newProjectReorderCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	flags := reorderFlags{}
+	command := &cobra.Command{
+		Use:   "reorder ID",
+		Short: "Reorder a project",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := flags.validate(command); err != nil {
+				return err
+			}
+
+			id, err := project.ParseID(args[0])
+			if err != nil {
+				return err
+			}
+			placement, err := flags.placement(command, project.ParseID)
+			if err != nil {
+				return err
+			}
+
+			return withProjectApplication(command, options, factory, func(application project.Application) error {
+				reordered, reorderErr := application.Reorder(command.Context(), id, placement)
+				if reorderErr != nil {
+					return reorderErr
+				}
+				return writeCommandOutput(command, options, reordered, projectMutationWriter(verbReordered))
+			})
+		},
+	}
+	flags.register(command, "project")
+
+	return command
 }
 
 func newProjectDeleteCommand(options *rootOptions, factory applicationFactory) *cobra.Command {

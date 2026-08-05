@@ -140,6 +140,7 @@ func newRootCommandWithRuntimeDependencies(
 		newProjectCommand(options, factory),
 		newProjectsCommand(options, factory),
 		newReopenCommand(options, factory),
+		newReorderCommand(options, factory),
 		newShowCommand(options, factory),
 		newTagCommand(options, factory),
 		newTagsCommand(options, factory),

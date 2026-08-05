@@ -141,6 +141,17 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Projec
 	return s.store.Edit(ctx, id, fields, domain.FormatTimestamp(s.now()))
 }
 
+func (s *Service) Reorder(ctx context.Context, id int64, placement domain.Placement) (Project, error) {
+	if err := validateID(id); err != nil {
+		return Project{}, err
+	}
+	if err := domain.ValidatePlacement(placement); err != nil {
+		return Project{}, err
+	}
+
+	return s.store.Reorder(ctx, id, placement, domain.FormatTimestamp(s.now()))
+}
+
 func (s *Service) Resolve(ctx context.Context, id int64, exit Exit) (Resolution, error) {
 	if err := validateID(id); err != nil {
 		return Resolution{}, err
