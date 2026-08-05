@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
@@ -289,18 +290,24 @@ func TestReorderErrorsFollowExistenceSelfAndContainerPrecedence(t *testing.T) {
 		inbox := addStoredTask(t, tasks, task.AddFields{Title: "inbox"})
 		contained := addStoredTask(t, tasks, task.AddFields{ProjectID: &container.ID, Title: "contained"})
 		checks := []struct {
-			id        int64
-			placement domain.Placement
-			want      apperr.Code
+			id            int64
+			placement     domain.Placement
+			want          apperr.Code
+			wantSubjectID int64
 		}{
-			{99, domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: 98}, apperr.NotFound},
-			{inbox.ID, domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: 98}, apperr.NotFound},
-			{inbox.ID, domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: inbox.ID}, apperr.InvalidArgument},
-			{inbox.ID, domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: contained.ID}, apperr.InvalidArgument},
+			{99, domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: 98}, apperr.NotFound, 99},
+			{inbox.ID, domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: 98}, apperr.NotFound, 0},
+			{inbox.ID, domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: inbox.ID}, apperr.InvalidArgument, 0},
+			{inbox.ID, domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: contained.ID}, apperr.InvalidArgument, 0},
 		}
 		for _, check := range checks {
-			if _, err := tasks.Reorder(ctx, check.id, check.placement, reorderAt); errorCode(err) != check.want {
+			_, err := tasks.Reorder(ctx, check.id, check.placement, reorderAt)
+			if errorCode(err) != check.want {
 				t.Errorf("Reorder(%d, %#v) error = %v, want code %s", check.id, check.placement, err, check.want)
+				continue
+			}
+			if check.wantSubjectID != 0 && !strings.Contains(err.Error(), fmt.Sprintf("%d", check.wantSubjectID)) {
+				t.Errorf("Reorder(%d, %#v) error = %v, want subject ID %d", check.id, check.placement, err, check.wantSubjectID)
 			}
 		}
 	})
@@ -313,18 +320,24 @@ func TestReorderErrorsFollowExistenceSelfAndContainerPrecedence(t *testing.T) {
 		standalone := addStoredProject(t, projects, project.AddFields{Title: "standalone"})
 		contained := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "contained"})
 		checks := []struct {
-			id        int64
-			placement domain.Placement
-			want      apperr.Code
+			id            int64
+			placement     domain.Placement
+			want          apperr.Code
+			wantSubjectID int64
 		}{
-			{99, domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: 98}, apperr.NotFound},
-			{standalone.ID, domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: 98}, apperr.NotFound},
-			{standalone.ID, domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: standalone.ID}, apperr.InvalidArgument},
-			{standalone.ID, domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: contained.ID}, apperr.InvalidArgument},
+			{99, domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: 98}, apperr.NotFound, 99},
+			{standalone.ID, domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: 98}, apperr.NotFound, 0},
+			{standalone.ID, domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: standalone.ID}, apperr.InvalidArgument, 0},
+			{standalone.ID, domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: contained.ID}, apperr.InvalidArgument, 0},
 		}
 		for _, check := range checks {
-			if _, err := projects.Reorder(ctx, check.id, check.placement, reorderAt); errorCode(err) != check.want {
+			_, err := projects.Reorder(ctx, check.id, check.placement, reorderAt)
+			if errorCode(err) != check.want {
 				t.Errorf("Reorder(%d, %#v) error = %v, want code %s", check.id, check.placement, err, check.want)
+				continue
+			}
+			if check.wantSubjectID != 0 && !strings.Contains(err.Error(), fmt.Sprintf("%d", check.wantSubjectID)) {
+				t.Errorf("Reorder(%d, %#v) error = %v, want subject ID %d", check.id, check.placement, err, check.wantSubjectID)
 			}
 		}
 	})
@@ -334,17 +347,23 @@ func TestReorderErrorsFollowExistenceSelfAndContainerPrecedence(t *testing.T) {
 		areas := NewAreas(storage)
 		stored := addStoredArea(t, areas, area.AddFields{Title: "stored"})
 		checks := []struct {
-			id        int64
-			placement domain.Placement
-			want      apperr.Code
+			id            int64
+			placement     domain.Placement
+			want          apperr.Code
+			wantSubjectID int64
 		}{
-			{99, domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: 98}, apperr.NotFound},
-			{stored.ID, domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: 98}, apperr.NotFound},
-			{stored.ID, domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: stored.ID}, apperr.InvalidArgument},
+			{99, domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: 98}, apperr.NotFound, 99},
+			{stored.ID, domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: 98}, apperr.NotFound, 0},
+			{stored.ID, domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: stored.ID}, apperr.InvalidArgument, 0},
 		}
 		for _, check := range checks {
-			if _, err := areas.Reorder(ctx, check.id, check.placement, reorderAt); errorCode(err) != check.want {
+			_, err := areas.Reorder(ctx, check.id, check.placement, reorderAt)
+			if errorCode(err) != check.want {
 				t.Errorf("Reorder(%d, %#v) error = %v, want code %s", check.id, check.placement, err, check.want)
+				continue
+			}
+			if check.wantSubjectID != 0 && !strings.Contains(err.Error(), fmt.Sprintf("%d", check.wantSubjectID)) {
+				t.Errorf("Reorder(%d, %#v) error = %v, want subject ID %d", check.id, check.placement, err, check.wantSubjectID)
 			}
 		}
 	})
