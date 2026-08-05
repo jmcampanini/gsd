@@ -2,7 +2,7 @@
 
 Data mode: throwaway. Depends on: Milestone 7.
 
-Written light; re-review at plan gate (see note in `MILESTONE_7.md`).
+Written light; re-review at plan gate.
 
 ## Capability
 
@@ -34,10 +34,33 @@ gsd search "EXPR" [--project N] [--area N] [--tag NAME] [--status ...]
 
 ## Chunks
 
+0. **Milestone 7 consolidation** — record only: the Milestone 7
+   foundation review scheduled no findings (see below).
 1. **Index schema** — FTS table + sync, `user_version` bump, backfill
    verified against existing rows in a seeded dev db.
 2. **Search command** — expression passthrough, filter composition,
    mixed-kind output.
+
+### Chunk 0: Milestone 7 consolidation
+
+The Milestone 7 foundation review scheduled no findings; there is no
+chunk 0 work. The deliberately deferred items carry forward with their
+revisit triggers:
+
+- **Config report generalization** — on config key #2 (`[serve] addr`,
+  arriving in Milestone 11): add source classification and tag-derived
+  env/flag spellings to go-config-loader's `configreporter` so gsd's
+  renderer becomes a generic provenance-row loop like the sibling CLIs,
+  and revisit the reporting/redaction contract at the same moment. No
+  load-request struct — positional load parameters are the family
+  idiom.
+- **Genericizing the intentionally-parallel tag service flows** —
+  carried from Milestone 6: revisit on the first sibling-divergence bug
+  or a post-v1 attach-semantics change. The reorder verb added a third
+  concretely-parallel flow family; weighed against this trigger at the
+  Milestone 7 foundation review, the convention held.
+- **Typed transition spec for `applyTransition`** — carried from
+  Milestone 6: revisit if post-v1 work adds transitions.
 
 ## User stories
 

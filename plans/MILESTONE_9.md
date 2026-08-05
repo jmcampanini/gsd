@@ -2,7 +2,7 @@
 
 Data mode: throwaway. Depends on: Milestone 8.
 
-Written light; re-review at plan gate (see note in `MILESTONE_7.md`).
+Written light; re-review at plan gate.
 
 ## Capability
 

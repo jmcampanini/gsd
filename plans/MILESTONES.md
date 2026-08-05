@@ -79,13 +79,26 @@ landed the root/core store split, read-then-delete cascades,
 service-owned read-path tag resolution, `domain.TagNames`, and
 alphabetical tag arrays (`user_version` 9006).
 
+### Milestone 7 — Reorder
+
+Delivered manual ordering — `reorder` on tasks, projects, and areas
+with `--first`/`--last`/`--after`/`--before` placements: sibling-relative
+container semantics rejecting cross-container and self-references,
+status-blind contiguous renumbering from 0 with `updated_at` bumped on
+the moved row only, no-op placements succeeding as ordinary reorders,
+bare-entity JSON echoes, and `~ Reordered:` mutation lines — no schema
+change (`user_version` stays 9006). Chunk 0 applied the Milestone 6
+review's scheduled finding, moving filtered-list area validation for
+projects into the service; consolidation codified the
+services-own-validation store contract in `AGENTS.md` and ordinal-only
+position semantics in `SCHEMA.md`.
+
 ## Active roadmap
 
-Active planning begins with the Reorder milestone:
+Active planning begins with the Search milestone:
 
 | # | Milestone | Capability delivered | Data mode |
 |---|-----------|----------------------|-----------|
-| 7 | [Reorder](MILESTONE_7.md) | Manual ordering | throwaway |
 | 8 | [Search](MILESTONE_8.md) | FTS5 `search` | throwaway |
 | 9 | [Query](MILESTONE_9.md) | Read-only SQL; schema as public contract | throwaway |
 | 10 | [Go live](MILESTONE_10.md) | Migrations, install story, real-data import | **live** |
