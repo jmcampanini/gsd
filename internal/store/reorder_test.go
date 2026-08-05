@@ -150,8 +150,9 @@ func TestReorderRepairsPositionsUsesStatusBlindReferencesAndReturnsTags(t *testi
 			t.Fatalf("Done(reference) error = %v", err)
 		}
 		attachReorderTagToTask(t, storage, tasks, values[2].ID)
-		setReorderFixturePositions(t, storage, "tasks", values)
-		before := storedUpdatedAt(t, storage, "tasks", []int64{values[0].ID, values[1].ID, values[2].ID})
+		ids := []int64{values[0].ID, values[1].ID, values[2].ID}
+		setReorderFixturePositions(t, storage, "tasks", ids)
+		before := storedUpdatedAt(t, storage, "tasks", ids)
 
 		moved, err := tasks.Reorder(ctx, values[2].ID, domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: values[1].ID}, reorderAt)
 		if err != nil {
@@ -163,7 +164,7 @@ func TestReorderRepairsPositionsUsesStatusBlindReferencesAndReturnsTags(t *testi
 		assertStoredOrder(t, storage, "tasks", "project_id IS NULL AND area_id IS NULL", nil, []int64{values[0].ID, values[2].ID, values[1].ID})
 		assertMovedOnlyTimestamp(t, storage, "tasks", before, values[2].ID, reorderAt)
 
-		before = storedUpdatedAt(t, storage, "tasks", []int64{values[0].ID, values[1].ID, values[2].ID})
+		before = storedUpdatedAt(t, storage, "tasks", ids)
 		if _, err := tasks.Reorder(ctx, values[0].ID, domain.Placement{Anchor: domain.PlacementFirst}, secondReorderAt); err != nil {
 			t.Fatalf("Reorder(no-op first) error = %v", err)
 		}
@@ -183,8 +184,9 @@ func TestReorderRepairsPositionsUsesStatusBlindReferencesAndReturnsTags(t *testi
 			t.Fatalf("Resolve(reference) error = %v", err)
 		}
 		attachReorderTagToProject(t, storage, projects, values[2].ID)
-		setReorderFixturePositions(t, storage, "projects", values)
-		before := storedUpdatedAt(t, storage, "projects", []int64{values[0].ID, values[1].ID, values[2].ID})
+		ids := []int64{values[0].ID, values[1].ID, values[2].ID}
+		setReorderFixturePositions(t, storage, "projects", ids)
+		before := storedUpdatedAt(t, storage, "projects", ids)
 
 		moved, err := projects.Reorder(ctx, values[2].ID, domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: values[1].ID}, reorderAt)
 		if err != nil {
@@ -196,7 +198,7 @@ func TestReorderRepairsPositionsUsesStatusBlindReferencesAndReturnsTags(t *testi
 		assertStoredOrder(t, storage, "projects", "area_id IS NULL", nil, []int64{values[0].ID, values[2].ID, values[1].ID})
 		assertMovedOnlyTimestamp(t, storage, "projects", before, values[2].ID, reorderAt)
 
-		before = storedUpdatedAt(t, storage, "projects", []int64{values[0].ID, values[1].ID, values[2].ID})
+		before = storedUpdatedAt(t, storage, "projects", ids)
 		if _, err := projects.Reorder(ctx, values[0].ID, domain.Placement{Anchor: domain.PlacementFirst}, secondReorderAt); err != nil {
 			t.Fatalf("Reorder(no-op first) error = %v", err)
 		}
@@ -215,8 +217,9 @@ func TestReorderRepairsPositionsUsesStatusBlindReferencesAndReturnsTags(t *testi
 			t.Fatalf("Archive(reference) error = %v", err)
 		}
 		attachReorderTagToArea(t, storage, areas, values[2].ID)
-		setReorderFixturePositions(t, storage, "areas", values)
-		before := storedUpdatedAt(t, storage, "areas", []int64{values[0].ID, values[1].ID, values[2].ID})
+		ids := []int64{values[0].ID, values[1].ID, values[2].ID}
+		setReorderFixturePositions(t, storage, "areas", ids)
+		before := storedUpdatedAt(t, storage, "areas", ids)
 
 		moved, err := areas.Reorder(ctx, values[2].ID, domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: values[1].ID}, reorderAt)
 		if err != nil {
@@ -228,7 +231,7 @@ func TestReorderRepairsPositionsUsesStatusBlindReferencesAndReturnsTags(t *testi
 		assertStoredOrder(t, storage, "areas", "1", nil, []int64{values[0].ID, values[2].ID, values[1].ID})
 		assertMovedOnlyTimestamp(t, storage, "areas", before, values[2].ID, reorderAt)
 
-		before = storedUpdatedAt(t, storage, "areas", []int64{values[0].ID, values[1].ID, values[2].ID})
+		before = storedUpdatedAt(t, storage, "areas", ids)
 		if _, err := areas.Reorder(ctx, values[0].ID, domain.Placement{Anchor: domain.PlacementFirst}, secondReorderAt); err != nil {
 			t.Fatalf("Reorder(no-op first) error = %v", err)
 		}
@@ -499,25 +502,9 @@ func assertStoredOrder(t *testing.T, storage *DB, table, condition string, argum
 	}
 }
 
-func setReorderFixturePositions[T interface {
-	task.Task | project.Project | area.Area
-}](
-	t *testing.T,
-	storage *DB,
-	table string,
-	values []T,
-) {
+func setReorderFixturePositions(t *testing.T, storage *DB, table string, ids []int64) {
 	t.Helper()
-	for index, value := range values {
-		var id int64
-		switch current := any(value).(type) {
-		case task.Task:
-			id = current.ID
-		case project.Project:
-			id = current.ID
-		case area.Area:
-			id = current.ID
-		}
+	for index, id := range ids {
 		if _, err := storage.database.ExecContext(
 			context.Background(),
 			"UPDATE "+table+" SET position = ? WHERE id = ?",
