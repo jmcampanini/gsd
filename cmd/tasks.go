@@ -7,6 +7,7 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/spf13/cobra"
@@ -318,6 +319,67 @@ func newReopenCommand(options *rootOptions, factory applicationFactory) *cobra.C
 			return application.Reopen(ctx, id)
 		},
 	)
+}
+
+func newReorderCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	var afterIDValue string
+	var beforeIDValue string
+	var first bool
+	var last bool
+	command := &cobra.Command{
+		Use:   "reorder ID",
+		Short: "Reorder a task",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if command.Flags().Changed("first") && !first {
+				return usageError("--first cannot be false")
+			}
+			if command.Flags().Changed("last") && !last {
+				return usageError("--last cannot be false")
+			}
+
+			id, err := task.ParseID(args[0])
+			if err != nil {
+				return err
+			}
+
+			placement := domain.Placement{}
+			switch {
+			case command.Flags().Changed("after"):
+				referenceID, parseErr := task.ParseID(afterIDValue)
+				if parseErr != nil {
+					return parseErr
+				}
+				placement = domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: referenceID}
+			case command.Flags().Changed("before"):
+				referenceID, parseErr := task.ParseID(beforeIDValue)
+				if parseErr != nil {
+					return parseErr
+				}
+				placement = domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: referenceID}
+			case command.Flags().Changed("first"):
+				placement = domain.Placement{Anchor: domain.PlacementFirst}
+			case command.Flags().Changed("last"):
+				placement = domain.Placement{Anchor: domain.PlacementLast}
+			}
+
+			return withTaskApplication(command, options, factory, func(application task.Application) error {
+				reordered, reorderErr := application.Reorder(command.Context(), id, placement)
+				if reorderErr != nil {
+					return reorderErr
+				}
+				return writeCommandOutput(command, options, reordered, taskMutationWriter(verbReordered))
+			})
+		},
+	}
+	command.Flags().StringVar(&afterIDValue, "after", "", "place after task ID")
+	command.Flags().StringVar(&beforeIDValue, "before", "", "place before task ID")
+	command.Flags().BoolVar(&first, "first", false, "place first")
+	command.Flags().BoolVar(&last, "last", false, "place last")
+	command.MarkFlagsOneRequired("after", "before", "first", "last")
+	command.MarkFlagsMutuallyExclusive("after", "before", "first", "last")
+
+	return command
 }
 
 func newTagCommand(options *rootOptions, factory applicationFactory) *cobra.Command {

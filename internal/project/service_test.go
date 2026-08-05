@@ -37,6 +37,12 @@ type recordingStore struct {
 	editFields           EditFields
 	editTimestamp        string
 	editError            error
+	reorderCalls         int
+	reorderID            int64
+	reorderPlacement     domain.Placement
+	reorderTimestamp     string
+	reorderResult        Project
+	reorderError         error
 	resolveCalls         int
 	resolveID            int64
 	resolveExit          Exit
@@ -144,6 +150,19 @@ func (r *recordingStore) Edit(
 	r.editTimestamp = timestamp
 
 	return Project{ID: id, UpdatedAt: timestamp}, r.editError
+}
+
+func (r *recordingStore) Reorder(
+	_ context.Context,
+	id int64,
+	placement domain.Placement,
+	timestamp string,
+) (Project, error) {
+	r.reorderCalls++
+	r.reorderID = id
+	r.reorderPlacement = placement
+	r.reorderTimestamp = timestamp
+	return r.reorderResult, r.reorderError
 }
 
 func (r *recordingStore) Resolve(
@@ -706,6 +725,75 @@ func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
 				t.Errorf("store Edit() calls = %d, want 0", store.editCalls)
 			}
 		})
+	}
+}
+
+func TestReorderRejectsInvalidInputBeforeClockOrStore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		id        int64
+		placement domain.Placement
+	}{
+		{name: "moved ID", placement: domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: 3}},
+		{name: "missing relative reference", id: 7, placement: domain.Placement{Anchor: domain.PlacementAfter}},
+		{name: "nonpositive relative reference", id: 7, placement: domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: -1}},
+		{name: "unknown anchor", id: 7, placement: domain.Placement{Anchor: domain.PlacementAnchor("middle")}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &recordingStore{}
+			service := NewService(store)
+			nowCalls := 0
+			service.now = func() time.Time {
+				nowCalls++
+				return time.Time{}
+			}
+
+			_, err := service.Reorder(context.Background(), test.id, test.placement)
+			if errorCode(err) != apperr.InvalidArgument {
+				t.Errorf("Reorder() error = %v, want invalid_argument", err)
+			}
+			if store.reorderCalls != 0 || nowCalls != 0 {
+				t.Errorf("store/clock calls = %d/%d, want 0/0", store.reorderCalls, nowCalls)
+			}
+		})
+	}
+}
+
+func TestReorderDelegatesExactPlacementTimestampAndStoreError(t *testing.T) {
+	t.Parallel()
+
+	placement := domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: 11}
+	want := Project{ID: 7, Title: "moved", Position: 2}
+	storeError := apperr.New(apperr.Conflict, "store conflict", nil)
+	store := &recordingStore{reorderResult: want}
+	service := NewService(store)
+	nowCalls := 0
+	service.now = func() time.Time {
+		nowCalls++
+		return time.Date(2026, time.July, 27, 12, 34, 56, 987654321, time.FixedZone("offset", -4*60*60))
+	}
+
+	got, err := service.Reorder(context.Background(), 7, placement)
+	if err != nil {
+		t.Fatalf("Reorder() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, want) || store.reorderCalls != 1 || store.reorderID != 7 ||
+		store.reorderPlacement != placement {
+		t.Errorf("Reorder() result/delegation = %#v/%#v, want %#v and exact intent", got, store, want)
+	}
+	if nowCalls != 1 || store.reorderTimestamp != "2026-07-27T16:34:56.987Z" {
+		t.Errorf("clock calls/timestamp = %d/%q, want 1/UTC milliseconds", nowCalls, store.reorderTimestamp)
+	}
+
+	store.reorderError = storeError
+	if _, err := service.Reorder(context.Background(), 7, placement); !errors.Is(err, storeError) {
+		t.Errorf("Reorder() error = %v, want preserved %v", err, storeError)
 	}
 }
 

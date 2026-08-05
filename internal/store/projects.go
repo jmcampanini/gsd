@@ -10,6 +10,7 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
@@ -65,6 +66,17 @@ func (s *Projects) Edit(
 ) (project.Project, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Transaction) (project.Project, error) {
 		return transaction.Edit(ctx, id, fields, timestamp)
+	})
+}
+
+func (s *Projects) Reorder(
+	ctx context.Context,
+	id int64,
+	placement domain.Placement,
+	timestamp string,
+) (project.Project, error) {
+	return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Transaction) (project.Project, error) {
+		return transaction.Reorder(ctx, id, placement, timestamp)
 	})
 }
 
@@ -325,6 +337,65 @@ func (s *projectsCore) Edit(
 	}
 
 	return edited, nil
+}
+
+func (s *projectsCore) Reorder(
+	ctx context.Context,
+	id int64,
+	placement domain.Placement,
+	timestamp string,
+) (project.Project, error) {
+	moved, err := s.Find(ctx, id)
+	if err != nil {
+		return project.Project{}, err
+	}
+	if placement.Anchor == domain.PlacementAfter || placement.Anchor == domain.PlacementBefore {
+		reference, findErr := s.Find(ctx, placement.ReferenceID)
+		if findErr != nil {
+			return project.Project{}, findErr
+		}
+		if id == placement.ReferenceID {
+			return project.Project{}, apperr.New(
+				apperr.InvalidArgument,
+				fmt.Sprintf("cannot reorder project %d relative to itself", id),
+				nil,
+			)
+		}
+		if !sameProjectArea(moved.AreaID, reference.AreaID) {
+			return project.Project{}, apperr.New(
+				apperr.InvalidArgument,
+				fmt.Sprintf("project %d is in a different container", placement.ReferenceID),
+				nil,
+			)
+		}
+	}
+
+	areaID := nullableID(moved.AreaID)
+	rows, err := s.executor.QueryContext(ctx, `
+SELECT id
+FROM projects
+WHERE area_id IS ?
+ORDER BY position, id`, areaID)
+	if err != nil {
+		return project.Project{}, fmt.Errorf("list project reorder siblings: %w", err)
+	}
+	ordered, err := collectRows(rows, func(scanner rowScanner) (int64, error) {
+		var siblingID int64
+		err := scanner.Scan(&siblingID)
+		return siblingID, err
+	}, "scan project reorder sibling", "iterate project reorder siblings")
+	if err != nil {
+		return project.Project{}, err
+	}
+	ordered, err = spliceOrderedIDs(ordered, id, placement)
+	if err != nil {
+		return project.Project{}, fmt.Errorf("reorder project positions: %w", err)
+	}
+	clause, arguments := reorderCaseUpdate(ordered, id, timestamp)
+	if _, err := s.executor.ExecContext(ctx, "UPDATE projects SET "+clause, arguments...); err != nil {
+		return project.Project{}, fmt.Errorf("reorder project: %w", err)
+	}
+	return s.Find(ctx, id)
 }
 
 func (s *projectsCore) Resolve(

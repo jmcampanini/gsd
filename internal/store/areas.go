@@ -10,6 +10,7 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
@@ -58,6 +59,17 @@ func (s *Areas) Edit(
 	timestamp string,
 ) (area.Area, error) {
 	return s.poolCore().Edit(ctx, id, fields, timestamp)
+}
+
+func (s *Areas) Reorder(
+	ctx context.Context,
+	id int64,
+	placement domain.Placement,
+	timestamp string,
+) (area.Area, error) {
+	return runInTransaction(ctx, s.WithinTransaction, func(transaction area.Transaction) (area.Area, error) {
+		return transaction.Reorder(ctx, id, placement, timestamp)
+	})
 }
 
 func (s *Areas) Archive(
@@ -242,6 +254,51 @@ func (s *areasCore) Edit(
 	}
 
 	return edited, nil
+}
+
+func (s *areasCore) Reorder(
+	ctx context.Context,
+	id int64,
+	placement domain.Placement,
+	timestamp string,
+) (area.Area, error) {
+	if _, err := s.Find(ctx, id); err != nil {
+		return area.Area{}, err
+	}
+	if placement.Anchor == domain.PlacementAfter || placement.Anchor == domain.PlacementBefore {
+		if _, err := s.Find(ctx, placement.ReferenceID); err != nil {
+			return area.Area{}, err
+		}
+		if id == placement.ReferenceID {
+			return area.Area{}, apperr.New(
+				apperr.InvalidArgument,
+				fmt.Sprintf("cannot reorder area %d relative to itself", id),
+				nil,
+			)
+		}
+	}
+
+	rows, err := s.executor.QueryContext(ctx, "SELECT id FROM areas ORDER BY position, id")
+	if err != nil {
+		return area.Area{}, fmt.Errorf("list area reorder siblings: %w", err)
+	}
+	ordered, err := collectRows(rows, func(scanner rowScanner) (int64, error) {
+		var siblingID int64
+		err := scanner.Scan(&siblingID)
+		return siblingID, err
+	}, "scan area reorder sibling", "iterate area reorder siblings")
+	if err != nil {
+		return area.Area{}, err
+	}
+	ordered, err = spliceOrderedIDs(ordered, id, placement)
+	if err != nil {
+		return area.Area{}, fmt.Errorf("reorder area positions: %w", err)
+	}
+	clause, arguments := reorderCaseUpdate(ordered, id, timestamp)
+	if _, err := s.executor.ExecContext(ctx, "UPDATE areas SET "+clause, arguments...); err != nil {
+		return area.Area{}, fmt.Errorf("reorder area: %w", err)
+	}
+	return s.Find(ctx, id)
 }
 
 func (s *areasCore) Archive(

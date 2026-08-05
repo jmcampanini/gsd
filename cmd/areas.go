@@ -5,6 +5,7 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/spf13/cobra"
 )
 
@@ -99,6 +100,7 @@ func newAreaCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 		newAreaArchiveCommand(options, factory),
 		newAreaDeleteCommand(options, factory),
 		newAreaEditCommand(options, factory),
+		newAreaReorderCommand(options, factory),
 		newAreaShowCommand(options, factory),
 		newAreaTagCommand(options, factory),
 		newAreaUnarchiveCommand(options, factory),
@@ -246,6 +248,67 @@ func newAreaMutationCommand(
 			})
 		},
 	}
+}
+
+func newAreaReorderCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	var afterIDValue string
+	var beforeIDValue string
+	var first bool
+	var last bool
+	command := &cobra.Command{
+		Use:   "reorder ID",
+		Short: "Reorder an area",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if command.Flags().Changed("first") && !first {
+				return usageError("--first cannot be false")
+			}
+			if command.Flags().Changed("last") && !last {
+				return usageError("--last cannot be false")
+			}
+
+			id, err := area.ParseID(args[0])
+			if err != nil {
+				return err
+			}
+
+			placement := domain.Placement{}
+			switch {
+			case command.Flags().Changed("after"):
+				referenceID, parseErr := area.ParseID(afterIDValue)
+				if parseErr != nil {
+					return parseErr
+				}
+				placement = domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: referenceID}
+			case command.Flags().Changed("before"):
+				referenceID, parseErr := area.ParseID(beforeIDValue)
+				if parseErr != nil {
+					return parseErr
+				}
+				placement = domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: referenceID}
+			case command.Flags().Changed("first"):
+				placement = domain.Placement{Anchor: domain.PlacementFirst}
+			case command.Flags().Changed("last"):
+				placement = domain.Placement{Anchor: domain.PlacementLast}
+			}
+
+			return withAreaApplication(command, options, factory, func(application area.Application) error {
+				reordered, reorderErr := application.Reorder(command.Context(), id, placement)
+				if reorderErr != nil {
+					return reorderErr
+				}
+				return writeCommandOutput(command, options, reordered, areaMutationWriter(verbReordered))
+			})
+		},
+	}
+	command.Flags().StringVar(&afterIDValue, "after", "", "place after area ID")
+	command.Flags().StringVar(&beforeIDValue, "before", "", "place before area ID")
+	command.Flags().BoolVar(&first, "first", false, "place first")
+	command.Flags().BoolVar(&last, "last", false, "place last")
+	command.MarkFlagsOneRequired("after", "before", "first", "last")
+	command.MarkFlagsMutuallyExclusive("after", "before", "first", "last")
+
+	return command
 }
 
 func newAreaDeleteCommand(options *rootOptions, factory applicationFactory) *cobra.Command {

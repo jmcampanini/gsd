@@ -9,7 +9,7 @@ acceptance boundary. Both artifacts are retired at consolidation.
 ## Progress
 
 - [x] Chunk 0 — Milestone 6 consolidation
-- [ ] Chunk 1 — The reorder verb
+- [x] Chunk 1 — The reorder verb
 
 ## Settled contract deltas
 
@@ -108,23 +108,23 @@ them.
 Human outcome: manual ordering — move any task, project, or area anywhere
 within its container and watch every list obey.
 
-- [ ] Shared placement value type in `internal/domain`: anchor kind
+- [x] Shared placement value type in `internal/domain`: anchor kind
       (`first`, `last`, `after`, `before`) plus reference ID; validation
       helper for shape.
-- [ ] Services: `Reorder(ctx, id, placement)` on task, project, and area
+- [x] Services: `Reorder(ctx, id, placement)` on task, project, and area
       services — shape validation only, then delegate to the store;
       concretely parallel across the three nouns.
-- [ ] Stores: `Reorder` on `store.Tasks`, `store.Projects`, `store.Areas` —
+- [x] Stores: `Reorder` on `store.Tasks`, `store.Projects`, `store.Areas` —
       pooled wrapper plus core method inside `runInTransaction`
       (`BEGIN IMMEDIATE`): find N, find M when relative, self-reference and
       same-container checks, status-blind contiguous 0-based renumber via
       one CASE `UPDATE`, `updated_at` bump on the moved row only,
       tag-enriched re-read of the moved row.
-- [ ] cmd: `gsd reorder N`, `gsd project reorder N`, `gsd area reorder N`
+- [x] cmd: `gsd reorder N`, `gsd project reorder N`, `gsd area reorder N`
       with the four placement flags (one required, mutually exclusive),
       `verbReordered` mutation line, bare-entity JSON echo, factories
       byte-parallel with the tagging commands.
-- [ ] Test owners — store tests on real temporary SQLite own the semantics:
+- [x] Test owners — store tests on real temporary SQLite own the semantics:
       the placement matrix per noun, contiguous renumbering, status-blind
       membership, moved-row-only `updated_at`, no-op success, error codes
       and precedence (unknown N, unknown M, self-reference,
@@ -132,12 +132,12 @@ within its container and watch every list obey.
       validation and error passthrough. cmd tests own flag-arity → exit 2,
       the bare-entity JSON envelope, the `~ Reordered:` human line, stream
       routing, and exit mapping.
-- [ ] e2e: new `e2e/reorder_test.go` owns the milestone workflow against
+- [x] e2e: new `e2e/reorder_test.go` owns the milestone workflow against
       the built binary — reorder matrix per noun asserting full container
       ordering after each placement, cross-container and self-reference
       errors, and mixed-operation stability (add, done, reorder, delete
       interleaved; ordering consistent, no position collisions).
-- [ ] Human proof (demo `.sandbox/demos/milestone-7-chunk-1.html`), against
+- [x] Human proof (demo `.sandbox/demos/milestone-7-chunk-1.html`), against
       a fresh temp db seeded with:
       `gsd add "Call plumber"` (task 1); `gsd add "Renew passport"`
       (task 2); `gsd add "Buy milk"` (task 3);
@@ -158,7 +158,7 @@ within its container and watch every list obey.
          `gsd projects list` — (2, 1);
       8. `gsd areas list`, `gsd area reorder 3 --before 1`,
          `gsd areas list` — (3, 1, 2).
-- [ ] Agent verification: `make check` green; the full placement matrix,
+- [x] Agent verification: `make check` green; the full placement matrix,
       error cases, and mixed-operation workflow exercised via the built
       binary.
 

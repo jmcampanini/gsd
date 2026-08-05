@@ -111,6 +111,17 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Area, 
 	return s.store.Edit(ctx, id, fields, domain.FormatTimestamp(s.now()))
 }
 
+func (s *Service) Reorder(ctx context.Context, id int64, placement domain.Placement) (Area, error) {
+	if err := validateID(id); err != nil {
+		return Area{}, err
+	}
+	if err := domain.ValidatePlacement(placement); err != nil {
+		return Area{}, err
+	}
+
+	return s.store.Reorder(ctx, id, placement, domain.FormatTimestamp(s.now()))
+}
+
 func (s *Service) Archive(ctx context.Context, id int64) (Area, error) {
 	if err := validateID(id); err != nil {
 		return Area{}, err

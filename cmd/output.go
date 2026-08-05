@@ -58,6 +58,7 @@ var (
 	verbArchived   = mutationVerb{label: "Archived", glyph: glyphCancelled, accent: accentRed}
 	verbEdited     = mutationVerb{label: "Edited", glyph: glyphNeutral}
 	verbReopened   = mutationVerb{label: "Reopened", glyph: glyphNeutral}
+	verbReordered  = mutationVerb{label: "Reordered", glyph: glyphNeutral}
 	verbUnarchived = mutationVerb{label: "Unarchived", glyph: glyphNeutral}
 	verbTagged     = mutationVerb{label: "Tagged", glyph: glyphAdded, accent: accentGreen}
 	verbUntagged   = mutationVerb{label: "Untagged", glyph: glyphDeleted, accent: accentRed}

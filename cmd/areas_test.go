@@ -16,37 +16,41 @@ import (
 )
 
 type fakeAreaApplication struct {
-	addResult       area.Area
-	addError        error
-	listResult      []area.Area
-	listError       error
-	showResult      area.Area
-	showError       error
-	editResult      area.Area
-	editError       error
-	archiveResult   area.Area
-	archiveError    error
-	unarchiveResult area.Area
-	unarchiveError  error
-	deleteResult    area.Deletion
-	deleteError     error
-	tagResult       area.Tagging
-	tagError        error
-	untagResult     area.Tagging
-	untagError      error
-	addFields       area.AddFields
-	listOptions     area.ListOptions
-	showID          int64
-	editID          int64
-	editFields      area.EditFields
-	archiveID       int64
-	unarchiveID     int64
-	deleteID        int64
-	deleteRecursive bool
-	tagID           int64
-	tagNames        []string
-	untagID         int64
-	untagNames      []string
+	addResult        area.Area
+	addError         error
+	listResult       []area.Area
+	listError        error
+	showResult       area.Area
+	showError        error
+	editResult       area.Area
+	editError        error
+	archiveResult    area.Area
+	archiveError     error
+	unarchiveResult  area.Area
+	unarchiveError   error
+	reorderResult    area.Area
+	reorderError     error
+	deleteResult     area.Deletion
+	deleteError      error
+	tagResult        area.Tagging
+	tagError         error
+	untagResult      area.Tagging
+	untagError       error
+	addFields        area.AddFields
+	listOptions      area.ListOptions
+	showID           int64
+	editID           int64
+	editFields       area.EditFields
+	archiveID        int64
+	unarchiveID      int64
+	reorderID        int64
+	reorderPlacement domain.Placement
+	deleteID         int64
+	deleteRecursive  bool
+	tagID            int64
+	tagNames         []string
+	untagID          int64
+	untagNames       []string
 }
 
 func (f *fakeAreaApplication) Add(
@@ -88,6 +92,16 @@ func (f *fakeAreaApplication) Archive(_ context.Context, id int64) (area.Area, e
 func (f *fakeAreaApplication) Unarchive(_ context.Context, id int64) (area.Area, error) {
 	f.unarchiveID = id
 	return f.unarchiveResult, f.unarchiveError
+}
+
+func (f *fakeAreaApplication) Reorder(
+	_ context.Context,
+	id int64,
+	placement domain.Placement,
+) (area.Area, error) {
+	f.reorderID = id
+	f.reorderPlacement = placement
+	return f.reorderResult, f.reorderError
 }
 
 func (f *fakeAreaApplication) Tag(
@@ -415,6 +429,67 @@ func TestAreaEditAdaptsOnlyChangedFieldsAndWritesHumanOutput(t *testing.T) {
 		*application.editFields.Title != title || application.editFields.Note == nil ||
 		*application.editFields.Note != note {
 		t.Errorf("Edit() ID/fields = %d/%#v, want only changed fields", application.editID, application.editFields)
+	}
+}
+
+func TestAreaReorderAdaptsEveryPlacementAndWritesBareJSON(t *testing.T) {
+	t.Parallel()
+
+	wantArea := area.Area{
+		ID: 7, Title: "Home", Position: 3, Tags: domain.TagNames{},
+	}
+	for _, test := range []struct {
+		name string
+		flag string
+		want domain.Placement
+	}{
+		{name: "after", flag: "--after=008", want: domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: 8}},
+		{name: "before", flag: "--before=008", want: domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: 8}},
+		{name: "first", flag: "--first", want: domain.Placement{Anchor: domain.PlacementFirst}},
+		{name: "last", flag: "--last", want: domain.Placement{Anchor: domain.PlacementLast}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			application := &fakeAreaApplication{reorderResult: wantArea}
+			result := runAreaCommand(t, application, "area", "reorder", "007", test.flag, "--json")
+			if result.exitCode != 0 || result.stderr != "" || result.opens != 1 || result.closes != 1 {
+				t.Fatalf("result = %#v, want JSON success and one factory lifecycle", result)
+			}
+			if application.reorderID != 7 || !reflect.DeepEqual(application.reorderPlacement, test.want) {
+				t.Errorf("Reorder() input = (%d, %#v), want (7, %#v)", application.reorderID, application.reorderPlacement, test.want)
+			}
+			if got := decodeAreaJSON[area.Area](t, result.stdout); !reflect.DeepEqual(got, wantArea) {
+				t.Errorf("reorder JSON = %#v, want bare area %#v", got, wantArea)
+			}
+		})
+	}
+}
+
+func TestAreaReorderWritesExactHumanMutation(t *testing.T) {
+	t.Parallel()
+
+	result := runAreaCommand(
+		t,
+		&fakeAreaApplication{reorderResult: area.Area{ID: 7, Title: "Home"}},
+		"area", "reorder", "7", "--first",
+	)
+	if result.exitCode != 0 || result.stdout != "~ Reordered: area 7  Home\n" || result.stderr != "" {
+		t.Errorf("result = %#v, want exact stdout-only reorder mutation", result)
+	}
+}
+
+func TestAreaReorderApplicationErrorUsesOnlyStderr(t *testing.T) {
+	t.Parallel()
+
+	application := &fakeAreaApplication{reorderError: apperr.New(apperr.NotFound, "no area 99", nil)}
+	result := runAreaCommand(t, application, "area", "reorder", "99", "--last", "--json")
+	got := decodeAreaCommandError(t, result)
+	if got.Code != apperr.NotFound || got.Message != "no area 99" {
+		t.Errorf("error = %#v, want area not_found diagnostic", got)
+	}
+	if result.exitCode != 1 || result.stdout != "" || result.opens != 1 || result.closes != 1 {
+		t.Errorf("result = %#v, want stderr-only application failure and one factory lifecycle", result)
 	}
 }
 
