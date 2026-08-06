@@ -14,14 +14,16 @@ type recordingStore struct {
 	calls      int
 	ctx        context.Context
 	expression string
+	related    bool
 	result     []Hit
 	err        error
 }
 
-func (s *recordingStore) Search(ctx context.Context, expression string) ([]Hit, error) {
+func (s *recordingStore) Search(ctx context.Context, expression string, related bool) ([]Hit, error) {
 	s.calls++
 	s.ctx = ctx
 	s.expression = expression
+	s.related = related
 	return s.result, s.err
 }
 
@@ -41,7 +43,7 @@ func TestServiceSearchRejectsInvalidExpressionBeforeStoreCall(t *testing.T) {
 			t.Parallel()
 
 			store := &recordingStore{}
-			hits, err := NewService(store).Search(context.Background(), test.expression)
+			hits, err := NewService(store).Search(context.Background(), test.expression, true)
 			if code, ok := apperr.CodeOf(err); !ok || code != apperr.InvalidArgument {
 				t.Errorf("Search() error = %v, want invalid_argument", err)
 			}
@@ -58,34 +60,37 @@ func TestServiceSearchRejectsInvalidExpressionBeforeStoreCall(t *testing.T) {
 	}
 }
 
-func TestServiceSearchDelegatesExpressionAndContext(t *testing.T) {
+func TestServiceSearchDelegatesExpressionContextAndMode(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.WithValue(context.Background(), contextKey{}, "request")
-	want := []Hit{{Kind: KindTask, Task: &task.Task{ID: 7, Title: "Call plumber"}}}
-	store := &recordingStore{result: want}
+	for _, related := range []bool{false, true} {
+		ctx := context.WithValue(context.Background(), contextKey{}, "request")
+		want := []Hit{{Kind: KindTask, Task: &task.Task{ID: 7, Title: "Call plumber"}}}
+		store := &recordingStore{result: want}
 
-	got, err := NewService(store).Search(ctx, `plumb* OR "pipe wrench"`)
-	if err != nil {
-		t.Fatalf("Search() error = %v", err)
-	}
-	if store.calls != 1 || store.ctx != ctx || store.expression != `plumb* OR "pipe wrench"` {
-		t.Errorf(
-			"store Search() calls/context/expression = %d/%v/%q, want one call with supplied values",
-			store.calls,
-			store.ctx,
-			store.expression,
-		)
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Search() = %#v, want %#v", got, want)
+		got, err := NewService(store).Search(ctx, `plumb* OR "pipe wrench"`, related)
+		if err != nil {
+			t.Fatalf("Search() error = %v", err)
+		}
+		if store.calls != 1 || store.ctx != ctx || store.expression != `plumb* OR "pipe wrench"` || store.related != related {
+			t.Errorf(
+				"store Search() calls/context/expression/related = %d/%v/%q/%t, want one call with supplied values",
+				store.calls,
+				store.ctx,
+				store.expression,
+				store.related,
+			)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("Search() = %#v, want %#v", got, want)
+		}
 	}
 }
 
 func TestServiceSearchNormalizesNilHits(t *testing.T) {
 	t.Parallel()
 
-	hits, err := NewService(&recordingStore{}).Search(context.Background(), "missing")
+	hits, err := NewService(&recordingStore{}).Search(context.Background(), "missing", false)
 	if err != nil {
 		t.Fatalf("Search() error = %v", err)
 	}
@@ -101,7 +106,7 @@ func TestServiceSearchReturnsStoreError(t *testing.T) {
 	hits, err := NewService(&recordingStore{
 		result: []Hit{{Kind: KindTask, Task: &task.Task{ID: 1}}},
 		err:    storeErr,
-	}).Search(context.Background(), "plumber")
+	}).Search(context.Background(), "plumber", true)
 	if !errors.Is(err, storeErr) {
 		t.Errorf("Search() error = %v, want %v", err, storeErr)
 	}

@@ -14,10 +14,10 @@ func NewService(store Store) *Service {
 	return &Service{store: store}
 }
 
-func (s *Service) Search(ctx context.Context, expression string) ([]Hit, error) {
+func (s *Service) Search(ctx context.Context, expression string, related bool) ([]Hit, error) {
 	if err := domain.ValidateRequiredText("expression", expression); err != nil {
 		return nil, err
 	}
 
-	return domain.NormalizeSliceResult(s.store.Search(ctx, expression))
+	return domain.NormalizeSliceResult(s.store.Search(ctx, expression, related))
 }

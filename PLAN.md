@@ -9,7 +9,7 @@ acceptance boundary. Both artifacts are retired at consolidation.
 ## Progress
 
 - [x] Chunk 1 — Direct search
-- [ ] Chunk 2 — Related search
+- [x] Chunk 2 — Related search
 
 There is no chunk 0: the Milestone 7 foundation review scheduled no
 findings.
@@ -45,11 +45,14 @@ file's lightly-written implementation sketch at its declared plan gate.
   tags; for an area, nothing. Default (direct) search column-filters to
   `{title tags note}`; `--related` matches all four columns, pulling in
   contextual hits ranked below direct ones.
-- **Results are relevance-ordered**: weighted `bm25` (title 4, tags 3,
-  note 2, context 1), ties broken by kind (task, project, area), then
-  `id` ascending. The weights are internal and tunable; tests assert
-  ordering properties ("a title hit outranks a context-only hit"), never
-  scores. Tokenizer is FTS5's default `unicode61`, no stemming — prefix
+- **Results are direct-tiered, then relevance-ordered.** Related mode
+  places every direct match above every context-only match; context may
+  still reorder direct hits within their tier. Each tier uses weighted
+  `bm25` (title 4, tags 3, note 2, context 1), with ties broken by kind
+  (task, project, area), then `id` ascending. The weights are internal
+  and tunable; tests assert ordering properties ("a title hit outranks a
+  context-only hit"), never scores. Tokenizer is FTS5's default
+  `unicode61`, no stemming — prefix
   syntax (`plumb*`) is the recall idiom, and the virtual index makes a
   future stemmed or trigram variant a per-invocation swap.
 - **Error package.** A blank or whitespace expression is
@@ -91,11 +94,12 @@ file's lightly-written implementation sketch at its declared plan gate.
   drops it. The pool is capped at one connection, so the temp schema is
   stable within an invocation and vanishes at process exit.
 - **Query shape**: direct mode wraps the user expression as
-  `{title tags note} : (EXPR)`; related mode passes `EXPR` unfiltered.
-  Both order by
-  `bm25(search_index, 0, 0, 4.0, 3.0, 2.0, 1.0)`, then the kind CASE,
-  then `entity_id`. The store then fetches complete tag-enriched entity
-  rows per kind (reusing the existing column lists and row scanners) and
+  `{title tags note} : (EXPR)`; related mode passes `EXPR` unfiltered and
+  leads its ordering with membership in that direct expression, so
+  context-only hits form the second tier. Both then order by
+  `bm25(search_index, 0, 0, 4.0, 3.0, 2.0, 1.0)`, the kind CASE, and
+  `entity_id`. The store then fetches complete tag-enriched entity rows
+  per kind (reusing the existing column lists and row scanners) and
   reassembles them in match order.
 - **cmd surface**: top-level `gsd search "EXPR"` with
   `cobra.ExactArgs(1)` and a `--related` boolean flag. Help, version, and
@@ -173,11 +177,11 @@ Human outcome: `--related` widens the same search through project, area,
 and tag context — "Fix sink" surfaces for `plumb*` because of where it
 lives and how its containers are tagged.
 
-- [ ] Service and store: thread a `related` mode flag through
+- [x] Service and store: thread a `related` mode flag through
       `Search`; related mode matches all four columns unfiltered so
       context-only hits join the results below direct hits.
-- [ ] cmd: `--related` flag wiring; output shapes unchanged.
-- [ ] Test owners — store tests own related semantics: the context
+- [x] cmd: `--related` flag wiring; output shapes unchanged.
+- [x] Test owners — store tests own related semantics: the context
       pull-out matrix (member task surfaces via project title, project
       tag, area title, and area tag; project surfaces via area title
       and tag), context-only hits ranked below direct hits, direct mode
@@ -185,7 +189,7 @@ lives and how its containers are tagged.
       project or tag, re-search: reflected immediately with no
       persisted state to go stale). Service tests own mode passthrough.
       cmd tests own flag wiring and envelope stability across modes.
-- [ ] Human proof (demo `.sandbox/demos/milestone-8-chunk-2.html`),
+- [x] Human proof (demo `.sandbox/demos/milestone-8-chunk-2.html`),
       against the chunk 1 seed. Slides:
       1. `gsd search "plumb*"` then `gsd search "plumb*" --related` —
          tasks 3 and 4 join below the direct hits, explained by their
@@ -200,7 +204,7 @@ lives and how its containers are tagged.
       5. `gsd search "plumb*" --related` after the rename — tasks 3
          and 4 no longer surface through the old project title: context
          derives live.
-- [ ] Agent verification: `make check` green; the pull-out matrix,
+- [x] Agent verification: `make check` green; the pull-out matrix,
       mode contrast, and rename-freshness workflow exercised via the
       built binary.
 
