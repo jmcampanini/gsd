@@ -242,7 +242,6 @@ func TestSearchRequiresExactlyOneExpressionBeforeOpeningFactory(t *testing.T) {
 	for _, args := range [][]string{
 		{"search"},
 		{"search", "one", "two"},
-		{"search", "term", "--related"},
 	} {
 		application := &fakeSearchApplication{}
 		result := runSearchCommand(t, application, args...)

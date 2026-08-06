@@ -2,10 +2,7 @@ package search
 
 import (
 	"context"
-	"strings"
-	"unicode/utf8"
 
-	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/domain"
 )
 
@@ -18,11 +15,8 @@ func NewService(store Store) *Service {
 }
 
 func (s *Service) Search(ctx context.Context, expression string) ([]Hit, error) {
-	if !utf8.ValidString(expression) {
-		return nil, apperr.New(apperr.InvalidArgument, "expression must be valid UTF-8", nil)
-	}
-	if strings.TrimSpace(expression) == "" {
-		return nil, apperr.New(apperr.InvalidArgument, "expression must not be blank", nil)
+	if err := domain.ValidateRequiredText("expression", expression); err != nil {
+		return nil, err
 	}
 
 	return domain.NormalizeSliceResult(s.store.Search(ctx, expression))

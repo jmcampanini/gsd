@@ -582,7 +582,14 @@ func sortTasks(tasks []task.Task) {
 
 func scanProject(scanner rowScanner) (project.Project, error) {
 	var value project.Project
-	err := scanner.Scan(
+	targets := append(projectBaseScanTargets(&value), scanTagTitles(&value.Tags))
+	err := scanner.Scan(targets...)
+
+	return value, err
+}
+
+func projectBaseScanTargets(value *project.Project) []any {
+	return []any{
 		&value.ID,
 		&value.AreaID,
 		&value.Title,
@@ -593,10 +600,7 @@ func scanProject(scanner rowScanner) (project.Project, error) {
 		&value.Position,
 		&value.CreatedAt,
 		&value.UpdatedAt,
-		scanTagTitles(&value.Tags),
-	)
-
-	return value, err
+	}
 }
 
 func (s *projectsCore) listArea(

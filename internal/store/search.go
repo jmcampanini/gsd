@@ -287,20 +287,9 @@ WHERE matched.id IN (`+queryPlaceholders(len(batch))+`)
 		}
 		collected, err := collectRows(rows, func(scanner rowScanner) (projectSearchRow, error) {
 			var row projectSearchRow
-			err := scanner.Scan(
-				&row.value.ID,
-				&row.value.AreaID,
-				&row.value.Title,
-				&row.value.Note,
-				&row.value.DoneAt,
-				&row.value.CancelledAt,
-				&row.value.Status,
-				&row.value.Position,
-				&row.value.CreatedAt,
-				&row.value.UpdatedAt,
-				scanTagTitles(&row.value.Tags),
-				&row.governingAreaTitle,
-			)
+			targets := append(projectBaseScanTargets(&row.value), scanTagTitles(&row.value.Tags))
+			targets = append(targets, &row.governingAreaTitle)
+			err := scanner.Scan(targets...)
 			return row, err
 		}, "scan matched project", "iterate matched projects")
 		if err != nil {

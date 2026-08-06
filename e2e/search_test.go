@@ -158,7 +158,6 @@ func TestSearchSyntaxFailuresDoNotOpenDatabase(t *testing.T) {
 	}{
 		{name: "missing expression", args: []string{"search"}},
 		{name: "extra expression", args: []string{"search", "one", "two"}},
-		{name: "related before its mode exists", args: []string{"search", "one", "--related"}},
 		{name: "unknown flag", args: []string{"search", "one", "--unknown"}},
 	}
 

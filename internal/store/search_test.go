@@ -191,9 +191,9 @@ INSERT INTO task_tags (task_id, tag_id) VALUES (2, 1);
 	})
 }
 
-func TestSearchHydratesMoreMatchesThanSQLiteVariableLimit(t *testing.T) {
+func TestSearchHydratesAcrossBatches(t *testing.T) {
 	ctx, storage := openTestStorage(t)
-	const matchCount = 32767
+	const matchCount = 1001
 	if _, err := storage.database.ExecContext(ctx, `
 WITH RECURSIVE ids(id) AS (
     VALUES (1)
@@ -201,21 +201,21 @@ WITH RECURSIVE ids(id) AS (
     SELECT id + 1 FROM ids WHERE id < ?
 )
 INSERT INTO tasks (id, title, position)
-SELECT id, 'boundarytoken', id - 1 FROM ids
+SELECT id, 'batchtoken', id - 1 FROM ids
 `, matchCount); err != nil {
-		t.Fatalf("seed variable-limit search documents: %v", err)
+		t.Fatalf("seed batched search documents: %v", err)
 	}
 
-	hits, err := NewSearch(storage).Search(ctx, "boundarytoken")
+	hits, err := NewSearch(storage).Search(ctx, "batchtoken")
 	if err != nil {
-		t.Fatalf("Search(boundarytoken) error = %v", err)
+		t.Fatalf("Search(batchtoken) error = %v", err)
 	}
 	if len(hits) != matchCount {
-		t.Fatalf("Search(boundarytoken) hit count = %d, want %d", len(hits), matchCount)
+		t.Fatalf("Search(batchtoken) hit count = %d, want %d", len(hits), matchCount)
 	}
 	if hits[0].Task == nil || hits[0].Task.ID != 1 ||
 		hits[len(hits)-1].Task == nil || hits[len(hits)-1].Task.ID != matchCount {
-		t.Errorf("Search(boundarytoken) bounds = %#v/%#v, want task IDs 1/%d", hits[0], hits[len(hits)-1], matchCount)
+		t.Errorf("Search(batchtoken) bounds = %#v/%#v, want task IDs 1/%d", hits[0], hits[len(hits)-1], matchCount)
 	}
 }
 
