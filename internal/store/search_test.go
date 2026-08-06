@@ -232,16 +232,7 @@ SELECT id, 'neutral', id - 2 FROM ids;
 		t.Fatalf("Search(plumbing) error = %v", err)
 	}
 	positions := make(map[searchIdentity]int, len(hits))
-	for index, hit := range hits {
-		identity := searchIdentity{kind: hit.Kind}
-		switch hit.Kind {
-		case search.KindTask:
-			identity.id = hit.Task.ID
-		case search.KindProject:
-			identity.id = hit.Project.ID
-		case search.KindArea:
-			identity.id = hit.Area.ID
-		}
+	for index, identity := range searchHitIdentities(hits) {
 		positions[identity] = index
 	}
 
@@ -447,16 +438,7 @@ func assertSearchIdentitySet(
 	for _, identity := range want {
 		remaining[identity]++
 	}
-	for _, hit := range hits {
-		identity := searchIdentity{kind: hit.Kind}
-		switch hit.Kind {
-		case search.KindTask:
-			identity.id = hit.Task.ID
-		case search.KindProject:
-			identity.id = hit.Project.ID
-		case search.KindArea:
-			identity.id = hit.Area.ID
-		}
+	for _, identity := range searchHitIdentities(hits) {
 		remaining[identity]--
 	}
 	for _, count := range remaining {
@@ -483,21 +465,26 @@ func assertSearchIdentities(
 	if err != nil {
 		t.Fatalf("Search(%q) error = %v", expression, err)
 	}
-	got := make([]searchIdentity, len(hits))
-	for index, hit := range hits {
-		got[index].kind = hit.Kind
-		switch hit.Kind {
-		case search.KindTask:
-			got[index].id = hit.Task.ID
-		case search.KindProject:
-			got[index].id = hit.Project.ID
-		case search.KindArea:
-			got[index].id = hit.Area.ID
-		}
-	}
+	got := searchHitIdentities(hits)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Search(%q) identities = %#v, want %#v", expression, got, want)
 	}
+}
+
+func searchHitIdentities(hits []search.Hit) []searchIdentity {
+	identities := make([]searchIdentity, len(hits))
+	for index, hit := range hits {
+		identities[index].kind = hit.Kind
+		switch hit.Kind {
+		case search.KindTask:
+			identities[index].id = hit.Task.ID
+		case search.KindProject:
+			identities[index].id = hit.Project.ID
+		case search.KindArea:
+			identities[index].id = hit.Area.ID
+		}
+	}
+	return identities
 }
 
 func assertNoTemporarySearchIndex(t *testing.T, storage *DB) {

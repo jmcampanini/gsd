@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 
@@ -237,17 +237,10 @@ func decodeSearchHits(t *testing.T, result processResult) []searchJSONHit {
 func assertSearchTitles(t *testing.T, hits []searchJSONHit, want ...string) {
 	t.Helper()
 	got := searchTitles(hits)
-	sort.Strings(got)
-	sort.Strings(want)
-	if len(got) != len(want) {
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
 		t.Errorf("search titles = %#v, want %#v", got, want)
-		return
-	}
-	for index := range got {
-		if got[index] != want[index] {
-			t.Errorf("search titles = %#v, want %#v", got, want)
-			return
-		}
 	}
 }
 
