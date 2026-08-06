@@ -4,10 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 type rowScanner interface {
 	Scan(...any) error
+}
+
+// The entity column constants (taskColumns, projectColumns, areaColumns) must
+// stay bare column names joined by exactly ", " for this rewrite to hold.
+func qualifiedColumns(alias, columns string) string {
+	return alias + "." + strings.ReplaceAll(columns, ", ", ", "+alias+".")
 }
 
 func deleteRows(

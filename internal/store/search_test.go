@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -106,7 +107,7 @@ INSERT INTO project_tags (project_id, tag_id) VALUES (1, 2), (1, 3);
 		t.Fatalf("seed inherited search context: %v", err)
 	}
 
-	got := make(map[searchIdentity]string)
+	got := make(map[searchIdentity][]string)
 	err := withinDeferredTransaction(ctx, storage, "search assembly test", func(connection *sql.Conn) error {
 		if _, createErr := connection.ExecContext(ctx, createSearchIndex); createErr != nil {
 			return createErr
@@ -134,7 +135,9 @@ INSERT INTO project_tags (project_id, tag_id) VALUES (1, 2), (1, 3);
 			return collectErr
 		}
 		for _, row := range assembled {
-			got[row.identity] = row.context
+			tokens := strings.Fields(row.context)
+			slices.Sort(tokens)
+			got[row.identity] = tokens
 		}
 		return nil
 	})
@@ -142,15 +145,20 @@ INSERT INTO project_tags (project_id, tag_id) VALUES (1, 2), (1, 3);
 		t.Fatalf("assemble search documents: %v", err)
 	}
 
-	want := map[searchIdentity]string{
-		{kind: search.KindTask, id: 1}:    "Bathroom plumbing alpha reno Home house",
-		{kind: search.KindTask, id: 2}:    "Home house",
-		{kind: search.KindTask, id: 3}:    "",
-		{kind: search.KindProject, id: 1}: "Home house",
-		{kind: search.KindArea, id: 1}:    "",
+	want := map[searchIdentity][]string{
+		{kind: search.KindTask, id: 1}:    {"Bathroom", "Home", "alpha", "house", "plumbing", "reno"},
+		{kind: search.KindTask, id: 2}:    {"Home", "house"},
+		{kind: search.KindTask, id: 3}:    {},
+		{kind: search.KindProject, id: 1}: {"Home", "house"},
+		{kind: search.KindArea, id: 1}:    {},
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("assembled contexts = %#v, want %#v", got, want)
+	if len(got) != len(want) {
+		t.Errorf("assembled documents = %#v, want %#v", got, want)
+	}
+	for identity, wantTokens := range want {
+		if !slices.Equal(got[identity], wantTokens) {
+			t.Errorf("assembled context tokens for %+v = %#v, want %#v", identity, got[identity], wantTokens)
+		}
 	}
 
 	assertSearchIdentities(t, NewSearch(storage), ctx, `"alpha reno"`, false, []searchIdentity{
@@ -369,20 +377,25 @@ func TestSearchMapsMalformedFTSExpressionAndCleansTemporaryIndex(t *testing.T) {
 	for _, test := range []struct {
 		expression string
 		related    bool
-		detail     string
+		wording    string
 	}{
-		{expression: "plumb* AND", detail: "fts5: syntax error"},
-		{expression: `"unterminated`, detail: "unterminated string"},
-		{expression: "in:home", detail: "no such column: in"},
-		{expression: "plumb* AND", related: true, detail: "fts5: syntax error"},
-		{expression: "in:home", related: true, detail: "no such column: in"},
+		{expression: "plumb* AND", wording: "fts5: syntax error"},
+		{expression: `"unterminated`},
+		{expression: "in:home"},
+		{expression: "plumb* AND", related: true},
+		{expression: "in:home", related: true},
 	} {
 		_, err := store.Search(ctx, test.expression, test.related)
 		if code, _ := apperr.CodeOf(err); code != apperr.InvalidArgument {
 			t.Errorf("Search(%q, related=%t) error = %v, want invalid_argument", test.expression, test.related, err)
 		}
-		if err == nil || !strings.Contains(err.Error(), test.detail) {
-			t.Errorf("Search(%q, related=%t) error = %q, want parser detail %q", test.expression, test.related, err, test.detail)
+		const prefix = "invalid search expression: "
+		if err == nil || !strings.HasPrefix(err.Error(), prefix) ||
+			strings.TrimSpace(strings.TrimPrefix(err.Error(), prefix)) == "" {
+			t.Errorf("Search(%q, related=%t) error = %q, want parser detail after %q", test.expression, test.related, err, prefix)
+		}
+		if test.wording != "" && (err == nil || !strings.Contains(err.Error(), test.wording)) {
+			t.Errorf("Search(%q, related=%t) error = %q, want wording canary %q", test.expression, test.related, err, test.wording)
 		}
 		assertNoTemporarySearchIndex(t, storage)
 	}

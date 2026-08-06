@@ -37,8 +37,11 @@ TUI verb, reorder, and command-line milestone acts on.
   Keyboard-only.
 - **Freshness**: data loads when a view is entered; re-entering
   re-reads. No polling or watchers.
-- **`/` is incremental search** over the same FTS index as `gsd search`
+- **`/` is incremental search** with the same semantics as `gsd search`
   (in the tree since Milestone 8), filtering the current view live.
+  Search implies a query per keystroke, and the virtual index is
+  rebuilt per invocation (~25ms at 5,000 documents): decide index
+  lifetime — per-call, session-held, or debounced — at this plan gate.
 
 ## Chunks
 

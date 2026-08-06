@@ -1,12 +1,11 @@
 package search
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -17,6 +16,9 @@ const (
 	KindArea    = "area"
 )
 
+// Exactly one entity pointer is populated and must match Kind; MarshalJSON
+// enforces this. Constructors and accessors are deferred until the first new
+// Hit consumer or producer (expected at the TUI milestones).
 type Hit struct {
 	Kind               string           `json:"kind"`
 	Task               *task.Task       `json:"-"`
@@ -46,7 +48,7 @@ func (h Hit) MarshalJSON() ([]byte, error) {
 		if h.Task == nil {
 			return nil, fmt.Errorf("search hit kind %q does not match its entity row", h.Kind)
 		}
-		return marshalHit(struct {
+		return domain.MarshalCompactJSON(struct {
 			Kind string `json:"kind"`
 			task.Task
 		}{Kind: h.Kind, Task: *h.Task})
@@ -54,7 +56,7 @@ func (h Hit) MarshalJSON() ([]byte, error) {
 		if h.Project == nil {
 			return nil, fmt.Errorf("search hit kind %q does not match its entity row", h.Kind)
 		}
-		return marshalHit(struct {
+		return domain.MarshalCompactJSON(struct {
 			Kind string `json:"kind"`
 			project.Project
 		}{Kind: h.Kind, Project: *h.Project})
@@ -62,23 +64,13 @@ func (h Hit) MarshalJSON() ([]byte, error) {
 		if h.Area == nil {
 			return nil, fmt.Errorf("search hit kind %q does not match its entity row", h.Kind)
 		}
-		return marshalHit(struct {
+		return domain.MarshalCompactJSON(struct {
 			Kind string `json:"kind"`
 			area.Area
 		}{Kind: h.Kind, Area: *h.Area})
 	default:
 		return nil, fmt.Errorf("search hit has unknown kind %q", h.Kind)
 	}
-}
-
-func marshalHit(value any) ([]byte, error) {
-	var encoded bytes.Buffer
-	encoder := json.NewEncoder(&encoded)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(value); err != nil {
-		return nil, err
-	}
-	return bytes.TrimSuffix(encoded.Bytes(), []byte("\n")), nil
 }
 
 type Store interface {

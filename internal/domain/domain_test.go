@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -18,11 +17,16 @@ func TestTagNamesMarshalJSONAlwaysEmitsAnArray(t *testing.T) {
 	}{
 		{name: "nil", want: `[]`},
 		{name: "non-nil", value: TagNames{"home", "errands"}, want: `["home","errands"]`},
+		{
+			name:  "HTML characters are not escaped",
+			value: TagNames{"<repair> & upkeep"},
+			want:  `["<repair> & upkeep"]`,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := json.Marshal(test.value)
+			got, err := MarshalCompactJSON(test.value)
 			if err != nil {
 				t.Fatalf("Marshal() error = %v", err)
 			}
