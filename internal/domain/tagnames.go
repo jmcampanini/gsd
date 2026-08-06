@@ -1,7 +1,5 @@
 package domain
 
-import "encoding/json"
-
 type TagNames []string
 
 func (names TagNames) MarshalJSON() ([]byte, error) {
@@ -9,5 +7,5 @@ func (names TagNames) MarshalJSON() ([]byte, error) {
 		return []byte("[]"), nil
 	}
 
-	return json.Marshal([]string(names))
+	return MarshalCompactJSON([]string(names))
 }

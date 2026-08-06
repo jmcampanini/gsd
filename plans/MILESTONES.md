@@ -93,13 +93,29 @@ projects into the service; consolidation codified the
 services-own-validation store contract in `AGENTS.md` and ordinal-only
 position semantics in `SCHEMA.md`.
 
+### Milestone 8 — Search
+
+Delivered full-text search — `gsd search "EXPR"` passing FTS5 match
+syntax through to the title, tags, and note of every task, project,
+and area across all statuses and archived areas, with `--related`
+widening the same expression through inherited container titles and
+tags: direct matches tiered above context-only matches, weighted-bm25
+relevance with kind/id tie-breaks, kind-discriminated complete entity
+rows in JSON, and a kind/id/title/status/context human table. The
+index is virtual — a temp FTS5 table built per invocation from live
+data — so nothing persists, results are never stale, and
+`user_version` stays 9006. Consolidation reconciled the search grammar
+in `COMMANDS.md` (filter flags descoped in favor of future
+in-expression operators) and the now-vacuous no-live-migrations note;
+wrap-up aligned `TagNames` JSON with the shared non-HTML-escaped
+output policy across all tag-emitting commands.
+
 ## Active roadmap
 
-Active planning begins with the Search milestone:
+Active planning begins with the Query milestone:
 
 | # | Milestone | Capability delivered | Data mode |
 |---|-----------|----------------------|-----------|
-| 8 | [Search](MILESTONE_8.md) | FTS5 `search` | throwaway |
 | 9 | [Query](MILESTONE_9.md) | Read-only SQL; schema as public contract | throwaway |
 | 10 | [Go live](MILESTONE_10.md) | Migrations, install story, real-data import | **live** |
 | 11 | [Serve](MILESTONE_11.md) | Loopback HTTP API | **live** |
@@ -152,8 +168,9 @@ explorations, deliberately unnumbered.
 - 2026-08-02, Milestone 5 foundation review: Go live moved to the end of
   the roadmap (Config → Reorder → Search → Query → Go live) so the
   complete written-down v1 surface is demonstrated on throwaway data
-  before real data enters. The go-live baseline therefore includes the
-  FTS schema, and v1 ships no live migrations.
+  before real data enters. The search index is virtual — built per
+  invocation, nothing persists — so v1 ships no live migrations, now
+  vacuously.
 - Same review: entity `tags` arrays become alphabetical (`NOCASE`),
   matching `tags list` — specified in the canonical docs now, shipped by
   Milestone 6 chunk 0, which also consolidates the review's structural

@@ -15,6 +15,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/config"
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/project"
+	"github.com/jmcampanini/gsd/internal/search"
 	"github.com/jmcampanini/gsd/internal/store"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
@@ -37,6 +38,7 @@ type applications struct {
 	areas    area.Application
 	tags     tag.Application
 	logbook  logbook.Application
+	search   search.Application
 }
 
 type applicationFactory func(
@@ -141,6 +143,7 @@ func newRootCommandWithRuntimeDependencies(
 		newProjectsCommand(options, factory),
 		newReopenCommand(options, factory),
 		newReorderCommand(options, factory),
+		newSearchCommand(options, factory),
 		newShowCommand(options, factory),
 		newTagCommand(options, factory),
 		newTagsCommand(options, factory),
@@ -172,6 +175,7 @@ func defaultApplicationFactory(
 		areas:    area.NewService(store.NewAreas(database)),
 		tags:     tag.NewService(store.NewTags(database)),
 		logbook:  logbook.NewService(store.NewLogbook(database)),
+		search:   search.NewService(store.NewSearch(database)),
 	}, database, nil
 }
 
@@ -250,6 +254,17 @@ func withLogbookApplication(
 ) error {
 	return withApplications(command, options, factory, func(available applications) error {
 		return run(available.logbook)
+	})
+}
+
+func withSearchApplication(
+	command *cobra.Command,
+	options *rootOptions,
+	factory applicationFactory,
+	run func(search.Application) error,
+) error {
+	return withApplications(command, options, factory, func(available applications) error {
+		return run(available.search)
 	})
 }
 

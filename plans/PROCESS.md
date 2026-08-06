@@ -147,7 +147,11 @@ The wrap-up pull request:
 - Resolve the fix-now findings on the milestone branch.
 - Record scheduled findings as a complete chunk 0 manifest in the next
   milestone's file, including any deliberately deferred items with their
-  revisit triggers.
+  revisit triggers. Chunk 0 is optional: it exists only when the review
+  scheduled actual work. When nothing was scheduled, the next milestone's
+  file still records the carried deferred items and their revisit
+  triggers, and that milestone's root plan states there is no chunk 0
+  rather than planning an empty one.
 - Codify review findings that must hold in future work in `AGENTS.md`, lint or
   build configuration, or tests. Do not leave permanent guardrails only in
   review comments or memory.

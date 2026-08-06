@@ -16,6 +16,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/project"
+	"github.com/jmcampanini/gsd/internal/search"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/spf13/cobra"
@@ -483,6 +484,64 @@ func (o humanOutput) writeAreaList(areas []area.Area) error {
 		rows,
 		0,
 		0,
+	)
+}
+
+func (o humanOutput) writeSearchHits(hits []search.Hit) error {
+	rows := make([][]string, 0, len(hits))
+	for _, hit := range hits {
+		var id int64
+		var title string
+		var status string
+		switch hit.Kind {
+		case search.KindTask:
+			if hit.Task == nil {
+				return fmt.Errorf("render search hit: task row is missing")
+			}
+			id = hit.Task.ID
+			title = hit.Task.Title
+			status = o.statusWord(hit.Task.Status)
+		case search.KindProject:
+			if hit.Project == nil {
+				return fmt.Errorf("render search hit: project row is missing")
+			}
+			id = hit.Project.ID
+			title = hit.Project.Title
+			status = o.statusWord(hit.Project.Status)
+		case search.KindArea:
+			if hit.Area == nil {
+				return fmt.Errorf("render search hit: area row is missing")
+			}
+			id = hit.Area.ID
+			title = hit.Area.Title
+			if hit.Area.ArchivedAt != nil {
+				status = o.styles.faintRed.Render("archived")
+			}
+		default:
+			return fmt.Errorf("render search hit: unknown kind %q", hit.Kind)
+		}
+
+		contextTitles := make([]string, 0, 2)
+		if hit.ProjectTitle != nil {
+			contextTitles = append(contextTitles, humanText(*hit.ProjectTitle, false))
+		}
+		if hit.GoverningAreaTitle != nil {
+			contextTitles = append(contextTitles, humanText(*hit.GoverningAreaTitle, false))
+		}
+		rows = append(rows, []string{
+			humanText(hit.Kind, false),
+			strconv.FormatInt(id, 10),
+			humanText(title, false),
+			status,
+			strings.Join(contextTitles, " · "),
+		})
+	}
+
+	return o.writeCollection(
+		[]string{"kind", "id", "title", "status", "context"},
+		rows,
+		1,
+		0, 1, 4,
 	)
 }
 
