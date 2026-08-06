@@ -345,10 +345,6 @@ WHERE matched.id IN (`+queryPlaceholders(len(batch))+`)
 	return values, nil
 }
 
-func qualifiedColumns(alias, columns string) string {
-	return alias + "." + strings.ReplaceAll(columns, ", ", ", "+alias+".")
-}
-
 func queryPlaceholders(count int) string {
 	return strings.TrimSuffix(strings.Repeat("?,", count), ",")
 }
