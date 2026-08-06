@@ -2,11 +2,21 @@
 
 Get shit done — a personal task CLI backed by SQLite.
 
-## Build
+## Install
+
+### Homebrew `--HEAD`
+
+```sh
+brew tap jmcampanini/gsd https://github.com/jmcampanini/gsd
+brew install --HEAD jmcampanini/gsd/gsd
+brew upgrade --fetch-HEAD gsd
+```
+
+### Source/dev build fallback
 
 ```sh
 make build
-./build/gsd --version
+# binary at ./build/gsd
 ```
 
 ## Verify
@@ -15,4 +25,4 @@ make build
 make check
 ```
 
-<!-- cli-standards: CLI-DOCS-001 -->
+<!-- cli-standards: CLI-DOCS-001, CLI-RELEASE-003 -->
