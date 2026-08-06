@@ -1,6 +1,6 @@
 # Milestone 10 — Go live
 
-Data mode: **live from here on**. Depends on: Milestone 9.
+Data mode: **live from here on**. Depends on: Milestone 8.
 
 ## Capability
 
@@ -16,10 +16,11 @@ Exit condition is not a feature — it's "Javier lives in gsd."
 - Numbered, embedded SQL migrations; `PRAGMA user_version` tracks the
   applied revision; applied automatically on open, each migration in its
   own transaction.
-- `0001_baseline.sql` = the accumulated throwaway schema through Query
-  — tags, the alphabetical tag-array ordering, FTS — verbatim from the
-  schema-convergence audit (i.e., `SCHEMA.md`). v1 ships no live
-  migrations; the runner exists for everything after.
+- `0001_baseline.sql` = the accumulated throwaway schema through Search
+  — tags, the alphabetical tag-array ordering — verbatim from the
+  schema-convergence audit (i.e., `SCHEMA.md`; the FTS index is virtual
+  and persists nothing). v1 ships no live migrations; the runner exists
+  for everything after.
 - A database newer than the binary (`user_version` > known max, below
   the dev-only range) is a fail-loud error ("gsd is older than this
   database").
@@ -33,13 +34,16 @@ Exit condition is not a feature — it's "Javier lives in gsd."
 
 ### Install story
 
-- Homebrew HEAD-only formula (`Formula/gsd.rb`, cmdk pattern):
-  `head` build with the repo's Go flags, correct version stamping,
-  noninteractive functional test (CLI-RELEASE-003).
+- Homebrew HEAD-only formula: shipped early (2026-08-06, PR #53) —
+  `Formula/gsd.rb` with commit-derived version stamping, generated
+  shell completions, a noninteractive functional test
+  (CLI-RELEASE-003), and self-tap install/upgrade instructions in the
+  README.
 - README rewritten as landing page: purpose, `--HEAD` install/upgrade,
   representative commands, config discovery (CLI-DOCS-001/002).
-- Shell completion generation, wired and documented — gsd now has the
-  interactive command surface that warrants it (CLI-CMD-005).
+- Shell completion documented — generation already ships with the
+  formula, and gsd now has the interactive command surface that
+  warrants it (CLI-CMD-005).
 
 ### Import (no gsd code)
 
@@ -58,10 +62,49 @@ Exit condition is not a feature — it's "Javier lives in gsd."
 1. **Migration runner** — runner + baseline + newer-db guard + tests
    (fresh db, sequential apply, mid-migration failure rolls back, future
    version refused).
-2. **Install story** — formula, README landing page, shell completion,
-   `brew install --HEAD` verified on this machine.
+2. **Install story** — README landing page and completion docs on top
+   of the already-shipped formula; `brew install --HEAD` from the real
+   tap verified on this machine.
 3. **Import session** — no code: the agent-driven import itself,
    run against the real config-file-pinned database.
+
+## Carried from Milestone 8
+
+The Milestone 8 foundation review's fix-now findings were resolved in
+its wrap-up; there is no chunk 0 work. The deliberately deferred items
+carry forward with their revisit triggers:
+
+- **Config report generalization** — on config key #2 (`[serve] addr`,
+  arriving in Milestone 11): add source classification and tag-derived
+  env/flag spellings to go-config-loader's `configreporter` so gsd's
+  renderer becomes a generic provenance-row loop like the sibling CLIs,
+  and revisit the reporting/redaction contract at the same moment. No
+  load-request struct — positional load parameters are the family
+  idiom.
+- **Genericizing the intentionally-parallel tag service flows** —
+  carried from Milestone 6: revisit on the first sibling-divergence bug
+  or a post-v1 attach-semantics change.
+- **Typed transition spec for `applyTransition`** — carried from
+  Milestone 6: revisit if post-v1 work adds transitions.
+- **`search.Hit` constructors and accessors** — the hand-rolled sum
+  type's invariant (exactly one entity pointer, matching `Kind`) is
+  enforced at its consumers: revisit on the first new `Hit` consumer or
+  producer, expected at the TUI milestones.
+- **Entity-plus-container-titles projection consolidation** — logbook
+  entries, task views, and search hits each assemble container-title
+  context concretely in parallel, per convention: revisit on the fourth
+  projection or the first context-inconsistency bug between surfaces.
+- **In-expression scoping operators** (`in:`, `is:`, `~stem`/trigram
+  markers) — parked: revisit when unfiltered search proves too broad in
+  daily use; the spellings are reserved by FTS5 rejection today, and
+  the virtual index makes alternate tokenizers a per-invocation swap.
+- **Embeddings / semantic search** — parked, post-v1: revisit if
+  tag-based topical search (`--related`) proves insufficient in daily
+  use; the realistic path is an optional local-encoder sidecar fused
+  with FTS, and nothing in Search forecloses it.
+- **bm25 weight tuning** — the 4/3/2/1 values are a starting point:
+  revisit after real-data use; tests pin ordering properties only, so a
+  retune is a one-line change.
 
 ## User stories
 
@@ -106,6 +149,11 @@ $ gsd inbox                        # migrations applied silently; data intact
 
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
+- [ ] **Functional completeness audit** (carried from the cancelled Query
+      milestone): every command and behavior `COMMANDS.md` promises
+      (excluding the forward-looking TUI section) is demonstrated by the
+      accumulated e2e and agent-verified workflows; each gap is fixed or
+      explicitly re-scoped before the import session runs.
 - [ ] The temporary `DIVERGENCES.md` intake is empty after a complete go-live
       audit; canonical specs describe the shipped system exactly.
 - [ ] Old tool demoted: no longer the capture target (kept read-only or

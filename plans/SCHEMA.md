@@ -71,8 +71,8 @@ contiguous from 0 across every row regardless of status, trivially cheap at
 single-user scale. Renumbering bumps `updated_at` on the moved row only;
 displaced siblings are rewritten silently. Between reorders positions are
 ordinal only — deletes leave gaps and appends continue past them — so
-consumers, including raw `query` SQL, must order by `position, id` and
-never address a row by its position value.
+consumers must order by `position, id` and never address a row by its
+position value.
 
 **No length limits.** None of the local reference apps constrain length at
 the schema level; limits like Todoist's (500-char titles) exist to protect a
@@ -224,10 +224,9 @@ CREATE INDEX idx_project_tags_tag ON project_tags(tag_id);
 CREATE INDEX idx_area_tags_tag    ON area_tags(tag_id);
 ```
 
-## The query contract
+## The stability contract
 
-`gsd query` runs arbitrary read-only SELECTs against this database, which
-makes the schema itself public API. The contract:
+From Go live, real data must survive every migration. The contract:
 
 - **The tables above are stable.** Columns may be added; never renamed,
   retyped, or removed.
@@ -244,9 +243,7 @@ makes the schema itself public API. The contract:
   and belongs to the caller (the CLI orders inbox by `position`, logbook by
   `resolved_at` descending). The `ORDER BY` clauses inside the tag aggregates
   order array elements, not view rows.
-- **Everything else is a recipe, not schema.** Reverse tag lookups across
-  kinds, per-project counts, area reviews: documented example queries.
-  Views may be added over time; existing ones only gain columns.
+- **Views may be added over time; existing ones only gain columns.**
 
 **`inbox`** — open tasks in no container. The enrichment block is
 definitionally NULL here (kept anyway, so every task-shaped row has

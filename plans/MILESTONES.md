@@ -112,11 +112,10 @@ output policy across all tag-emitting commands.
 
 ## Active roadmap
 
-Active planning begins with the Query milestone:
+Active planning begins with the Go live milestone:
 
 | # | Milestone | Capability delivered | Data mode |
 |---|-----------|----------------------|-----------|
-| 9 | [Query](MILESTONE_9.md) | Read-only SQL; schema as public contract | throwaway |
 | 10 | [Go live](MILESTONE_10.md) | Migrations, install story, real-data import | **live** |
 | 11 | [Serve](MILESTONE_11.md) | Loopback HTTP API | **live** |
 | 12 | [Capture](MILESTONE_12.md) | TUI substrate + `gsd capture` popup | **live** |
@@ -186,8 +185,7 @@ explorations, deliberately unnumbered.
   state accents drawn from Catppuccin Latte/Frappé selected by terminal
   background, accents-only.
 - 2026-08-04, Serve planning interview: Milestone 11 adds `gsd serve`, a
-  loopback-only, no-auth HTTP API with full CLI parity minus `query` and
-  `config`. Grammar: `/v1` resources, action endpoints for lifecycle
+  loopback-only, no-auth HTTP API with full CLI parity minus `config`. Grammar: `/v1` resources, action endpoints for lifecycle
   transitions (cascades return the CLI envelopes), merge-patch `PATCH`
   with `null`-clears for edits; wire JSON and the error envelope are the
   CLI `--json` shapes unchanged, mapped 404/400/409/500. The bind address
@@ -209,3 +207,14 @@ explorations, deliberately unnumbered.
   and lands first as the substrate proof. The `COMMANDS.md` TUI section
   was reconciled from the earlier three-pane sketch to this paradigm;
   panes, mouse, and markdown notes are parked explorations.
+- 2026-08-06, Milestone 9 cancellation: the Query milestone (`gsd query`,
+  read-only SQL with the schema as public contract) was cancelled at its
+  plan gate, before implementation; raw SQL access returns only if daily
+  use demonstrates the need. The schema-as-public-API framing left the
+  canonical specs with it — `SCHEMA.md`'s contract section now states
+  the stability rules Go live's migrations require. Milestone numbering
+  is retained; the roadmap resumes at 10. Milestone 8's carried deferred
+  items and the functional completeness audit moved into
+  `MILESTONE_10.md`. Go live's install story partially shipped early the
+  same day: `Formula/gsd.rb` and the self-tap README install
+  instructions landed via PR #53.

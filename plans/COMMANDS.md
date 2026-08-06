@@ -1,11 +1,10 @@
 # Command Spec (v1)
 
 The CLI is the canonical v1 surface; agents consume entity operations
-through `--json`, configuration through TOML, plus raw SQL through `gsd
-query`. A post-v1 TUI is planned to embed the same grammar and call the same
-parser and core. The data contract behind `query` lives in `SCHEMA.md`. This
-document specifies the canonical v1 target; the roadmap in `MILESTONES.md`
-delivers it incrementally.
+through `--json` and configuration through TOML. A post-v1 TUI is planned to
+embed the same grammar and call the same parser and core. This document
+specifies the canonical v1 target; the roadmap in `MILESTONES.md` delivers
+it incrementally.
 
 ## Grammar
 
@@ -98,11 +97,10 @@ gsd tags rename OLD NEW
 gsd tags delete NAME        # detaches from everything
 ```
 
-## Search and query
+## Search
 
 ```
 gsd search "EXPR" [--related]
-gsd query "SELECT ..."      # or "-" to read SQL from stdin
 ```
 
 - `search` passes `EXPR` through FTS5 match syntax (`plumb*`, `"exact
@@ -116,11 +114,7 @@ gsd query "SELECT ..."      # or "-" to read SQL from stdin
   container-title context path; `--json` is an array of
   kind-discriminated complete entity rows in relevance order. The FTS
   index is internal and virtual — built per invocation, nothing
-  persists, results always reflect current data — and not part of the
-  query contract in v1.
-- `query` runs on a read-only connection: SELECT-only by construction.
-  Human output is an aligned table of the selected columns; `--json` is
-  an array of row objects.
+  persists, results always reflect current data.
 
 ## Semantics
 
