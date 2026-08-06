@@ -97,7 +97,7 @@ func NewSearch(database *DB) *Search {
 	return &Search{database: database}
 }
 
-func (s *Search) Search(ctx context.Context, expression string) ([]search.Hit, error) {
+func (s *Search) Search(ctx context.Context, expression string, related bool) ([]search.Hit, error) {
 	var hits []search.Hit
 	err := withinDeferredTransaction(ctx, s.database, "search", func(connection *sql.Conn) (operationErr error) {
 		if _, err := connection.ExecContext(ctx, createSearchIndex); err != nil {
@@ -114,7 +114,7 @@ func (s *Search) Search(ctx context.Context, expression string) ([]search.Hit, e
 			return fmt.Errorf("populate search index: %w", err)
 		}
 
-		identities, err := matchSearchIndex(ctx, connection, expression)
+		identities, err := matchSearchIndex(ctx, connection, expression, related)
 		if err != nil {
 			return mapSearchMatchError(err)
 		}
@@ -131,7 +131,12 @@ func matchSearchIndex(
 	ctx context.Context,
 	connection *sql.Conn,
 	expression string,
+	related bool,
 ) ([]searchIdentity, error) {
+	matchExpression := expression
+	if !related {
+		matchExpression = "{title tags note} : (" + expression + ")"
+	}
 	rows, err := connection.QueryContext(ctx, `
 SELECT kind, entity_id
 FROM search_index
@@ -139,7 +144,7 @@ WHERE search_index MATCH ?
 ORDER BY bm25(search_index, 0.0, 0.0, 4.0, 3.0, 2.0, 1.0),
          CASE kind WHEN 'task' THEN 0 WHEN 'project' THEN 1 ELSE 2 END,
          CAST(entity_id AS INTEGER)
-`, "{title tags note} : ("+expression+")")
+`, matchExpression)
 	if err != nil {
 		return nil, err
 	}

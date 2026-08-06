@@ -21,11 +21,13 @@ type fakeSearchApplication struct {
 	err        error
 	calls      int
 	expression string
+	related    bool
 }
 
-func (f *fakeSearchApplication) Search(_ context.Context, expression string) ([]search.Hit, error) {
+func (f *fakeSearchApplication) Search(_ context.Context, expression string, related bool) ([]search.Hit, error) {
 	f.calls++
 	f.expression = expression
+	f.related = related
 	return f.result, f.err
 }
 
@@ -63,12 +65,20 @@ func TestSearchJSONWritesFlattenedCanonicalRowsInResultOrder(t *testing.T) {
 	}
 	application := &fakeSearchApplication{result: hits}
 	result := runSearchCommand(t, application, "--db", "chosen.db", "search", "sink OR home", "--json")
+	relatedApplication := &fakeSearchApplication{result: hits}
+	relatedResult := runSearchCommand(t, relatedApplication, "--db", "chosen.db", "search", "sink OR home", "--related", "--json")
 
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want JSON success", result)
 	}
-	if application.calls != 1 || application.expression != "sink OR home" {
-		t.Errorf("Search() call = %d/%q, want one exact expression", application.calls, application.expression)
+	if application.calls != 1 || application.expression != "sink OR home" || application.related {
+		t.Errorf("direct Search() call = %d/%q/%t, want one exact expression with related false", application.calls, application.expression, application.related)
+	}
+	if relatedApplication.calls != 1 || relatedApplication.expression != "sink OR home" || !relatedApplication.related {
+		t.Errorf("related Search() call = %d/%q/%t, want one exact expression with related true", relatedApplication.calls, relatedApplication.expression, relatedApplication.related)
+	}
+	if relatedResult != result {
+		t.Errorf("related result = %#v, want direct JSON result %#v", relatedResult, result)
 	}
 	if result.openPath != "chosen.db" || result.opens != 1 || result.closes != 1 {
 		t.Errorf("factory lifecycle = %#v, want selected DB and one open/close", result)
@@ -122,10 +132,22 @@ func TestSearchHumanTableShowsStatusContextAlignmentAndEscapedControls(t *testin
 		{Kind: search.KindArea, Area: &area.Area{ID: 3, Title: "Active"}},
 		{Kind: search.KindArea, Area: &area.Area{ID: 20, Title: "Cabin", ArchivedAt: &archivedAt}},
 	}
-	result := runSearchCommand(t, &fakeSearchApplication{result: hits}, "search", "fix*")
+	application := &fakeSearchApplication{result: hits}
+	result := runSearchCommand(t, application, "search", "fix*")
+	relatedApplication := &fakeSearchApplication{result: hits}
+	relatedResult := runSearchCommand(t, relatedApplication, "search", "fix*", "--related")
 
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want human success", result)
+	}
+	if application.calls != 1 || application.expression != "fix*" || application.related {
+		t.Errorf("direct Search() call = %d/%q/%t, want one exact expression with related false", application.calls, application.expression, application.related)
+	}
+	if relatedApplication.calls != 1 || relatedApplication.expression != "fix*" || !relatedApplication.related {
+		t.Errorf("related Search() call = %d/%q/%t, want one exact expression with related true", relatedApplication.calls, relatedApplication.expression, relatedApplication.related)
+	}
+	if relatedResult != result {
+		t.Errorf("related result = %#v, want direct human result %#v", relatedResult, result)
 	}
 	lines := strings.Split(strings.TrimSuffix(result.stdout, "\n"), "\n")
 	wantFields := []string{

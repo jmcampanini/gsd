@@ -9,7 +9,7 @@ acceptance boundary. Both artifacts are retired at consolidation.
 ## Progress
 
 - [x] Chunk 1 — Direct search
-- [ ] Chunk 2 — Related search
+- [x] Chunk 2 — Related search
 
 There is no chunk 0: the Milestone 7 foundation review scheduled no
 findings.
@@ -173,11 +173,11 @@ Human outcome: `--related` widens the same search through project, area,
 and tag context — "Fix sink" surfaces for `plumb*` because of where it
 lives and how its containers are tagged.
 
-- [ ] Service and store: thread a `related` mode flag through
+- [x] Service and store: thread a `related` mode flag through
       `Search`; related mode matches all four columns unfiltered so
       context-only hits join the results below direct hits.
-- [ ] cmd: `--related` flag wiring; output shapes unchanged.
-- [ ] Test owners — store tests own related semantics: the context
+- [x] cmd: `--related` flag wiring; output shapes unchanged.
+- [x] Test owners — store tests own related semantics: the context
       pull-out matrix (member task surfaces via project title, project
       tag, area title, and area tag; project surfaces via area title
       and tag), context-only hits ranked below direct hits, direct mode
@@ -185,7 +185,7 @@ lives and how its containers are tagged.
       project or tag, re-search: reflected immediately with no
       persisted state to go stale). Service tests own mode passthrough.
       cmd tests own flag wiring and envelope stability across modes.
-- [ ] Human proof (demo `.sandbox/demos/milestone-8-chunk-2.html`),
+- [x] Human proof (demo `.sandbox/demos/milestone-8-chunk-2.html`),
       against the chunk 1 seed. Slides:
       1. `gsd search "plumb*"` then `gsd search "plumb*" --related` —
          tasks 3 and 4 join below the direct hits, explained by their
@@ -200,7 +200,7 @@ lives and how its containers are tagged.
       5. `gsd search "plumb*" --related` after the rename — tasks 3
          and 4 no longer surface through the old project title: context
          derives live.
-- [ ] Agent verification: `make check` green; the pull-out matrix,
+- [x] Agent verification: `make check` green; the pull-out matrix,
       mode contrast, and rename-freshness workflow exercised via the
       built binary.
 

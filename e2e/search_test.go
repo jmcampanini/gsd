@@ -14,7 +14,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/apperr"
 )
 
-func TestDirectSearchAcrossBinaryInvocations(t *testing.T) {
+func TestDirectAndRelatedSearchAcrossBinaryInvocations(t *testing.T) {
 	databasePath := filepath.Join(workDir, "search", "gsd.db")
 	runJSON := func(args ...string) processResult {
 		return runGSD(t, append(args, "--db", databasePath, "--json")...)
@@ -75,6 +75,15 @@ func TestDirectSearchAcrossBinaryInvocations(t *testing.T) {
 		t.Errorf("direct prefix hits = %#v, want project members excluded when only their context matches", prefix)
 	}
 
+	relatedPrefix := decodeSearchHits(t, runJSON("search", "plumb*", "--related"))
+	assertSearchTitles(t, relatedPrefix, "Bathroom plumbing", "Call plumber", "Fix sink", "Order tiles")
+	assertSearchTitleGroupsOrdered(
+		t,
+		relatedPrefix,
+		[]string{"Bathroom plumbing", "Call plumber"},
+		[]string{"Fix sink", "Order tiles"},
+	)
+
 	phrase := decodeSearchHits(t, runJSON("search", `"Bathroom plumbing"`))
 	assertSearchTitles(t, phrase, "Bathroom plumbing")
 
@@ -83,6 +92,32 @@ func TestDirectSearchAcrossBinaryInvocations(t *testing.T) {
 
 	directContext := decodeSearchHits(t, runJSON("search", "Home"))
 	assertSearchTitles(t, directContext, "Home")
+
+	projectTagContext := decodeSearchHits(t, runJSON("search", "reno", "--related"))
+	assertSearchTitles(t, projectTagContext, "Bathroom plumbing", "Fix sink", "Order tiles")
+
+	areaTitleContext := decodeSearchHits(t, runJSON("search", "Home", "--related"))
+	assertSearchTitles(
+		t,
+		areaTitleContext,
+		"Home",
+		"Bathroom plumbing",
+		"Buy pipe wrench",
+		"Fix sink",
+		"Order tiles",
+	)
+
+	areaTagContext := decodeSearchHits(t, runJSON("search", "house", "--related"))
+	assertSearchTitles(
+		t,
+		areaTagContext,
+		"Home",
+		"Cabin",
+		"Bathroom plumbing",
+		"Buy pipe wrench",
+		"Fix sink",
+		"Order tiles",
+	)
 
 	ranked := decodeSearchHits(t, runJSON("search", "beacon"))
 	if got, want := searchTitles(ranked), []string{"Beacon command", "Reference guide", "Read manual"}; !reflect.DeepEqual(got, want) {
@@ -132,6 +167,21 @@ func TestDirectSearchAcrossBinaryInvocations(t *testing.T) {
 			t.Errorf("human search = %q, want fragment %q", normalizedHuman, fragment)
 		}
 	}
+
+	bathroom = decodeProject(t, runJSON(
+		"project", "edit", fmt.Sprint(bathroom.ID), "--title", "Bath remodel",
+	))
+	freshProjectContext := decodeSearchHits(t, runJSON("search", "remodel", "--related"))
+	assertSearchTitles(t, freshProjectContext, "Bath remodel", "Fix sink", "Order tiles")
+	assertSearchTitles(t, decodeSearchHits(t, runJSON("search", "plumb*", "--related")), "Call plumber")
+
+	renamedReno := decodeTagRow(t, runJSON("tags", "rename", "reno", "restoration"))
+	if renamedReno.Title != "restoration" {
+		t.Errorf("renamed search seed tag = %#v, want restoration", renamedReno)
+	}
+	freshTagContext := decodeSearchHits(t, runJSON("search", "restoration", "--related"))
+	assertSearchTitles(t, freshTagContext, "Bath remodel", "Fix sink", "Order tiles")
+	assertSearchTitles(t, decodeSearchHits(t, runJSON("search", "reno", "--related")))
 
 	emptyHuman := runGSD(t, "search", "definitelyabsenttoken", "--db", databasePath)
 	if emptyHuman.exitCode != 0 || emptyHuman.stdout != "" || emptyHuman.stderr != "" {
@@ -207,6 +257,26 @@ func searchTitles(hits []searchJSONHit) []string {
 		_ = json.Unmarshal(hit["title"], &titles[index])
 	}
 	return titles
+}
+
+func assertSearchTitleGroupsOrdered(t *testing.T, hits []searchJSONHit, direct, related []string) {
+	t.Helper()
+	positions := make(map[string]int, len(hits))
+	for index, title := range searchTitles(hits) {
+		positions[title] = index
+	}
+	for _, directTitle := range direct {
+		for _, relatedTitle := range related {
+			if positions[directTitle] >= positions[relatedTitle] {
+				t.Errorf(
+					"search titles = %#v, want direct hit %q before context-only hit %q",
+					searchTitles(hits),
+					directTitle,
+					relatedTitle,
+				)
+			}
+		}
+	}
 }
 
 func searchHasID(hits []searchJSONHit, kind string, id int64) bool {

@@ -37,18 +37,18 @@ INSERT INTO task_tags (task_id, tag_id) VALUES (3, 3);
 	}
 
 	store := NewSearch(storage)
-	assertSearchIdentitySet(t, store, ctx, "plumb*", []searchIdentity{
+	assertSearchIdentitySet(t, store, ctx, "plumb*", false, []searchIdentity{
 		{kind: search.KindProject, id: 1},
 		{kind: search.KindTask, id: 3},
 	})
-	assertSearchIdentitySet(t, store, ctx, `"project memo"`, []searchIdentity{{kind: search.KindProject, id: 1}})
-	assertSearchIdentitySet(t, store, ctx, "errand*", []searchIdentity{{kind: search.KindTask, id: 3}})
-	assertSearchIdentitySet(t, store, ctx, "retreat OR supply", []searchIdentity{
+	assertSearchIdentitySet(t, store, ctx, `"project memo"`, false, []searchIdentity{{kind: search.KindProject, id: 1}})
+	assertSearchIdentitySet(t, store, ctx, "errand*", false, []searchIdentity{{kind: search.KindTask, id: 3}})
+	assertSearchIdentitySet(t, store, ctx, "retreat OR supply", false, []searchIdentity{
 		{kind: search.KindTask, id: 2},
 		{kind: search.KindArea, id: 2},
 	})
 
-	hits, err := store.Search(ctx, "reno")
+	hits, err := store.Search(ctx, "reno", false)
 	if err != nil {
 		t.Fatalf("Search(reno) error = %v", err)
 	}
@@ -75,7 +75,7 @@ INSERT INTO task_tags (task_id, tag_id) VALUES (3, 3);
 		t.Errorf("hydrated area hit = %#v, want complete archived row and tags", areaHit)
 	}
 
-	taskHits, err := store.Search(ctx, "sink")
+	taskHits, err := store.Search(ctx, "sink", false)
 	if err != nil {
 		t.Fatalf("Search(sink) error = %v", err)
 	}
@@ -86,7 +86,7 @@ INSERT INTO task_tags (task_id, tag_id) VALUES (3, 3);
 		t.Errorf("hydrated task hit = %#v, want complete row and both context titles", taskHits)
 	}
 
-	assertSearchIdentitySet(t, store, ctx, "house", []searchIdentity{{kind: search.KindArea, id: 1}})
+	assertSearchIdentitySet(t, store, ctx, "house", false, []searchIdentity{{kind: search.KindArea, id: 1}})
 }
 
 func TestSearchDocumentAssemblyIncludesInheritedTitlesAndTags(t *testing.T) {
@@ -153,8 +153,118 @@ INSERT INTO project_tags (project_id, tag_id) VALUES (1, 2), (1, 3);
 		t.Errorf("assembled contexts = %#v, want %#v", got, want)
 	}
 
-	assertSearchIdentities(t, NewSearch(storage), ctx, `"alpha reno"`, []searchIdentity{
+	assertSearchIdentities(t, NewSearch(storage), ctx, `"alpha reno"`, false, []searchIdentity{
 		{kind: search.KindProject, id: 1},
+	})
+}
+
+func TestSearchRelatedPullsMembersFromContainerTitlesAndTagsWhileDirectDoesNot(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	if _, err := storage.database.ExecContext(ctx, `
+INSERT INTO areas (id, title, position) VALUES (1, 'Homestead', 0);
+INSERT INTO projects (id, area_id, title, position) VALUES (1, 1, 'Bathroom plumbing', 0);
+INSERT INTO tasks (id, project_id, title, position) VALUES (1, 1, 'Fix sink', 0);
+INSERT INTO tags (id, title) VALUES (1, 'dwelling'), (2, 'renovation');
+INSERT INTO area_tags (area_id, tag_id) VALUES (1, 1);
+INSERT INTO project_tags (project_id, tag_id) VALUES (1, 2);
+`); err != nil {
+		t.Fatalf("seed related search contexts: %v", err)
+	}
+
+	store := NewSearch(storage)
+	for _, test := range []struct {
+		expression  string
+		directWant  []searchIdentity
+		relatedWant []searchIdentity
+	}{
+		{
+			expression:  "plumbing",
+			directWant:  []searchIdentity{{kind: search.KindProject, id: 1}},
+			relatedWant: []searchIdentity{{kind: search.KindProject, id: 1}, {kind: search.KindTask, id: 1}},
+		},
+		{
+			expression:  "renovation",
+			directWant:  []searchIdentity{{kind: search.KindProject, id: 1}},
+			relatedWant: []searchIdentity{{kind: search.KindProject, id: 1}, {kind: search.KindTask, id: 1}},
+		},
+		{
+			expression:  "homestead",
+			directWant:  []searchIdentity{{kind: search.KindArea, id: 1}},
+			relatedWant: []searchIdentity{{kind: search.KindArea, id: 1}, {kind: search.KindProject, id: 1}, {kind: search.KindTask, id: 1}},
+		},
+		{
+			expression:  "dwelling",
+			directWant:  []searchIdentity{{kind: search.KindArea, id: 1}},
+			relatedWant: []searchIdentity{{kind: search.KindArea, id: 1}, {kind: search.KindProject, id: 1}, {kind: search.KindTask, id: 1}},
+		},
+	} {
+		t.Run(test.expression, func(t *testing.T) {
+			assertSearchIdentitySet(t, store, ctx, test.expression, false, test.directWant)
+			assertSearchIdentitySet(t, store, ctx, test.expression, true, test.relatedWant)
+		})
+	}
+}
+
+func TestSearchRelatedOrdersContextOnlyHitsBelowDirectHits(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	if _, err := storage.database.ExecContext(ctx, `
+INSERT INTO projects (id, title, position) VALUES (1, 'signal', 0);
+INSERT INTO tasks (id, project_id, title, position) VALUES (1, 1, 'neutral', 0);
+`); err != nil {
+		t.Fatalf("seed related search ranking: %v", err)
+	}
+
+	assertSearchIdentities(t, NewSearch(storage), ctx, "signal", true, []searchIdentity{
+		{kind: search.KindProject, id: 1},
+		{kind: search.KindTask, id: 1},
+	})
+}
+
+func TestSearchRelatedReflectsContainerAndTagRenamesImmediately(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	if _, err := storage.database.ExecContext(ctx, `
+INSERT INTO areas (id, title, position) VALUES (1, 'Home', 0);
+INSERT INTO projects (id, area_id, title, position) VALUES (1, 1, 'Legacy plumbing', 0);
+INSERT INTO tasks (id, project_id, title, position) VALUES (1, 1, 'Fix sink', 0);
+INSERT INTO tags (id, title) VALUES (1, 'legacytopic');
+INSERT INTO area_tags (area_id, tag_id) VALUES (1, 1);
+`); err != nil {
+		t.Fatalf("seed rename freshness contexts: %v", err)
+	}
+
+	store := NewSearch(storage)
+	assertSearchIdentitySet(t, store, ctx, "legacy", true, []searchIdentity{
+		{kind: search.KindProject, id: 1},
+		{kind: search.KindTask, id: 1},
+	})
+	if _, err := storage.database.ExecContext(ctx, "UPDATE projects SET title = 'Current remodel' WHERE id = 1"); err != nil {
+		t.Fatalf("rename project: %v", err)
+	}
+	assertSearchIdentities(t, store, ctx, "legacy", true, []searchIdentity{})
+	assertSearchIdentitySet(t, store, ctx, "remodel", true, []searchIdentity{
+		{kind: search.KindProject, id: 1},
+		{kind: search.KindTask, id: 1},
+	})
+
+	assertSearchIdentitySet(t, store, ctx, "legacytopic", true, []searchIdentity{
+		{kind: search.KindArea, id: 1},
+		{kind: search.KindProject, id: 1},
+		{kind: search.KindTask, id: 1},
+	})
+	if _, err := storage.database.ExecContext(ctx, "UPDATE tags SET title = 'currenttopic' WHERE id = 1"); err != nil {
+		t.Fatalf("rename tag: %v", err)
+	}
+	assertSearchIdentities(t, store, ctx, "legacytopic", true, []searchIdentity{})
+	assertSearchIdentitySet(t, store, ctx, "currenttopic", true, []searchIdentity{
+		{kind: search.KindArea, id: 1},
+		{kind: search.KindProject, id: 1},
+		{kind: search.KindTask, id: 1},
 	})
 }
 
@@ -178,12 +288,12 @@ INSERT INTO task_tags (task_id, tag_id) VALUES (2, 1);
 	}
 
 	store := NewSearch(storage)
-	assertSearchIdentities(t, store, ctx, "signal", []searchIdentity{
+	assertSearchIdentities(t, store, ctx, "signal", false, []searchIdentity{
 		{kind: search.KindTask, id: 1},
 		{kind: search.KindTask, id: 2},
 		{kind: search.KindTask, id: 3},
 	})
-	assertSearchIdentities(t, store, ctx, "equal", []searchIdentity{
+	assertSearchIdentities(t, store, ctx, "equal", false, []searchIdentity{
 		{kind: search.KindTask, id: 4},
 		{kind: search.KindTask, id: 10},
 		{kind: search.KindProject, id: 8},
@@ -206,7 +316,7 @@ SELECT id, 'batchtoken', id - 1 FROM ids
 		t.Fatalf("seed batched search documents: %v", err)
 	}
 
-	hits, err := NewSearch(storage).Search(ctx, "batchtoken")
+	hits, err := NewSearch(storage).Search(ctx, "batchtoken", false)
 	if err != nil {
 		t.Fatalf("Search(batchtoken) error = %v", err)
 	}
@@ -236,7 +346,7 @@ func TestSearchMapsMalformedFTSExpressionAndCleansTemporaryIndex(t *testing.T) {
 		{expression: `"unterminated`, detail: "unterminated string"},
 		{expression: "in:home", detail: "no such column: in"},
 	} {
-		_, err := store.Search(ctx, test.expression)
+		_, err := store.Search(ctx, test.expression, false)
 		if code, _ := apperr.CodeOf(err); code != apperr.InvalidArgument {
 			t.Errorf("Search(%q) error = %v, want invalid_argument", test.expression, err)
 		}
@@ -247,7 +357,7 @@ func TestSearchMapsMalformedFTSExpressionAndCleansTemporaryIndex(t *testing.T) {
 	}
 
 	for attempt := range 2 {
-		hits, searchErr := store.Search(ctx, "plumb*")
+		hits, searchErr := store.Search(ctx, "plumb*", false)
 		if searchErr != nil {
 			t.Fatalf("Search(valid attempt %d) error = %v", attempt, searchErr)
 		}
@@ -262,7 +372,7 @@ func TestSearchEmptyResultIsNonNilAndLeavesNoPersistentSchema(t *testing.T) {
 	t.Parallel()
 
 	ctx, storage := openTestStorage(t)
-	hits, err := NewSearch(storage).Search(ctx, "absent")
+	hits, err := NewSearch(storage).Search(ctx, "absent", false)
 	if err != nil {
 		t.Fatalf("Search(absent) error = %v", err)
 	}
@@ -285,10 +395,11 @@ func assertSearchIdentitySet(
 	store *Search,
 	ctx context.Context,
 	expression string,
+	related bool,
 	want []searchIdentity,
 ) {
 	t.Helper()
-	hits, err := store.Search(ctx, expression)
+	hits, err := store.Search(ctx, expression, related)
 	if err != nil {
 		t.Fatalf("Search(%q) error = %v", expression, err)
 	}
@@ -324,10 +435,11 @@ func assertSearchIdentities(
 	store *Search,
 	ctx context.Context,
 	expression string,
+	related bool,
 	want []searchIdentity,
 ) {
 	t.Helper()
-	hits, err := store.Search(ctx, expression)
+	hits, err := store.Search(ctx, expression, related)
 	if err != nil {
 		t.Fatalf("Search(%q) error = %v", expression, err)
 	}

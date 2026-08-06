@@ -82,9 +82,9 @@ func marshalHit(value any) ([]byte, error) {
 }
 
 type Store interface {
-	Search(context.Context, string) ([]Hit, error)
+	Search(context.Context, string, bool) ([]Hit, error)
 }
 
 type Application interface {
-	Search(context.Context, string) ([]Hit, error)
+	Search(context.Context, string, bool) ([]Hit, error)
 }
