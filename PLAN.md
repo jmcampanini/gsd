@@ -8,7 +8,7 @@ acceptance boundary. Both artifacts are retired at consolidation.
 
 ## Progress
 
-- [ ] Chunk 1 — Direct search
+- [x] Chunk 1 — Direct search
 - [ ] Chunk 2 — Related search
 
 There is no chunk 0: the Milestone 7 foundation review scheduled no
@@ -111,20 +111,20 @@ Human outcome: `gsd search "EXPR"` finds any task, project, or area by
 its own title, tags, or note — FTS5 syntax and all — ranked by
 relevance, across every status and archived areas.
 
-- [ ] `internal/search`: `Hit` (kind, entity row, context titles) and
+- [x] `internal/search`: `Hit` (kind, entity row, context titles) and
       `Service.Search(ctx, expression)` — expression nonblank/UTF-8
       validation with expression-worded `invalid_argument`, then
       delegate to the store.
-- [ ] `internal/store/search.go`: temp FTS5 index built per call from
+- [x] `internal/store/search.go`: temp FTS5 index built per call from
       the document-assembly statement (all four columns, inheritance
       computed live — context content lands now even though direct
       matching ignores it); direct column-filtered MATCH; weighted bm25
       ordering with kind/id tie-breaks; `fts5: syntax error` →
       `invalid_argument`; full tag-enriched entity rows fetched per kind
       and returned in match order with context titles.
-- [ ] cmd: `gsd search "EXPR"` command, kind-discriminated flattened
+- [x] cmd: `gsd search "EXPR"` command, kind-discriminated flattened
       JSON rows, human `kind, id, title, status, context` table.
-- [ ] Test owners — store tests on real temporary SQLite own the
+- [x] Test owners — store tests on real temporary SQLite own the
       semantics: document assembly per kind (own text and inherited
       context content, tag aggregation), match syntax passthrough
       (prefix, phrase, OR), ranking properties (title > tags > note;
@@ -135,7 +135,7 @@ relevance, across every status and archived areas.
       the JSON hit shape, the human table (context column, `archived`
       status, faint styling), stream routing, exit mapping, and empty
       output (`[]` / nothing).
-- [ ] Human proof (demo `.sandbox/demos/milestone-8-chunk-1.html`),
+- [x] Human proof (demo `.sandbox/demos/milestone-8-chunk-1.html`),
       against a fresh temp db seeded with:
       `gsd tags add house`; `gsd tags add reno`; `gsd tags add errands`;
       `gsd areas add "Home"` (area 1); `gsd area tag 1 house`;
@@ -160,9 +160,10 @@ relevance, across every status and archived areas.
          column;
       5. `gsd search "plumb* AND"` — malformed expression:
          `invalid_argument`, exit 1, no panic;
-      6. `gsd search "sink" --json` — the kind-discriminated complete
-         entity row.
-- [ ] Agent verification: `make check` green; the seeded searches,
+      JSON proof runs separately from the human-only deck:
+      `gsd search "sink" --json` — the kind-discriminated complete
+      entity row.
+- [x] Agent verification: `make check` green; the seeded searches,
       ranking property, error cases, and JSON shape exercised via the
       built binary.
 

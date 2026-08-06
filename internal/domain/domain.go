@@ -11,11 +11,15 @@ import (
 )
 
 func ValidateTitle(title string) error {
-	if !utf8.ValidString(title) {
-		return apperr.New(apperr.InvalidArgument, "title must be valid UTF-8", nil)
+	return ValidateRequiredText("title", title)
+}
+
+func ValidateRequiredText(field, value string) error {
+	if !utf8.ValidString(value) {
+		return apperr.New(apperr.InvalidArgument, field+" must be valid UTF-8", nil)
 	}
-	if strings.TrimSpace(title) == "" {
-		return apperr.New(apperr.InvalidArgument, "title must not be blank", nil)
+	if strings.TrimSpace(value) == "" {
+		return apperr.New(apperr.InvalidArgument, field+" must not be blank", nil)
 	}
 
 	return nil
