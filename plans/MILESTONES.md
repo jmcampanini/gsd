@@ -152,8 +152,9 @@ explorations, deliberately unnumbered.
 - 2026-08-02, Milestone 5 foundation review: Go live moved to the end of
   the roadmap (Config → Reorder → Search → Query → Go live) so the
   complete written-down v1 surface is demonstrated on throwaway data
-  before real data enters. The go-live baseline therefore includes the
-  FTS schema, and v1 ships no live migrations.
+  before real data enters. The search index is virtual — built per
+  invocation, nothing persists — so v1 ships no live migrations, now
+  vacuously.
 - Same review: entity `tags` arrays become alphabetical (`NOCASE`),
   matching `tags list` — specified in the canonical docs now, shipped by
   Milestone 6 chunk 0, which also consolidates the review's structural

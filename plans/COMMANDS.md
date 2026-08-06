@@ -101,14 +101,23 @@ gsd tags delete NAME        # detaches from everything
 ## Search and query
 
 ```
-gsd search "EXPR" [--project N] [--area N] [--tag NAME] [--status ...]
+gsd search "EXPR" [--related]
 gsd query "SELECT ..."      # or "-" to read SQL from stdin
 ```
 
 - `search` passes `EXPR` through FTS5 match syntax (`plumb*`, `"exact
-  phrase"`, `a OR b`) over titles and notes, all entity kinds, and
-  composes with the `list` filter flags. The FTS index is internal — not
-  part of the query contract in v1.
+  phrase"`, `a OR b`) over the title, tags, and note of every task,
+  project, and area — all statuses, archived areas included. `--related`
+  widens the same search through inherited context (a container's title
+  and tags), ranking every direct match above every context-only match;
+  within a tier, relevance orders results, with ties broken by kind
+  (task, project, area) then id. A blank or malformed expression is
+  `invalid_argument`. Human rows show kind, id, title, status, and the
+  container-title context path; `--json` is an array of
+  kind-discriminated complete entity rows in relevance order. The FTS
+  index is internal and virtual — built per invocation, nothing
+  persists, results always reflect current data — and not part of the
+  query contract in v1.
 - `query` runs on a read-only connection: SELECT-only by construction.
   Human output is an aligned table of the selected columns; `--json` is
   an array of row objects.
@@ -361,5 +370,5 @@ CLI, achieved structurally:
   the selected row: `a` add, `d` done, `x` cancel, `e` edit, `t` tag,
   `o` reopen, `D` delete (with confirm). Reordering is grab-and-move on
   the selection. Keys are shorthand for verbs, never a second vocabulary.
-- **`/` is incremental search** over the same FTS index as `gsd search`,
+- **`/` is incremental search** with the same semantics as `gsd search`,
   filtering the current view live.
