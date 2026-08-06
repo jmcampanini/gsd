@@ -1,170 +1,109 @@
-# Milestone 10 — Go live
+# Milestone 10 — Capture
 
-Data mode: **live from here on**. Depends on: Milestone 8.
+Data mode: **live**. Depends on: Milestone 9 (live baseline).
+
+Written ahead of Milestone 9 landing; re-review at plan gate.
 
 ## Capability
 
-gsd stops being a project and becomes the system of record: schema
-migrations make the database durable, the install story makes the binary a
-resident of the machine, and an agent-driven import moves real data in.
-Exit condition is not a feature — it's "Javier lives in gsd."
+`gsd capture` is the first charm surface: a popup-sized single-input
+program that turns typed text into an inbox task and vanishes — built to
+live inside `tmux display-popup`. It is deliberately the thinnest
+vertical slice through everything the TUI will stand on, so this
+milestone's real deliverable is the reviewed substrate: the Bubble Tea
+v2 embedding, the program lifecycle from a cobra command through the
+injected factory, the theme bridge onto the settled visual system, and
+the test seams. Milestones 11–13 build on that foundation only after it
+has been consolidated and foundation-reviewed here.
 
 ## Scope
 
-### Migration runner
+### Command
 
-- Numbered, embedded SQL migrations; `PRAGMA user_version` tracks the
-  applied revision; applied automatically on open, each migration in its
-  own transaction.
-- `0001_baseline.sql` = the accumulated throwaway schema through Search
-  — tags, the alphabetical tag-array ordering — verbatim from the
-  schema-convergence audit (i.e., `SCHEMA.md`; the FTS index is virtual
-  and persists nothing). v1 ships no live migrations; the runner exists
-  for everything after.
-- A database newer than the binary (`user_version` > known max, below
-  the dev-only range) is a fail-loud error ("gsd is older than this
-  database").
-- Pre-baseline throwaway dbs are refused by name: their `user_version`
-  sits in the dev-only range (`9000 + roadmap milestone number`), which can
-  never collide with migration numbers, and the runner answers it with the
-  delete-your-dev-db message. They hold throwaway data by declaration.
-- From here, every schema change ships as a new migration file, and
-  `SCHEMA.md`'s stability contract is in force: columns/tables are
-  add-only, views only gain columns.
+```text
+gsd capture
+```
 
-### Install story
+- One text field. A non-empty title plus Enter creates an open task with
+  exactly `gsd add TITLE` semantics — no other fields — then exits `0`
+  with no output; the popup just vanishes. Esc exits `0` without
+  writing. Enter on an empty field is a no-op (**proposed**).
+- Interactive-only: `capture` requires a terminal and takes no
+  arguments; `--json` is a usage error, like `config`. Non-TTY
+  invocation is a usage error (**proposed**).
+- The full config chain applies (`--config`, `--db`, `GSD_DB`, TOML,
+  defaults); the database opens through the injected factory only when
+  the program starts — help and parse failures never touch it.
+- A failed write renders its application error inline, styled with the
+  shared accents; the program then exits `1` on dismiss (**proposed**).
+- Keyboard-only; no mouse.
 
-- Homebrew HEAD-only formula: shipped early (2026-08-06, PR #53) —
-  `Formula/gsd.rb` with commit-derived version stamping, generated
-  shell completions, a noninteractive functional test
-  (CLI-RELEASE-003), and self-tap install/upgrade instructions in the
-  README.
-- README rewritten as landing page: purpose, `--HEAD` install/upgrade,
-  representative commands, config discovery (CLI-DOCS-001/002).
-- Shell completion documented — generation already ships with the
-  formula, and gsd now has the interactive command surface that
-  warrants it (CLI-CMD-005).
+### Substrate
 
-### Import (no gsd code)
-
-- Export data from the current tool (format: whatever it exports —
-  decided at import time).
-- A Claude session drives the installed `gsd` binary: `tags add` →
-  `areas add` → `projects add` → `add`, wiring IDs from `--json` echoes,
-  setting defer/due dates and tags as they were.
-- The agent then verifies: entity counts by kind match the export, spot
-  checks on titles/notes/dates/tags, `available`/`inbox` look right.
-- Transcript and count summary saved to `.sandbox/import/` and linked
-  from the PR that closes the milestone.
+- `charm.land/bubbletea/v2` (plus `bubbles/v2` where a stock component
+  fits) joins the existing charm.land v2 line — lipgloss v2 and the
+  ultraviolet renderer are already in the tree.
+- A new `internal/tui` package owns presentation: program construction
+  from a cobra command (streams, terminal handling, alt-screen policy),
+  model code consuming the `Application` interfaces (capture needs
+  `task.Application` only), and a theme bridge reusing the
+  background-adaptive Catppuccin accents and per-stream color rules
+  (CLI-OUTPUT-001; `NO_COLOR` honored).
+- cmd stays adapter-thin per `AGENTS.md`: the command adapts flags and
+  streams and hands the factory's applications to the program.
+- Test ownership: model behavior (input, submit, cancel, error render)
+  with fake applications; command-layer wiring and guard tests in
+  `cmd`; a subprocess e2e proving a real popup write persists across
+  invocations.
 
 ## Chunks
 
-1. **Migration runner** — runner + baseline + newer-db guard + tests
-   (fresh db, sequential apply, mid-migration failure rolls back, future
-   version refused).
-2. **Install story** — README landing page and completion docs on top
-   of the already-shipped formula; `brew install --HEAD` from the real
-   tap verified on this machine.
-3. **Import session** — no code: the agent-driven import itself,
-   run against the real config-file-pinned database.
-
-## Carried from Milestone 8
-
-The Milestone 8 foundation review's fix-now findings were resolved in
-its wrap-up; there is no chunk 0 work. The deliberately deferred items
-carry forward with their revisit triggers:
-
-- **Config report generalization** — on config key #2 (`[serve] addr`,
-  arriving in Milestone 11): add source classification and tag-derived
-  env/flag spellings to go-config-loader's `configreporter` so gsd's
-  renderer becomes a generic provenance-row loop like the sibling CLIs,
-  and revisit the reporting/redaction contract at the same moment. No
-  load-request struct — positional load parameters are the family
-  idiom.
-- **Genericizing the intentionally-parallel tag service flows** —
-  carried from Milestone 6: revisit on the first sibling-divergence bug
-  or a post-v1 attach-semantics change.
-- **Typed transition spec for `applyTransition`** — carried from
-  Milestone 6: revisit if post-v1 work adds transitions.
-- **`search.Hit` constructors and accessors** — the hand-rolled sum
-  type's invariant (exactly one entity pointer, matching `Kind`) is
-  enforced at its consumers: revisit on the first new `Hit` consumer or
-  producer, expected at the TUI milestones.
-- **Entity-plus-container-titles projection consolidation** — logbook
-  entries, task views, and search hits each assemble container-title
-  context concretely in parallel, per convention: revisit on the fourth
-  projection or the first context-inconsistency bug between surfaces.
-- **In-expression scoping operators** (`in:`, `is:`, `~stem`/trigram
-  markers) — parked: revisit when unfiltered search proves too broad in
-  daily use; the spellings are reserved by FTS5 rejection today, and
-  the virtual index makes alternate tokenizers a per-invocation swap.
-- **Embeddings / semantic search** — parked, post-v1: revisit if
-  tag-based topical search (`--related`) proves insufficient in daily
-  use; the realistic path is an optional local-encoder sidecar fused
-  with FTS, and nothing in Search forecloses it.
-- **bm25 weight tuning** — the 4/3/2/1 values are a starting point:
-  revisit after real-data use; tests pin ordering properties only, so a
-  retune is a one-line change.
+1. **Capture works** — dependency, program lifecycle, minimal input
+   model; Enter writes through `task.Add`, Esc cancels. Human proof: a
+   `tmux display-popup` capture lands in `gsd inbox`.
+2. **Capture contract** — theme bridge styling, empty-input and
+   write-error handling, TTY/`--json` guards, subprocess e2e, and the
+   tmux-driven agent workflow.
 
 ## User stories
 
-### gsd is installed like software, not run like a script
+### Capture from anywhere
 
 ```text
-$ brew install jmcampanini/gsd/gsd --HEAD
-$ gsd --version
-gsd version v0.0.0-89-gdeadbee
+$ tmux display-popup -w 64 -h 3 -E 'gsd capture'
+> Call plumber█
+$ gsd inbox
+  4  Call plumber
 ```
 
-### Your actual life is in it
+### Cancel is free
 
 ```text
-$ gsd areas list
-  1  Home
-  2  Work
-$ gsd available
-  ... the real things you could actually do today ...
-```
-
-### Your data survives upgrades by design
-
-```text
-$ brew upgrade --fetch-HEAD gsd    # after any future milestone
-$ gsd inbox                        # migrations applied silently; data intact
+$ tmux display-popup -w 64 -h 3 -E 'gsd capture'   # Esc
+$ gsd inbox
+  4  Call plumber                                   # unchanged
 ```
 
 ## Agent-verified end-to-end workflow
 
-1. Migration tests inside `make check` (fresh apply, idempotent reopen,
-   failure rollback, future-version refusal).
-2. `brew install --HEAD` from the tap; `gsd --version` reports commit
-   identity; formula's functional test passes.
-3. The import session itself — the largest agent-verified workflow yet:
-   every entity kind created through the public CLI, counts verified
-   against the source export.
-4. Post-import: `gsd available`, `inbox`, `logbook` each return sensible
-   real data (reviewed by Javier, not asserted by the agent).
+Against the real built binary and a temporary database, driving a
+popup-sized tmux pane with send-keys:
+
+1. Launch `gsd capture`, type a title, Enter; the program exits `0` and
+   `gsd inbox --json` shows the task with only the title set.
+2. Esc path: launch, type, Esc; exit `0`, no row added.
+3. Config chain: the capture lands in the database selected by `--db`
+   and by `GSD_DB`.
+4. Guards: `--json` and non-TTY invocation are usage errors, exit `2`;
+   help never opens the database.
 
 ## Exit criteria
 
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
-- [ ] **Functional completeness audit** (carried from the cancelled Query
-      milestone): every command and behavior `COMMANDS.md` promises
-      (excluding the forward-looking TUI section) is demonstrated by the
-      accumulated e2e and agent-verified workflows; each gap is fixed or
-      explicitly re-scoped before the import session runs.
-- [ ] The temporary `DIVERGENCES.md` intake is empty after a complete go-live
-      audit; canonical specs describe the shipped system exactly.
-- [ ] Old tool demoted: no longer the capture target (kept read-only or
-      retired — Javier's call, recorded here when made).
-- [ ] One week of real use with no data-integrity incident before v1 is
-      declared closed.
-- [ ] v1 retrospective: remaining wishes filed as post-v1 candidates
-      (TUI, recurrence, Today — see `OVERVIEW.md` § "Deferred to v2+"),
-      map closed out.
+- [ ] `COMMANDS.md` documents `capture` as a shipped command.
 
 ## Standards
 
-CLI-CMD-005, CLI-RELEASE-001/002/003, CLI-DOCS-001/002/003,
-CLI-QUALITY-001.
+CLI-CMD-002/003, CLI-OUTPUT-001/003; TUI-applicable standards re-checked
+at plan gate.
