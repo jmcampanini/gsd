@@ -45,11 +45,14 @@ file's lightly-written implementation sketch at its declared plan gate.
   tags; for an area, nothing. Default (direct) search column-filters to
   `{title tags note}`; `--related` matches all four columns, pulling in
   contextual hits ranked below direct ones.
-- **Results are relevance-ordered**: weighted `bm25` (title 4, tags 3,
-  note 2, context 1), ties broken by kind (task, project, area), then
-  `id` ascending. The weights are internal and tunable; tests assert
-  ordering properties ("a title hit outranks a context-only hit"), never
-  scores. Tokenizer is FTS5's default `unicode61`, no stemming — prefix
+- **Results are direct-tiered, then relevance-ordered.** Related mode
+  places every direct match above every context-only match; context may
+  still reorder direct hits within their tier. Each tier uses weighted
+  `bm25` (title 4, tags 3, note 2, context 1), with ties broken by kind
+  (task, project, area), then `id` ascending. The weights are internal
+  and tunable; tests assert ordering properties ("a title hit outranks a
+  context-only hit"), never scores. Tokenizer is FTS5's default
+  `unicode61`, no stemming — prefix
   syntax (`plumb*`) is the recall idiom, and the virtual index makes a
   future stemmed or trigram variant a per-invocation swap.
 - **Error package.** A blank or whitespace expression is
@@ -91,11 +94,12 @@ file's lightly-written implementation sketch at its declared plan gate.
   drops it. The pool is capped at one connection, so the temp schema is
   stable within an invocation and vanishes at process exit.
 - **Query shape**: direct mode wraps the user expression as
-  `{title tags note} : (EXPR)`; related mode passes `EXPR` unfiltered.
-  Both order by
-  `bm25(search_index, 0, 0, 4.0, 3.0, 2.0, 1.0)`, then the kind CASE,
-  then `entity_id`. The store then fetches complete tag-enriched entity
-  rows per kind (reusing the existing column lists and row scanners) and
+  `{title tags note} : (EXPR)`; related mode passes `EXPR` unfiltered and
+  leads its ordering with membership in that direct expression, so
+  context-only hits form the second tier. Both then order by
+  `bm25(search_index, 0, 0, 4.0, 3.0, 2.0, 1.0)`, the kind CASE, and
+  `entity_id`. The store then fetches complete tag-enriched entity rows
+  per kind (reusing the existing column lists and row scanners) and
   reassembles them in match order.
 - **cmd surface**: top-level `gsd search "EXPR"` with
   `cobra.ExactArgs(1)` and a `--related` boolean flag. Help, version, and

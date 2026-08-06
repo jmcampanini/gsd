@@ -207,21 +207,58 @@ INSERT INTO project_tags (project_id, tag_id) VALUES (1, 2);
 	}
 }
 
-func TestSearchRelatedOrdersContextOnlyHitsBelowDirectHits(t *testing.T) {
+func TestSearchRelatedKeepsLongDirectTitleHitAboveShortContextOnlyHit(t *testing.T) {
 	t.Parallel()
 
 	ctx, storage := openTestStorage(t)
 	if _, err := storage.database.ExecContext(ctx, `
-INSERT INTO projects (id, title, position) VALUES (1, 'signal', 0);
-INSERT INTO tasks (id, project_id, title, position) VALUES (1, 1, 'neutral', 0);
-`); err != nil {
+INSERT INTO projects (id, title, position) VALUES (1, 'Plumbing depot', 0);
+INSERT INTO tasks (id, project_id, title, position) VALUES (1, 1, 'Quick check', 0);
+INSERT INTO tasks (id, title, note, position)
+VALUES (2, 'Plumbing inspection', ?, 0);
+WITH RECURSIVE ids(id) AS (
+    VALUES (3)
+    UNION ALL
+    SELECT id + 1 FROM ids WHERE id < 12
+)
+INSERT INTO tasks (id, title, position)
+SELECT id, 'neutral', id - 2 FROM ids;
+`, strings.Repeat("filler ", 50)); err != nil {
 		t.Fatalf("seed related search ranking: %v", err)
 	}
 
-	assertSearchIdentities(t, NewSearch(storage), ctx, "signal", true, []searchIdentity{
+	hits, err := NewSearch(storage).Search(ctx, "plumbing", true)
+	if err != nil {
+		t.Fatalf("Search(plumbing) error = %v", err)
+	}
+	positions := make(map[searchIdentity]int, len(hits))
+	for index, hit := range hits {
+		identity := searchIdentity{kind: hit.Kind}
+		switch hit.Kind {
+		case search.KindTask:
+			identity.id = hit.Task.ID
+		case search.KindProject:
+			identity.id = hit.Project.ID
+		case search.KindArea:
+			identity.id = hit.Area.ID
+		}
+		positions[identity] = index
+	}
+
+	contextOnly := searchIdentity{kind: search.KindTask, id: 1}
+	contextPosition, ok := positions[contextOnly]
+	if !ok || len(hits) != 3 {
+		t.Fatalf("Search(plumbing) = %#v, want two direct hits and one context-only hit", hits)
+	}
+	for _, direct := range []searchIdentity{
 		{kind: search.KindProject, id: 1},
-		{kind: search.KindTask, id: 1},
-	})
+		{kind: search.KindTask, id: 2},
+	} {
+		directPosition, exists := positions[direct]
+		if !exists || directPosition >= contextPosition {
+			t.Errorf("Search(plumbing) positions = %#v, want direct hit %#v before context-only hit %#v", positions, direct, contextOnly)
+		}
+	}
 }
 
 func TestSearchRelatedReflectsContainerAndTagRenamesImmediately(t *testing.T) {
@@ -340,29 +377,32 @@ func TestSearchMapsMalformedFTSExpressionAndCleansTemporaryIndex(t *testing.T) {
 
 	for _, test := range []struct {
 		expression string
+		related    bool
 		detail     string
 	}{
 		{expression: "plumb* AND", detail: "fts5: syntax error"},
 		{expression: `"unterminated`, detail: "unterminated string"},
 		{expression: "in:home", detail: "no such column: in"},
+		{expression: "plumb* AND", related: true, detail: "fts5: syntax error"},
+		{expression: "in:home", related: true, detail: "no such column: in"},
 	} {
-		_, err := store.Search(ctx, test.expression, false)
+		_, err := store.Search(ctx, test.expression, test.related)
 		if code, _ := apperr.CodeOf(err); code != apperr.InvalidArgument {
-			t.Errorf("Search(%q) error = %v, want invalid_argument", test.expression, err)
+			t.Errorf("Search(%q, related=%t) error = %v, want invalid_argument", test.expression, test.related, err)
 		}
 		if err == nil || !strings.Contains(err.Error(), test.detail) {
-			t.Errorf("Search(%q) error = %q, want parser detail %q", test.expression, err, test.detail)
+			t.Errorf("Search(%q, related=%t) error = %q, want parser detail %q", test.expression, test.related, err, test.detail)
 		}
 		assertNoTemporarySearchIndex(t, storage)
 	}
 
-	for attempt := range 2 {
-		hits, searchErr := store.Search(ctx, "plumb*", false)
+	for attempt, related := range []bool{false, true} {
+		hits, searchErr := store.Search(ctx, "plumb*", related)
 		if searchErr != nil {
-			t.Fatalf("Search(valid attempt %d) error = %v", attempt, searchErr)
+			t.Fatalf("Search(valid attempt %d, related=%t) error = %v", attempt, related, searchErr)
 		}
 		if len(hits) != 1 || hits[0].Task == nil || hits[0].Task.Title != "plumber" {
-			t.Errorf("Search(valid attempt %d) = %#v, want plumber", attempt, hits)
+			t.Errorf("Search(valid attempt %d, related=%t) = %#v, want plumber", attempt, related, hits)
 		}
 		assertNoTemporarySearchIndex(t, storage)
 	}

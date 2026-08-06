@@ -133,18 +133,28 @@ func matchSearchIndex(
 	expression string,
 	related bool,
 ) ([]searchIdentity, error) {
-	matchExpression := expression
-	if !related {
-		matchExpression = "{title tags note} : (" + expression + ")"
+	directExpression := "{title tags note} : (" + expression + ")"
+	matchExpression := directExpression
+	directTierOrder := ""
+	arguments := []any{matchExpression}
+	if related {
+		matchExpression = expression
+		directTierOrder = `CASE WHEN rowid IN (
+             SELECT rowid
+             FROM search_index
+             WHERE search_index MATCH ?
+         ) THEN 0 ELSE 1 END,
+         `
+		arguments = []any{matchExpression, directExpression}
 	}
 	rows, err := connection.QueryContext(ctx, `
 SELECT kind, entity_id
 FROM search_index
 WHERE search_index MATCH ?
-ORDER BY bm25(search_index, 0.0, 0.0, 4.0, 3.0, 2.0, 1.0),
+ORDER BY `+directTierOrder+`bm25(search_index, 0.0, 0.0, 4.0, 3.0, 2.0, 1.0),
          CASE kind WHEN 'task' THEN 0 WHEN 'project' THEN 1 ELSE 2 END,
          CAST(entity_id AS INTEGER)
-`, matchExpression)
+`, arguments...)
 	if err != nil {
 		return nil, err
 	}
