@@ -1,56 +1,73 @@
-# Milestone 13 — Input grammar
+# Milestone 13 — Board view
 
-Data mode: **live**. Depends on: Milestone 12.
+Data mode: **live**. Depends on: Milestone 11 (boards), Milestone 12
+(navigation layer).
 
 Written light; re-review at plan gate.
 
 ## Capability
 
-Full parity, structurally: the CLI grammar arrives inside the TUI, and
-capture grows syntax. One grammar-execution engine serves the `:`
-command line, the edit/tag mnemonics, and capture's richer modes —
-parity is shared code, not discipline.
+The strategic TUI: one board full-screen, stages as columns, open
+projects as cards — the visual answer to "where is everything, and
+what deserves to move next?". Read-only by design: this milestone
+rides the navigation layer only, and in-TUI stage movement arrives
+with Milestone 14's mutation layer (its stage-movement chunk), where
+mutations belong. Until then the CLI's `move` is the pen; this view is
+the whiteboard.
 
 ## Scope
 
-- **`:` opens a command line** accepting the CLI grammar verbatim,
-  minus the binary name (`:projects add "Kitchen reno" --area 3`). It
-  calls the same parser and core; results and errors render through
-  Milestone 12's feedback surfaces.
-- **`e` edit and `t` tag** arrive as mnemonics that prefill the command
-  line for the selected row — verbs the single-key layer couldn't
-  express without a grammar.
-- **Inline capture syntax** (**proposed**: tag, date, and project
-  tokens on the title) shared between `gsd capture` and the TUI's `a`
-  quick add.
-- **Capture runner mode**: the popup accepts the CLI grammar and
-  executes it, riding the `:` engine.
-- Internal ordering of the capture-syntax and command-line chunks is
-  settled at plan gate.
+- **A fourth view type** beside root tree, container list, and
+  detail: full-screen, one board at a time, columns are the board's
+  stages in order, cards are open projects in position order with
+  their derived task progress. The no-panes paradigm holds — columns
+  are content within one view, not panes.
+- **Navigation**: left/right moves across columns, `j`/`k` across
+  cards; Enter on a card opens the uniform detail view; Esc returns.
+  Entered from the root tree's boards section (activating Milestone
+  12's proposed inert rows).
+- **Freshness** matches the TUI paradigm: load on entry, re-read on
+  re-entry, no polling.
+- Column overflow, empty-stage rendering, and whether `/` live filter
+  applies inside the board view are settled at plan gate
+  (**proposed**: `/` filters cards, columns stay fixed).
 
 ## Chunks
 
-1. **Grammar engine and `:`** — in-process execution of the CLI grammar
-   against the same parser and services; result and error rendering.
-2. **Edit and tag mnemonics** — `e`/`t` prefill on the selection.
-3. **Inline capture syntax** — the token grammar, in `capture` and `a`.
-4. **Capture runner mode** — the popup executes the grammar.
+1. **Board view scaffold** — column layout, card rendering with
+   progress counts, horizontal/vertical navigation, root-tree entry.
+2. **Detail integration and polish** — Enter-to-detail round trip,
+   empty and overflowing columns, freshness on re-entry.
+
+## User stories
+
+```text
+$ gsd tui        # root: …, areas, boards
+                 # Enter on "software": the board, column per stage
+                 # → to "doing", j to the second card, Enter: detail
+                 # Esc: back on the board; Esc: back at the root
+```
 
 ## Agent-verified end-to-end workflow
 
-Tmux-driven against the real binary and a seeded temporary database:
-run representative commands through `:` (add, edit, tag, cascade,
-error cases) and verify equivalence with the CLI's `--json` output for
-the same operations; capture with inline syntax lands the parsed
-fields; runner mode round-trips a full command.
+Tmux-driven against the real built binary and a seeded temporary
+database:
+
+1. The root tree lists boards; Enter opens the board with columns in
+   stage order and cards matching `board show --json` for the same
+   board.
+2. Navigate across columns and cards; Enter opens the correct project
+   detail; Esc returns to the same position.
+3. Move a project and complete a task via the CLI mid-session;
+   re-entering the view reflects the new column and progress count.
 
 ## Exit criteria
 
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
-- [ ] `COMMANDS.md` documents the capture syntax and runner mode.
+- [ ] `COMMANDS.md`'s TUI section documents the board view.
 
 ## Standards
 
-CLI-CMD-002/003, CLI-OUTPUT-001/003; TUI-applicable standards re-checked
-at plan gate.
+CLI-CMD-002/003, CLI-OUTPUT-001/003; TUI-applicable standards
+re-checked at plan gate.
