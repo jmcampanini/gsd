@@ -83,7 +83,7 @@ func resolveColor(
 
 type presentationDependencies struct {
 	environment       func() []string
-	isTerminal        func(io.Writer) bool
+	isTerminal        func(any) bool
 	detectProfile     func(io.Writer, []string) colorprofile.Profile
 	hasDarkBackground func(io.Reader, io.Writer) bool
 	now               func() time.Time
@@ -92,8 +92,8 @@ type presentationDependencies struct {
 func defaultPresentationDependencies() presentationDependencies {
 	return presentationDependencies{
 		environment: os.Environ,
-		isTerminal: func(writer io.Writer) bool {
-			file, ok := writer.(interface{ Fd() uintptr })
+		isTerminal: func(stream any) bool {
+			file, ok := stream.(interface{ Fd() uintptr })
 			return ok && term.IsTerminal(file.Fd())
 		},
 		detectProfile: colorprofile.Detect,

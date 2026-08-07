@@ -8,7 +8,7 @@ consolidation. This plan is temporary and is retired at consolidation.
 ## Progress
 
 - [x] Chunk 1 — Capture works
-- [ ] Chunk 2 — Capture contract
+- [x] Chunk 2 — Capture contract
 
 There is no chunk 0: the Milestone 9 foundation review scheduled
 nothing; the deferred items carry forward in `MILESTONE_10.md` with
@@ -157,49 +157,49 @@ automated terminal-driven e2e.
 
 Implementation:
 
-- [ ] Guards in `RunE` before `withTaskApplication`: `--json` refused
+- [x] Guards in `RunE` before `withTaskApplication`: `--json` refused
       with a `usageError` (config precedent); stdin and stdout checked
       separately through the generalized
       `presentationDependencies.isTerminal` seam; the non-TTY message
       names `gsd add` as the recovery path.
-- [ ] Error state: a failed `Add` renders the application error inline
+- [x] Error state: a failed `Add` renders the application error inline
       with the red accent; any key dismisses; the command returns the
       error so the root adapter emits the standard stderr line and
       exit 1.
-- [ ] In-flight submission lifecycle: run `Add` with a child context;
+- [x] In-flight submission lifecycle: run `Add` with a child context;
       Esc and Ctrl+C request cancellation, and the program waits for
       `Add` to return before quitting so command cleanup never closes
       the database under a running write. A canceled `Add` exits 0, an
       `Add` that wins the cancellation race keeps the normal success
       path, and any other failure enters the error state.
-- [ ] Color chain wired end to end: `--color` and `NO_COLOR` select
+- [x] Color chain wired end to end: `--color` and `NO_COLOR` select
       the plain style set; the surface stays functional uncolored.
-- [ ] e2e tmux harness: private tmux server per test, popup-sized
+- [x] e2e tmux harness: private tmux server per test, popup-sized
       session, `send-keys`, exit-status collection; fails loudly when
       tmux is absent.
-- [ ] `.github/workflows/check.yml`: install tmux before `make check`.
-- [ ] README: tmux documented as a development/e2e prerequisite.
+- [x] `.github/workflows/check.yml`: install tmux before `make check`.
+- [x] README: tmux documented as a development/e2e prerequisite.
 
 Verification (primary owners: model tests for the error state, `cmd`
 tests for guards, tmux e2e for cross-invocation persistence):
 
-- [ ] Model: a failing fake `Add` renders the error inline; any key
+- [x] Model: a failing fake `Add` renders the error inline; any key
       quits carrying the error; the styled and plain error renders
       both contain the message.
-- [ ] Model: blocked fake `Add` calls observe Esc/Ctrl+C cancellation;
+- [x] Model: blocked fake `Add` calls observe Esc/Ctrl+C cancellation;
       the program waits for the command result, maps context
       cancellation to a clean exit, preserves a success that wins the
       race, and never starts a duplicate `Add`.
-- [ ] `cmd`: `--json` and non-TTY invocations exit 2 with zero factory
+- [x] `cmd`: `--json` and non-TTY invocations exit 2 with zero factory
       opens; messages match; help with an unopenable `--db` path still
       exits 0.
-- [ ] e2e (tmux, inside `make check`): a typed title plus Enter exits
+- [x] e2e (tmux, inside `make check`): a typed title plus Enter exits
       0 and a separate invocation's `inbox --json` shows the task with
       only the title set; Esc exits 0 and adds no row; the capture
       lands in the database selected by `--db` and by `GSD_DB`.
-- [ ] e2e (plain subprocess): `--json` and piped non-TTY invocations
+- [x] e2e (plain subprocess): `--json` and piped non-TTY invocations
       are usage errors, exit 2, nothing written.
-- [ ] `make check` green.
+- [x] `make check` green.
 
 Human proof (chunk demo `.sandbox/demos/10-chunk-2.html`), exact
 commands:
@@ -218,7 +218,7 @@ tmux display-popup -w 64 -h 4 -E 'env GSD_DB=.sandbox/demo-env.db gsd capture'
                                     # key: exit 1
 ```
 
-- [ ] Agent verification before review: build the real binary, run the
+- [x] Agent verification before review: build the real binary, run the
       demo command list against a fresh temporary database, capture
       the verbatim output into the deck, and pass local `make check`.
 

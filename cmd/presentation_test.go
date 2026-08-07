@@ -67,7 +67,7 @@ func TestPresentationProfileUsesScrubbedEnvironment(t *testing.T) {
 					"COLORTERM=truecolor",
 				}
 			},
-			isTerminal: func(io.Writer) bool { return true },
+			isTerminal: func(any) bool { return true },
 			detectProfile: func(_ io.Writer, environment []string) colorprofile.Profile {
 				detectedEnvironment = append([]string(nil), environment...)
 				return colorprofile.ANSI256
@@ -130,7 +130,7 @@ func TestPresentationQueriesBackgroundOnceOnlyForStyledTerminalStdout(t *testing
 				mode: &mode,
 				dependencies: presentationDependencies{
 					environment: func() []string { return []string{"TERM=xterm"} },
-					isTerminal:  func(io.Writer) bool { return test.terminal },
+					isTerminal:  func(any) bool { return test.terminal },
 					detectProfile: func(io.Writer, []string) colorprofile.Profile {
 						return test.detected
 					},
@@ -174,7 +174,7 @@ func TestErrorStreamStaysUnstyledAndEscaped(t *testing.T) {
 
 	dependencies := presentationDependencies{
 		environment: func() []string { return []string{"TERM=xterm"} },
-		isTerminal:  func(io.Writer) bool { return true },
+		isTerminal:  func(any) bool { return true },
 		detectProfile: func(io.Writer, []string) colorprofile.Profile {
 			return colorprofile.TrueColor
 		},
