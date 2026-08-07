@@ -3,12 +3,14 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/jmcampanini/gsd/internal/tui"
 	"github.com/spf13/pflag"
@@ -77,17 +79,17 @@ func TestCaptureCommandPassesRuntimeDependenciesAndColorMode(t *testing.T) {
 			dependencies.environment = func() []string { return test.environment }
 			inputChecked := false
 			outputChecked := false
-			dependencies.isTerminal = func(stream any) bool {
-				switch stream {
-				case input:
+			dependencies.isTerminalReader = func(reader io.Reader) bool {
+				if reader == input {
 					inputChecked = true
-					return true
-				case &stdout:
-					outputChecked = true
-					return true
-				default:
-					return false
 				}
+				return reader == input
+			}
+			dependencies.isTerminalWriter = func(writer io.Writer) bool {
+				if writer == &stdout {
+					outputChecked = true
+				}
+				return writer == &stdout
 			}
 
 			runs := 0
@@ -199,16 +201,8 @@ func TestCaptureCommandRejectsUnsupportedInvocationBeforeOpeningApplication(t *t
 				return applications{tasks: &fakeApplication{}}, closeRecorder{close: func() {}}, nil
 			}
 			dependencies := defaultPresentationDependencies()
-			dependencies.isTerminal = func(stream any) bool {
-				switch stream {
-				case input:
-					return test.inputOK
-				case &stdout:
-					return test.outputOK
-				default:
-					return false
-				}
-			}
+			dependencies.isTerminalReader = func(io.Reader) bool { return test.inputOK }
+			dependencies.isTerminalWriter = func(io.Writer) bool { return test.outputOK }
 			root := newRootCommandWithCaptureRunner(
 				factory,
 				nil,
@@ -236,6 +230,78 @@ func TestCaptureCommandRejectsUnsupportedInvocationBeforeOpeningApplication(t *t
 			}
 			if opens != 0 || runs != 0 {
 				t.Errorf("opens/runs = %d/%d, want 0/0", opens, runs)
+			}
+		})
+	}
+}
+
+func TestCaptureCommandMapsRunnerErrorsToExitOne(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		err     error
+		message string
+	}{
+		{
+			name:    "application error",
+			err:     apperr.New(apperr.Conflict, "task already exists", nil),
+			message: "task already exists",
+		},
+		{
+			name:    "uncoded program error",
+			err:     errors.New("terminal torn down"),
+			message: "terminal torn down",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			input := strings.NewReader("")
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			opens := 0
+			closes := 0
+			factory := func(
+				context.Context,
+				string,
+				bool,
+				*pflag.FlagSet,
+			) (applications, io.Closer, error) {
+				opens++
+				return applications{tasks: &fakeApplication{}}, closeRecorder{close: func() { closes++ }}, nil
+			}
+			dependencies := defaultPresentationDependencies()
+			dependencies.environment = func() []string { return []string{"TERM=xterm"} }
+			dependencies.isTerminalReader = func(io.Reader) bool { return true }
+			dependencies.isTerminalWriter = func(io.Writer) bool { return true }
+			root := newRootCommandWithCaptureRunner(
+				factory,
+				nil,
+				time.UTC,
+				dependencies,
+				func(context.Context, task.Application, tui.ProgramOptions) error {
+					return test.err
+				},
+			)
+			root.SetIn(input)
+			root.SetOut(&stdout)
+			root.SetErr(&stderr)
+
+			exitCode := execute(root, []string{"capture"})
+
+			if exitCode != 1 {
+				t.Errorf("exit = %d, want 1", exitCode)
+			}
+			if stdout.String() != "" {
+				t.Errorf("stdout = %q, want empty", stdout.String())
+			}
+			if stderr.String() != "Error: "+test.message+"\n" {
+				t.Errorf("stderr = %q, want standard error line %q", stderr.String(), test.message)
+			}
+			if opens != 1 || closes != 1 {
+				t.Errorf("opens/closes = %d/%d, want one lifecycle", opens, closes)
 			}
 		})
 	}

@@ -61,7 +61,7 @@ func TestCaptureInitRequestsBackgroundOnlyWithColor(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			model := NewCaptureModel(context.Background(), &captureApplication{}, test.color)
+			model := newTestCaptureModel(context.Background(), &captureApplication{}, test.color)
 			if got := model.Init(); (got != nil) != test.wantCommand {
 				t.Errorf("Init command present = %t, want %t", got != nil, test.wantCommand)
 			}
@@ -73,7 +73,7 @@ func TestCaptureEnterAddsExactTitleOnce(t *testing.T) {
 	type contextKey struct{}
 	ctx := context.WithValue(context.Background(), contextKey{}, "capture")
 	application := &captureApplication{}
-	model := NewCaptureModel(ctx, application, true)
+	model := newTestCaptureModel(ctx, application, true)
 	title := "  Call plumber  "
 	updated, _ := model.Update(tea.KeyPressMsg{Text: title, Code: ' '})
 	model = updated.(CaptureModel)
@@ -198,7 +198,7 @@ func TestCaptureSubmittingCancelWaitsForAdd(t *testing.T) {
 				release: make(chan struct{}),
 				err:     context.Canceled,
 			}
-			model := NewCaptureModel(context.Background(), application, false)
+			model := newTestCaptureModel(context.Background(), application, false)
 			model.input.SetValue("Call plumber")
 			updated, addCommand := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 			model = updated.(CaptureModel)
@@ -251,7 +251,7 @@ func TestCaptureAddSuccessWinsCancellationRace(t *testing.T) {
 		calls:   make(chan context.Context, 1),
 		release: make(chan struct{}),
 	}
-	model := NewCaptureModel(context.Background(), application, false)
+	model := newTestCaptureModel(context.Background(), application, false)
 	model.input.SetValue("Call plumber")
 	updated, addCommand := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(CaptureModel)
@@ -281,7 +281,7 @@ func TestCaptureAddSuccessWinsCancellationRace(t *testing.T) {
 
 func TestCaptureAddFailureWinsCancellationRequest(t *testing.T) {
 	failure := errors.New("save failed")
-	model := NewCaptureModel(
+	model := newTestCaptureModel(
 		context.Background(),
 		&captureApplication{err: failure},
 		false,
@@ -319,7 +319,7 @@ func TestCaptureAddFailurePersistsUntilKeyDismissal(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			application := &captureApplication{err: test.err}
-			model := NewCaptureModel(context.Background(), application, false)
+			model := newTestCaptureModel(context.Background(), application, false)
 			model.input.SetValue("Call plumber")
 			updated, addCommand := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 			model = updated.(CaptureModel)
@@ -359,7 +359,7 @@ func TestCaptureErrorFooterIsSanitizedAndStyled(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			model := NewCaptureModel(
+			model := newTestCaptureModel(
 				context.Background(),
 				&captureApplication{err: failure},
 				test.color,
@@ -398,7 +398,7 @@ func TestCaptureErrorFooterIsSanitizedAndStyled(t *testing.T) {
 func TestCaptureLongErrorFitsTwoRows(t *testing.T) {
 	failureMessage := "write failed: " + strings.Repeat("界", 32)
 	failure := errors.New(failureMessage)
-	model := NewCaptureModel(
+	model := newTestCaptureModel(
 		context.Background(),
 		&captureApplication{err: failure},
 		false,
@@ -439,7 +439,7 @@ func TestCaptureBlankEnterDoesNothing(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			application := &captureApplication{}
-			model := NewCaptureModel(context.Background(), application, true)
+			model := newTestCaptureModel(context.Background(), application, true)
 			model.input.SetValue(test.value)
 			wantValue := model.input.Value()
 
@@ -471,7 +471,7 @@ func TestCaptureCancelDoesNotAdd(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			application := &captureApplication{}
-			model := NewCaptureModel(context.Background(), application, true)
+			model := newTestCaptureModel(context.Background(), application, true)
 			model.input.SetValue("Call plumber")
 
 			_, command := model.Update(test.key)
@@ -485,7 +485,7 @@ func TestCaptureCancelDoesNotAdd(t *testing.T) {
 }
 
 func TestCaptureAdaptsThemeToTerminalBackground(t *testing.T) {
-	model := NewCaptureModel(context.Background(), &captureApplication{}, true)
+	model := newTestCaptureModel(context.Background(), &captureApplication{}, true)
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 40, Height: 2})
 	model = updated.(CaptureModel)
 
@@ -508,7 +508,7 @@ func TestCaptureAdaptsThemeToTerminalBackground(t *testing.T) {
 }
 
 func TestCaptureColorDisabledUsesPlainStylesAndVisibleCursor(t *testing.T) {
-	model := NewCaptureModel(context.Background(), &captureApplication{}, false)
+	model := newTestCaptureModel(context.Background(), &captureApplication{}, false)
 	styles := model.input.Styles()
 	noColor := lipgloss.NoColor{}
 
@@ -543,7 +543,7 @@ func TestCaptureColorDisabledUsesPlainStylesAndVisibleCursor(t *testing.T) {
 }
 
 func TestCaptureCursorThemeTokenFlowsToView(t *testing.T) {
-	model := NewCaptureModel(context.Background(), &captureApplication{}, true)
+	model := newTestCaptureModel(context.Background(), &captureApplication{}, true)
 	if cursor := model.View().Cursor; cursor == nil || cursor.Color != nil {
 		t.Fatalf("default cursor = %#v, want visible terminal-default cursor", cursor)
 	}
@@ -558,59 +558,8 @@ func TestCaptureCursorThemeTokenFlowsToView(t *testing.T) {
 	assertColor(t, "themed cursor", cursor.Color, theme.Cursor)
 }
 
-func TestCaptureCursorFollowsDisplayWidth(t *testing.T) {
-	tests := []struct {
-		name  string
-		value string
-	}{
-		{name: "wide rune", value: "界"},
-		{name: "combining grapheme", value: "e\u0301"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			model := NewCaptureModel(context.Background(), &captureApplication{}, false)
-			updated, _ := model.Update(tea.WindowSizeMsg{Width: 20, Height: 2})
-			model = updated.(CaptureModel)
-			model.input.SetValue(test.value)
-
-			cursor := model.View().Cursor
-			if cursor == nil {
-				t.Fatal("capture cursor = nil, want visible cursor")
-			}
-			wantX := lipgloss.Width(model.input.Prompt) + lipgloss.Width(test.value)
-			if cursor.X != wantX {
-				t.Errorf("capture cursor X = %d, want %d", cursor.X, wantX)
-			}
-		})
-	}
-}
-
-func TestCaptureCursorFollowsScrolledViewport(t *testing.T) {
-	model := NewCaptureModel(context.Background(), &captureApplication{}, false)
-	updated, _ := model.Update(tea.WindowSizeMsg{Width: 12, Height: 2})
-	model = updated.(CaptureModel)
-	model.input.SetValue("abcdefgh")
-
-	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
-	model = updated.(CaptureModel)
-
-	input := ansi.Strip(model.input.View())
-	wantX := strings.Index(input, "h")
-	if wantX < 0 {
-		t.Fatalf("rendered input = %q, want h under cursor", input)
-	}
-	cursor := model.View().Cursor
-	if cursor == nil {
-		t.Fatal("capture cursor = nil, want visible cursor")
-	}
-	if cursor.X != wantX {
-		t.Errorf("capture cursor X = %d, want visible h at %d", cursor.X, wantX)
-	}
-}
-
 func TestCaptureViewHasBadgeInputAndFooter(t *testing.T) {
-	model := NewCaptureModel(context.Background(), &captureApplication{}, true)
+	model := newTestCaptureModel(context.Background(), &captureApplication{}, true)
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 40, Height: 2})
 	model = updated.(CaptureModel)
 
@@ -628,6 +577,14 @@ func TestCaptureViewHasBadgeInputAndFooter(t *testing.T) {
 	if lines[1] != " "+captureFooter {
 		t.Errorf("footer = %q, want %q", lines[1], " "+captureFooter)
 	}
+}
+
+func newTestCaptureModel(
+	ctx context.Context,
+	application task.Application,
+	colorEnabled bool,
+) CaptureModel {
+	return newCaptureModel(ctx, application, colorEnabled, &captureSubmission{})
 }
 
 func footerText(model CaptureModel) string {

@@ -56,6 +56,24 @@ TUI verb, reorder, and command-line milestone acts on.
    kinds.
 4. **Live filter** — `/` incremental filtering of the current view.
 
+## Carried from Milestone 10
+
+The Milestone 10 foundation review kept these substrate pieces
+concrete under the one-consumer convention; Navigator is the expected
+second consumer, so revisit each at this milestone's plan gate:
+
+- **In-flight write lifecycle** — `captureSubmission` (child context,
+  cancel-and-wait shutdown, synthesized cancellation for a
+  never-scheduled command) is generic to any TUI surface that writes:
+  promote it out of capture on Navigator's first writing surface.
+- **Program run/unwrap helper** — `RunCapture` hand-unwraps the
+  `programModel` wrapper to recover its final model; extract a shared
+  runner when the second surface repeats the boilerplate.
+- **tmux e2e harness** — the private-server, `send-keys`, and
+  status-file helpers live in `e2e/capture_test.go` under capture
+  names: promote them to shared e2e helpers on the second tmux-driven
+  test.
+
 ## User stories
 
 ```text

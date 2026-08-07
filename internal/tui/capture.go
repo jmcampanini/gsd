@@ -4,49 +4,46 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image/color"
-	"strconv"
 	"strings"
 	"sync"
-	"unicode"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/jmcampanini/gsd/internal/task"
+	"github.com/jmcampanini/gsd/internal/text"
 )
 
 const (
 	captureFooter       = "enter add · esc cancel"
 	captureAddingStatus = "adding · esc cancel"
 	captureCancelStatus = "canceling"
-	captureAddedStatus  = "added"
 	cursorCellWidth     = 1
 )
 
-type CaptureModel struct {
-	ctx             context.Context
-	application     task.Application
-	input           textinput.Model
-	theme           Theme
-	footerStyle     lipgloss.Style
-	errorStyle      lipgloss.Style
-	colorEnabled    bool
-	width           int
-	submitting      bool
-	cancelRequested bool
-	quitting        bool
-	err             error
-	submission      *captureSubmission
-}
+type capturePhase uint8
 
-func NewCaptureModel(
-	ctx context.Context,
-	application task.Application,
-	colorEnabled bool,
-) CaptureModel {
-	return newCaptureModel(ctx, application, colorEnabled, &captureSubmission{})
+const (
+	captureTyping capturePhase = iota
+	captureSubmitting
+	captureCanceling
+	captureErrored
+	captureQuitting
+)
+
+type CaptureModel struct {
+	ctx          context.Context
+	application  task.Application
+	input        textinput.Model
+	theme        Theme
+	footerStyle  lipgloss.Style
+	errorStyle   lipgloss.Style
+	colorEnabled bool
+	width        int
+	phase        capturePhase
+	err          error
+	submission   *captureSubmission
 }
 
 func newCaptureModel(
@@ -90,33 +87,33 @@ func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case captureResultMsg:
 		m.submission.cancel()
-		m.submitting = false
-		if msg.err == nil || (m.cancelRequested && errors.Is(msg.err, context.Canceled)) {
-			m.quitting = true
+		if msg.err == nil || (m.phase == captureCanceling && errors.Is(msg.err, context.Canceled)) {
+			m.phase = captureQuitting
 			return m, tea.Quit
 		}
+		m.phase = captureErrored
 		m.err = msg.err
 		return m, nil
 	case tea.KeyPressMsg:
-		if m.err != nil {
+		if m.phase == captureErrored {
 			return m, tea.Quit
 		}
-		if m.quitting {
+		if m.phase == captureQuitting {
 			return m, nil
 		}
 
 		key := msg.String()
 		if key == "ctrl+c" || key == "esc" {
-			if !m.submitting {
-				return m, tea.Quit
-			}
-			if !m.cancelRequested {
-				m.cancelRequested = true
+			if m.phase == captureSubmitting {
+				m.phase = captureCanceling
 				m.submission.cancel()
 			}
-			return m, nil
+			if m.phase == captureCanceling {
+				return m, nil
+			}
+			return m, tea.Quit
 		}
-		if m.submitting {
+		if m.phase != captureTyping {
 			return m, nil
 		}
 		if key == "enter" {
@@ -125,7 +122,7 @@ func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			command := m.submission.register(m.ctx, m.application, title)
-			m.submitting = true
+			m.phase = captureSubmitting
 			m.input.Blur()
 			return m, command
 		}
@@ -138,56 +135,26 @@ func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m CaptureModel) View() tea.View {
 	view := tea.NewView(m.inputView() + "\n" + m.footerView())
-	view.Cursor = m.inputCursor()
+	view.Cursor = m.input.Cursor()
 	return view
 }
 
 func (m CaptureModel) footerView() string {
-	if m.err != nil {
-		message := "Error: " + captureHumanText(m.err.Error())
+	switch m.phase {
+	case captureErrored:
+		message := "Error: " + text.Human(m.err.Error(), false)
 		if m.width > 0 {
 			_, right, _, left := m.errorStyle.GetPadding()
 			message = ansi.Truncate(message, max(m.width-left-right, 0), "…")
 		}
 		return m.errorStyle.Render(message)
-	}
-	if m.cancelRequested {
+	case captureCanceling:
 		return m.footerStyle.Render(captureCancelStatus)
-	}
-	if m.quitting {
-		return m.footerStyle.Render(captureAddedStatus)
-	}
-	if m.submitting {
+	case captureSubmitting:
 		return m.footerStyle.Render(captureAddingStatus)
+	default:
+		return m.footerStyle.Render(captureFooter)
 	}
-	return m.footerStyle.Render(captureFooter)
-}
-
-func (m CaptureModel) inputCursor() *tea.Cursor {
-	cursor := m.input.Cursor()
-	if cursor == nil {
-		return nil
-	}
-
-	// Render a throwaway virtual cursor to locate Bubbles' private viewport offset.
-	probe := m.input
-	styles := probe.Styles()
-	marker := color.RGBA{R: 1, G: 2, B: 3, A: 255}
-	styles.Cursor = textinput.CursorStyle{Color: marker}
-	probe.SetStyles(styles)
-	probe.SetVirtualCursor(true)
-
-	input := probe.View()
-	canvas := lipgloss.NewCanvas(lipgloss.Width(input), 1).
-		Compose(lipgloss.NewLayer(input))
-	for x := range canvas.Width() {
-		foreground := canvas.CellAt(x, 0).Style.Fg
-		if foreground != nil && color.RGBAModel.Convert(foreground) == marker {
-			cursor.X = x
-			break
-		}
-	}
-	return cursor
 }
 
 func (m CaptureModel) Err() error {
@@ -255,20 +222,6 @@ type captureResultMsg struct {
 	err error
 }
 
-func captureHumanText(value string) string {
-	var visible strings.Builder
-	visible.Grow(len(value))
-	for _, character := range value {
-		if unicode.IsControl(character) {
-			quoted := strconv.QuoteRune(character)
-			visible.WriteString(quoted[1 : len(quoted)-1])
-			continue
-		}
-		visible.WriteRune(character)
-	}
-	return visible.String()
-}
-
 type captureSubmission struct {
 	mutex         sync.Mutex
 	cancelContext context.CancelFunc
@@ -296,12 +249,6 @@ func (s *captureSubmission) register(
 			err := s.err
 			s.mutex.Unlock()
 			return captureResultMsg{err: err}
-		}
-		if s.started {
-			done := s.done
-			s.mutex.Unlock()
-			<-done
-			return captureResultMsg{err: s.result()}
 		}
 		s.started = true
 		s.mutex.Unlock()
@@ -391,6 +338,8 @@ func runCapture(
 	runProgram captureProgramRunner,
 ) error {
 	submission := &captureSubmission{}
+	// A panic in runProgram must not unwind into the command's database close
+	// while an Add is still in flight.
 	defer func() { _ = submission.cancelAndWait() }()
 
 	capture, programErr := runProgram(
@@ -400,11 +349,15 @@ func runCapture(
 	if programErr != nil {
 		return programErr
 	}
-	if capture.submitting {
-		if capture.cancelRequested && errors.Is(submissionErr, context.Canceled) {
+	switch capture.phase {
+	case captureSubmitting:
+		return submissionErr
+	case captureCanceling:
+		if errors.Is(submissionErr, context.Canceled) {
 			return nil
 		}
 		return submissionErr
+	default:
+		return capture.Err()
 	}
-	return capture.Err()
 }

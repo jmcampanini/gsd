@@ -144,7 +144,9 @@ gsd capture
   accent; any key dismisses, and the command exits `1` with the
   standard stderr diagnostic.
 - Chrome: a `gsd` badge as the input prompt, a continuous input band,
-  and a faint `enter add · esc cancel` footer. Color follows
+  and a faint `enter add · esc cancel` footer that reports transient
+  `adding` / `canceling` statuses while an in-flight write settles.
+  Color follows
   CLI-OUTPUT-001 (`--color` > nonempty `NO_COLOR` > per-stream auto);
   light/dark accents are detected in-program from the terminal
   background, the cursor stays terminal-default, and structure is
