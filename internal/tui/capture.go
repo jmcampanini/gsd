@@ -104,20 +104,22 @@ func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.quitting {
 			return m, nil
 		}
-		if m.submitting {
-			switch msg.String() {
-			case "ctrl+c", "esc":
-				if !m.cancelRequested {
-					m.cancelRequested = true
-					m.submission.cancel()
-				}
+
+		key := msg.String()
+		if key == "ctrl+c" || key == "esc" {
+			if !m.submitting {
+				return m, tea.Quit
+			}
+			if !m.cancelRequested {
+				m.cancelRequested = true
+				m.submission.cancel()
 			}
 			return m, nil
 		}
-		switch msg.String() {
-		case "ctrl+c", "esc":
-			return m, tea.Quit
-		case "enter":
+		if m.submitting {
+			return m, nil
+		}
+		if key == "enter" {
 			title := m.input.Value()
 			if strings.TrimSpace(title) == "" {
 				return m, nil
