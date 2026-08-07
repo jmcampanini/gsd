@@ -13,7 +13,7 @@ vertical slice through everything the TUI will stand on, so this
 milestone's real deliverable is the reviewed substrate: the Bubble Tea
 v2 embedding, the program lifecycle from a cobra command through the
 injected factory, the theme bridge onto the settled visual system, and
-the test seams. Milestones 11–13 build on that foundation only after it
+the test seams. Milestones 12–15 build on that foundation only after it
 has been consolidated and foundation-reviewed here.
 
 ## Scope
@@ -77,7 +77,7 @@ triggers:
   retires (`AGENTS.md` is the natural candidate); the migration-policy
   and contract lint tests carry the mechanical part regardless.
 - **Config report generalization** — on config key #2 (`[serve] addr`,
-  arriving with the optional Serve milestone, 14): add source
+  arriving with the optional Serve milestone, 16): add source
   classification and tag-derived env/flag spellings to
   go-config-loader's `configreporter` so gsd's renderer becomes a
   generic provenance-row loop like the sibling CLIs, and revisit the

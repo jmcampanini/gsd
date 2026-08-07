@@ -398,9 +398,9 @@ open (all refusals are `conflict`-coded, exit 1):
 
 ## TUI (post-v1)
 
-The TUI arrives as Milestones 10–13 and targets full parity with the
-CLI, achieved structurally. Milestone 10 shipped the substrate and the
-first surface; the rest remains planned:
+The TUI arrives as Milestones 10 and 12–15 and targets full parity
+with the CLI, achieved structurally. Milestone 10 shipped the
+substrate and the first surface; the rest remains planned:
 
 - **Full-screen views, no panes**: exactly one view at a time — a root
   tree (Inbox, Available, Logbook, loose projects, then areas with
