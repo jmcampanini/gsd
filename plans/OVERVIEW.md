@@ -1,6 +1,7 @@
 # gsd — Distilled Design Spec (v1)
 
-`gsd` (get shit done) is a CLI (with a post-v1 TUI planned) wrapping a
+`gsd` (get shit done) is a CLI (with a post-v1 TUI landing
+incrementally, beginning with the `gsd capture` popup) wrapping a
 personal to-do system. Its design goals are simple, extendable primitives, a
 Things-inspired workflow, and a SQLite backend. The current baseline provides
 the repository and CLI foundation, a complete bare-inbox task lifecycle,
