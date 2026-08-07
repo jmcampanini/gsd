@@ -131,6 +131,9 @@ func TestMigrateAppliesFullChainToEmptyDatabase(t *testing.T) {
 	if version := migrationTestUserVersion(t, database); version != 2 {
 		t.Errorf("user_version = %d, want 2", version)
 	}
+	if applicationID := migrationTestApplicationID(t, database); applicationID != gsdApplicationID {
+		t.Errorf("application_id = %d, want %d", applicationID, gsdApplicationID)
+	}
 	for _, object := range []string{"first", "second"} {
 		if count := migrationTestCount(
 			t,
@@ -158,6 +161,9 @@ func TestMigrateRejectsTemporarySchemaObjects(t *testing.T) {
 	if version := migrationTestUserVersion(t, database); version != 0 {
 		t.Errorf("user_version after rejection = %d, want 0", version)
 	}
+	if applicationID := migrationTestApplicationID(t, database); applicationID != 0 {
+		t.Errorf("application_id after rejection = %d, want 0", applicationID)
+	}
 	if count := migrationTestCount(
 		t,
 		database,
@@ -175,6 +181,7 @@ func TestMigrateAppliesOnlyPendingMigrations(t *testing.T) {
 	if _, err := database.ExecContext(ctx, `
 CREATE TABLE first (id INTEGER);
 INSERT INTO first (id) VALUES (7);
+PRAGMA application_id = 1196639281;
 PRAGMA user_version = 1;
 `); err != nil {
 		t.Fatalf("prepare revision 1 database: %v", err)
@@ -202,6 +209,41 @@ PRAGMA user_version = 1;
 	}
 }
 
+func TestMigrateRejectsForeignSupportedRevision(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	database := openRawMigrationDatabase(t)
+	if _, err := database.ExecContext(ctx, `
+CREATE TABLE foreign_data (value TEXT);
+INSERT INTO foreign_data (value) VALUES ('preserve');
+PRAGMA user_version = 1;
+`); err != nil {
+		t.Fatalf("prepare foreign revision 1 database: %v", err)
+	}
+	migrations := []migration{
+		{revision: 1, name: "0001_first.sql", sql: "CREATE TABLE first (id INTEGER);"},
+		{revision: 2, name: "0002_second.sql", sql: "CREATE TABLE second (id INTEGER);"},
+	}
+
+	err := migrate(ctx, database, migrations)
+	if err == nil || err.Error() != "database does not belong to gsd" {
+		t.Fatalf("migrate() error = %v, want foreign-database conflict", err)
+	}
+	if version := migrationTestUserVersion(t, database); version != 1 {
+		t.Errorf("user_version after rejection = %d, want 1", version)
+	}
+	if applicationID := migrationTestApplicationID(t, database); applicationID != 0 {
+		t.Errorf("application_id after rejection = %d, want 0", applicationID)
+	}
+	if count := migrationTestCount(t, database, "SELECT COUNT(*) FROM foreign_data WHERE value = 'preserve'"); count != 1 {
+		t.Errorf("foreign row count after rejection = %d, want 1", count)
+	}
+	if count := migrationTestCount(t, database, "SELECT COUNT(*) FROM sqlite_schema WHERE name = 'second'"); count != 0 {
+		t.Errorf("second table count after rejection = %d, want 0", count)
+	}
+}
+
 func TestMigrateRollsBackFailedMigrationAndResumes(t *testing.T) {
 	t.Parallel()
 
@@ -221,6 +263,9 @@ func TestMigrateRollsBackFailedMigrationAndResumes(t *testing.T) {
 	}
 	if version := migrationTestUserVersion(t, database); version != 1 {
 		t.Errorf("user_version after failure = %d, want 1", version)
+	}
+	if applicationID := migrationTestApplicationID(t, database); applicationID != gsdApplicationID {
+		t.Errorf("application_id after failure = %d, want %d", applicationID, gsdApplicationID)
 	}
 	if count := migrationTestCount(
 		t,
@@ -270,6 +315,16 @@ func openRawMigrationDatabase(t *testing.T) *sql.DB {
 	}
 
 	return database
+}
+
+func migrationTestApplicationID(t *testing.T, database *sql.DB) int {
+	t.Helper()
+
+	applicationID, err := databaseApplicationID(context.Background(), database)
+	if err != nil {
+		t.Fatalf("databaseApplicationID() error = %v", err)
+	}
+	return applicationID
 }
 
 func migrationTestUserVersion(t *testing.T, database *sql.DB) int {

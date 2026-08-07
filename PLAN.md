@@ -27,6 +27,12 @@ were resolved in its wrap-up; the deferred items carry forward in
   Search: content identical to `SCHEMA.md`'s SQL blocks, statement order
   matched to the spec (indexes placed per-table). The embedded
   `schema.sql` and `bootstrap()` are replaced wholesale.
+- **Database identity.** `PRAGMA application_id = 1196639281` identifies
+  gsd databases. The baseline stamps it in the migration transaction
+  before the revision stamp. A version-zero database with the default
+  zero identity proceeds to the empty-database guard; every other
+  identity mismatch is refused before revision checks or DDL with
+  `database does not belong to gsd`.
 - **Guard ladder on open** (all refusals `conflict`-coded, exit 1):
   - `user_version == max known` → open normally.
   - `0 < user_version < max known` → apply pending migrations in
@@ -81,11 +87,11 @@ Implementation:
       schema, statement order matched to `SCHEMA.md`, no `user_version`
       stamp; delete `schema.sql`.
 - [x] `internal/store/migrate.go`: runner replacing `bootstrap()` — the
-      guard ladder above, sequential apply of pending migrations, one
-      `BEGIN IMMEDIATE` transaction per migration with the
-      `user_version` stamp inside it, max revision parsed from the
-      embedded filenames; the core takes a migrations slice and `Open`
-      wires the embedded set.
+      identity and guard ladder above, sequential apply of pending
+      migrations, one `BEGIN IMMEDIATE` transaction per migration with
+      the `application_id` and `user_version` stamps inside it, max
+      revision parsed from the embedded filenames; the core takes a
+      migrations slice and `Open` wires the embedded set.
 - [x] Refusal errors `conflict`-coded with the exact messages above;
       messages state semantics only, per the store-boundary contract.
 - [x] Update revision expectations across existing store and e2e tests
@@ -103,6 +109,8 @@ fabricated chains where the real chain is too short):
       atomically — schema and `user_version` both remain at the last
       good revision; a rerun succeeds once the chain is fixed.
 - [x] Future revision: refused, `conflict`, exact message.
+- [x] Foreign database at a supported revision: refused before DDL,
+      `conflict`, file unchanged.
 - [x] Nonempty version-0: refused, `conflict`, message unchanged.
 - [x] Contract lint over the real embedded chain (end-state diff per
       migration, additive-or-full-delete, indexes exempt), plus
@@ -129,7 +137,7 @@ commands:
 ```sh
 gsd --db .sandbox/demo.db add "file the taxes"   # fresh db: baseline applied silently
 gsd --db .sandbox/demo.db inbox                  # new invocation: data persisted
-sqlite3 .sandbox/demo-future.db "PRAGMA user_version = 2"
+sqlite3 .sandbox/demo-future.db "PRAGMA application_id = 1196639281; PRAGMA user_version = 2"
 gsd --db .sandbox/demo-future.db inbox           # refused: gsd is older than this database
 ```
 
@@ -151,13 +159,16 @@ in `e2e/` inside `make check`.
       the baseline silently.
    2. `gsd inbox` in a new invocation — the task is present, and
       `PRAGMA user_version` on the file reads 1.
-   3. Stamp a separate file to `user_version = 2`; any behavioral
-      command against it fails with exit 1 and exactly `gsd is older
-      than this database (database revision 2, this gsd supports up to
-      1); upgrade gsd`.
+   3. Stamp a separate file with gsd's `application_id` and
+      `user_version = 2`; any behavioral command against it fails with
+      exit 1 and exactly `gsd is older than this database (database
+      revision 2, this gsd supports up to 1); upgrade gsd`.
    4. Create a nonempty version-0 SQLite file (any foreign table); a
       behavioral command against it fails with exit 1 and the existing
       not-empty message.
+   5. Create a foreign SQLite file at `user_version = 1`; a behavioral
+      command fails with exit 1 and `database does not belong to gsd`,
+      and the file remains byte-for-byte unchanged.
 3. Report the clean transcript.
 
 ## Consolidation checklist (`PROCESS.md`)

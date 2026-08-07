@@ -16,6 +16,8 @@ import (
 //go:embed all:migrations
 var migrationFiles embed.FS
 
+const gsdApplicationID = 0x47534431
+
 type migration struct {
 	revision int
 	name     string
@@ -350,8 +352,15 @@ func migrate(ctx context.Context, database *sql.DB, migrations []migration) erro
 		return err
 	}
 	maxRevision := migrations[len(migrations)-1].revision
+	applicationID, err := databaseApplicationID(ctx, database)
+	if err != nil {
+		return err
+	}
 	version, err := userVersion(ctx, database)
 	if err != nil {
+		return err
+	}
+	if err := validateDatabaseIdentity(applicationID, version); err != nil {
 		return err
 	}
 	if err := validateDatabaseRevision(version, maxRevision); err != nil {
@@ -385,8 +394,15 @@ func applyMigration(
 		storage,
 		fmt.Sprintf("database migration %04d", current.revision),
 		func(connection *sql.Conn) error {
+			applicationID, err := databaseApplicationID(ctx, connection)
+			if err != nil {
+				return err
+			}
 			version, err := userVersion(ctx, connection)
 			if err != nil {
+				return err
+			}
+			if err := validateDatabaseIdentity(applicationID, version); err != nil {
 				return err
 			}
 			if err := validateDatabaseRevision(version, maxRevision); err != nil {
@@ -430,6 +446,14 @@ func applyMigration(
 			if currentTemporaryObjects != temporaryObjects {
 				return fmt.Errorf("database migration %s changed the temporary schema", current.name)
 			}
+			if applicationID != gsdApplicationID {
+				if _, err := connection.ExecContext(
+					ctx,
+					fmt.Sprintf("PRAGMA application_id = %d", gsdApplicationID),
+				); err != nil {
+					return fmt.Errorf("stamp database application identity: %w", err)
+				}
+			}
 			if _, err := connection.ExecContext(
 				ctx,
 				fmt.Sprintf("PRAGMA user_version = %d", current.revision),
@@ -467,6 +491,17 @@ WHERE name NOT LIKE 'sqlite\_%' ESCAPE '\'
 	return objectCount == 0, nil
 }
 
+func databaseApplicationID(ctx context.Context, queryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}) (int, error) {
+	var applicationID int
+	if err := queryer.QueryRowContext(ctx, "PRAGMA application_id").Scan(&applicationID); err != nil {
+		return 0, fmt.Errorf("read database application identity: %w", err)
+	}
+
+	return applicationID, nil
+}
+
 func userVersion(ctx context.Context, queryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }) (int, error) {
@@ -476,6 +511,17 @@ func userVersion(ctx context.Context, queryer interface {
 	}
 
 	return version, nil
+}
+
+func validateDatabaseIdentity(applicationID, version int) error {
+	if applicationID == gsdApplicationID || applicationID == 0 && version == 0 {
+		return nil
+	}
+	return apperr.New(
+		apperr.Conflict,
+		"database does not belong to gsd",
+		nil,
+	)
 }
 
 func validateDatabaseRevision(version, maxRevision int) error {

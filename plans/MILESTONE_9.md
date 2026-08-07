@@ -13,15 +13,17 @@ migration, and real data enters through daily use.
 
 ### Migration runner
 
-- Numbered, embedded SQL migrations; `PRAGMA user_version` tracks the
-  applied revision; applied automatically on open, each migration in its
-  own transaction.
+- Numbered, embedded SQL migrations; `PRAGMA application_id` identifies
+  gsd files and `PRAGMA user_version` tracks the applied revision. Both
+  are stamped inside the migration transaction; migrations apply
+  automatically on open.
 - `0001_baseline.sql` = the accumulated throwaway schema through Search
   — tags, the alphabetical tag-array ordering — verbatim from the
   schema-convergence audit (i.e., `SCHEMA.md`; the FTS index is virtual
   and persists nothing). v1 ships no live migrations; the runner exists
   for everything after.
-- A database newer than the binary (`user_version` > known max) is a
+- A database without gsd's application identity is refused before DDL.
+  A gsd database newer than the binary (`user_version` > known max) is a
   fail-loud error ("gsd is older than this database").
 - Pre-baseline throwaway dbs get no special case: the dev-range stamps
   (`9000 + roadmap milestone number`) are never met in the wild, so a
@@ -37,11 +39,12 @@ migration, and real data enters through daily use.
 
 ## Chunks
 
-1. **Migration runner** — runner + baseline + guards + contract lint +
-   tests (fresh db, sequential apply, mid-migration failure rolls back,
-   future version refused, nonempty version-0 refused,
-   additive-or-full-delete lint). Single chunk: the milestone is one
-   vertical capability, the durable-database lifecycle.
+1. **Migration runner** — runner + baseline + identity and revision
+   guards + contract lint + tests (fresh db, sequential apply,
+   mid-migration failure rolls back, foreign and future versions refused,
+   nonempty version-0 refused, additive-or-full-delete lint). Single
+   chunk: the milestone is one vertical capability, the durable-database
+   lifecycle.
 
 ## Carried from Milestone 8
 
@@ -93,22 +96,25 @@ $ gsd inbox                        # migrations applied silently; data intact
 ## Agent-verified end-to-end workflow
 
 1. Migration tests inside `make check` (fresh apply, sequential apply,
-   mid-migration failure rollback, future-version refusal, nonempty
-   version-0 refusal, additive-or-full-delete lint).
+   mid-migration failure rollback, foreign-database refusal,
+   future-version refusal, nonempty version-0 refusal,
+   additive-or-full-delete lint).
 2. The agent drives the real built binary: a fresh database opens at
-   the baseline revision and data persists across invocations; a
-   future-revision database is refused with "gsd is older than this
-   database"; a nonempty version-0 file is refused as foreign.
+   the baseline revision with gsd's application identity and data
+   persists across invocations; a foreign database at a supported
+   revision remains untouched; a future gsd revision is refused with
+   "gsd is older than this database"; a nonempty version-0 file is
+   refused as foreign.
 
 ## Exit criteria
 
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
 - [ ] `COMMANDS.md` § Database reconciled to live-era semantics: an
-      empty version-0 database receives the baseline migration;
-      nonempty version-0 and future revisions fail loud with their
-      exact messages. No canonical document still claims a dev-range
-      guard exists.
+      empty version-0 database receives the identity-stamped baseline;
+      foreign identities, nonempty version-0, and future revisions fail
+      loud with their exact messages. No canonical document still claims
+      a dev-range guard exists.
 - [ ] `SCHEMA.md`'s stability contract amended to
       additive-or-full-delete, with the lint test named as its
       enforcement.

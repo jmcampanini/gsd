@@ -1,8 +1,10 @@
 package e2e
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,11 +36,19 @@ func TestMigrationWorkflow(t *testing.T) {
 		_ = database.Close()
 		t.Fatalf("read migrated database revision: %v", err)
 	}
+	var applicationID int
+	if err := database.QueryRow("PRAGMA application_id").Scan(&applicationID); err != nil {
+		_ = database.Close()
+		t.Fatalf("read migrated database application identity: %v", err)
+	}
 	if err := database.Close(); err != nil {
 		t.Fatalf("close migrated database: %v", err)
 	}
 	if version != 1 {
 		t.Errorf("migrated database revision = %d, want 1", version)
+	}
+	if applicationID == 0 {
+		t.Error("migrated database application identity = 0, want gsd identity")
 	}
 
 	futurePath := filepath.Join(directory, "future.db")
@@ -46,7 +56,10 @@ func TestMigrationWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open future database: %v", err)
 	}
-	if _, err := futureDatabase.Exec("PRAGMA user_version = 2"); err != nil {
+	if _, err := futureDatabase.Exec(fmt.Sprintf(
+		"PRAGMA application_id = %d; PRAGMA user_version = 2",
+		applicationID,
+	)); err != nil {
 		_ = futureDatabase.Close()
 		t.Fatalf("stamp future database revision: %v", err)
 	}
@@ -78,6 +91,40 @@ SELECT COUNT(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite\_%' ESCAPE '\'
 	}
 	if version != 2 || objectCount != 0 {
 		t.Errorf("future database after refusal = revision %d/object count %d, want 2/0", version, objectCount)
+	}
+
+	foreignPath := filepath.Join(directory, "foreign.db")
+	foreignDatabase, err := sql.Open("sqlite", foreignPath)
+	if err != nil {
+		t.Fatalf("open foreign database: %v", err)
+	}
+	if _, err := foreignDatabase.Exec(`
+CREATE TABLE foreign_data (value TEXT);
+INSERT INTO foreign_data (value) VALUES ('preserve');
+PRAGMA user_version = 1;
+`); err != nil {
+		_ = foreignDatabase.Close()
+		t.Fatalf("prepare foreign database: %v", err)
+	}
+	if err := foreignDatabase.Close(); err != nil {
+		t.Fatalf("close foreign database: %v", err)
+	}
+	before, err := os.ReadFile(foreignPath)
+	if err != nil {
+		t.Fatalf("read foreign database before refusal: %v", err)
+	}
+	assertMigrationJSONError(
+		t,
+		runGSD(t, "inbox", "--db", foreignPath, "--json"),
+		apperr.Conflict,
+		"database does not belong to gsd",
+	)
+	after, err := os.ReadFile(foreignPath)
+	if err != nil {
+		t.Fatalf("read foreign database after refusal: %v", err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Error("foreign database changed after refusal")
 	}
 }
 

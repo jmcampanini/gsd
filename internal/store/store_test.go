@@ -36,6 +36,13 @@ func TestOpenAppliesBaselineMigrationAndConfiguresConnections(t *testing.T) {
 	if version != 1 {
 		t.Errorf("user_version = %d, want 1", version)
 	}
+	var applicationID int
+	if err := storage.database.QueryRowContext(ctx, "PRAGMA application_id").Scan(&applicationID); err != nil {
+		t.Fatalf("read application_id: %v", err)
+	}
+	if applicationID != gsdApplicationID {
+		t.Errorf("application_id = %d, want %d", applicationID, gsdApplicationID)
+	}
 
 	for _, tableName := range []string{
 		"areas", "projects", "tasks", "tags", "task_tags", "project_tags", "area_tags",
@@ -365,8 +372,16 @@ func TestOpenRejectsUnsupportedDatabaseStates(t *testing.T) {
 		wantMessage string
 	}{
 		{
-			name:        "future revision",
-			setup:       "PRAGMA user_version = 2",
+			name:        "foreign current revision",
+			setup:       "CREATE TABLE foreign_data (value TEXT); PRAGMA user_version = 1",
+			wantMessage: "database does not belong to gsd",
+		},
+		{
+			name: "future revision",
+			setup: fmt.Sprintf(
+				"PRAGMA application_id = %d; PRAGMA user_version = 2",
+				gsdApplicationID,
+			),
 			wantMessage: "gsd is older than this database (database revision 2, this gsd supports up to 1); upgrade gsd",
 		},
 		{
@@ -375,8 +390,11 @@ func TestOpenRejectsUnsupportedDatabaseStates(t *testing.T) {
 			wantMessage: "database is not empty; delete your development database and try again",
 		},
 		{
-			name:        "negative revision",
-			setup:       "PRAGMA user_version = -1",
+			name: "negative revision",
+			setup: fmt.Sprintf(
+				"PRAGMA application_id = %d; PRAGMA user_version = -1",
+				gsdApplicationID,
+			),
 			wantMessage: "database revision -1 is invalid",
 		},
 	}
