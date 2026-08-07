@@ -336,10 +336,28 @@ keys. Relative file values are resolved from the config file's directory;
 relative env and flag values are resolved from the working directory. The
 `gsd config` report uses the corresponding absolute runtime location so
 redirected TOML preserves that location when reloaded from another directory.
-Parent directories are created when opening the database. During
-throwaway-data milestones, only a genuinely empty version-0 database is
-bootstrapped; a nonempty version-0 or differently versioned database fails
-with `conflict` and delete-your-dev-db guidance.
+Parent directories are created when opening the database.
+
+Schema migrations apply automatically and silently when a behavioral
+command opens the database; help, version, and argument parsing never
+touch it. `PRAGMA application_id` identifies gsd files and
+`PRAGMA user_version` tracks the applied revision. The guard ladder on
+open (all refusals are `conflict`-coded, exit 1):
+
+- A database at the current revision opens normally; one at an earlier
+  gsd revision applies the pending migrations in sequence, then opens.
+- A genuinely empty version-0 database receives the identity-stamped
+  baseline and the full migration chain.
+- A nonempty version-0 database is refused as foreign:
+  `database is not empty; delete your development database and try
+  again`.
+- A database with any other application identity is refused before any
+  DDL, file untouched: `database does not belong to gsd`.
+- A gsd database newer than the binary is refused:
+  `gsd is older than this database (database revision N, this gsd
+  supports up to M); upgrade gsd`.
+- A gsd database stamped with a negative revision is refused as
+  corrupt: `database revision N is invalid`.
 
 ## TUI (post-v1)
 

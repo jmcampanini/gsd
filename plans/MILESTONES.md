@@ -110,19 +110,36 @@ in-expression operators) and the now-vacuous no-live-migrations note;
 wrap-up aligned `TagNames` JSON with the shared non-HTML-escaped
 output policy across all tag-emitting commands.
 
+### Milestone 9 — Go live
+
+Delivered the durable database and closed v1: numbered SQL migrations
+embedded in the binary and applied automatically on open, with
+`0001_baseline` carrying the accumulated throwaway schema and
+`PRAGMA application_id`/`user_version` stamped inside each migration's
+transaction (`user_version` 1). The guard ladder refuses foreign
+identities, nonempty version-0 files, and databases newer than the
+binary with exact `conflict`-coded messages, and a mid-migration
+failure rolls back that migration only, resuming on the next open.
+`SCHEMA.md`'s additive-or-full-delete stability contract is enforced
+by a lint test diffing end states across the migration chain; the
+foundation review moved the DDL-only and temporary-schema policies to
+the test layer, so a violating migration is a `make check` failure,
+not a runtime check. Consolidation reconciled `COMMANDS.md` § Database
+to live-era semantics. From here real data enters through daily use
+and every schema change ships as a numbered migration.
+
 ## Active roadmap
 
-Active planning begins with the Go live milestone:
+Active planning begins with the Capture milestone:
 
 | # | Milestone | Capability delivered | Data mode |
 |---|-----------|----------------------|-----------|
-| 9 | [Go live](MILESTONE_9.md) | Schema migrations; the database becomes durable | **live** |
 | 10 | [Capture](MILESTONE_10.md) | TUI substrate + `gsd capture` popup | **live** |
 | 11 | [Navigator](MILESTONE_11.md) | Read-only full-screen `gsd tui` | **live** |
 | 12 | [Row verbs](MILESTONE_12.md) | Single-key mutations and reorder in the TUI | **live** |
 | 13 | [Input grammar](MILESTONE_13.md) | `:` command line and richer capture | **live** |
 
-v1 closes when Go live lands; Capture is the first post-v1 milestone.
+v1 closed when Go live landed; Capture is the first post-v1 milestone.
 
 The TUI enters the map as Milestones 10–13, sequenced by foundational
 layer rather than feature count: each milestone boundary marks a
@@ -145,16 +162,20 @@ when their trigger fires:
 
 ## Data policy
 
-- **Before Go live (throwaway):** no migrations. Each schema-changing
-  milestone bumps `PRAGMA user_version`, stamped in a dev-only range
-  (`9000 + roadmap milestone number`) so throwaway stamps can never collide
-  with real migration numbers later. On mismatch, the binary fails loud with
-  "throwaway db from an older milestone — delete it." Development databases
-  are disposable by declaration.
-- **Go live onward (live):** the accumulated schema becomes migration
-  `0001_baseline`; every later schema change ships as a numbered migration.
-  Real data must survive every subsequent milestone under the schema stability
-  contract in `SCHEMA.md`.
+- **Before Go live (throwaway era, historical):** development ran
+  without migrations. Each schema-changing milestone bumped
+  `PRAGMA user_version` in a dev-only range
+  (`9000 + roadmap milestone number`) so throwaway stamps could never
+  collide with real migration numbers, and the binary failed loud on a
+  mismatch; development databases were disposable by declaration. No
+  dev-range guard survives Go live — a leftover throwaway database
+  never carried gsd's `application_id`, so it fails the
+  foreign-identity refusal in `COMMANDS.md` § Database.
+- **Go live onward (live):** the accumulated schema became migration
+  `0001_baseline`; every later schema change ships as a numbered
+  migration that applies automatically on open. Real data must survive
+  every subsequent milestone under the schema stability contract in
+  `SCHEMA.md`.
 
 ## Decisions and history
 

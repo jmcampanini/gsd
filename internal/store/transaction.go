@@ -13,7 +13,7 @@ func withinDeferredTransaction(
 	noun string,
 	apply func(*sql.Conn) error,
 ) error {
-	return withinTransaction(ctx, database, noun, "BEGIN", apply)
+	return withinTransaction(ctx, database.database, noun, "BEGIN", apply)
 }
 
 func withinImmediateTransaction(
@@ -22,7 +22,7 @@ func withinImmediateTransaction(
 	noun string,
 	apply func(*sql.Conn) error,
 ) error {
-	return withinTransaction(ctx, database, noun, "BEGIN IMMEDIATE", apply)
+	return withinTransaction(ctx, database.database, noun, "BEGIN IMMEDIATE", apply)
 }
 
 func runInTransaction[S, T any](
@@ -46,12 +46,12 @@ func runInTransaction[S, T any](
 
 func withinTransaction(
 	ctx context.Context,
-	database *DB,
+	database *sql.DB,
 	noun string,
 	beginStatement string,
 	apply func(*sql.Conn) error,
 ) error {
-	connection, err := database.database.Conn(ctx)
+	connection, err := database.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("reserve %s transaction connection: %w", noun, err)
 	}

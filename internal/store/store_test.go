@@ -16,7 +16,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-func TestOpenBootstrapsMilestoneSixSchemaAndConfiguresConnections(t *testing.T) {
+func TestOpenAppliesBaselineMigrationAndConfiguresConnections(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -33,8 +33,15 @@ func TestOpenBootstrapsMilestoneSixSchemaAndConfiguresConnections(t *testing.T) 
 	if err := storage.database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("read user_version: %v", err)
 	}
-	if version != 9006 {
-		t.Errorf("user_version = %d, want 9006", version)
+	if version != 1 {
+		t.Errorf("user_version = %d, want 1", version)
+	}
+	var applicationID int
+	if err := storage.database.QueryRowContext(ctx, "PRAGMA application_id").Scan(&applicationID); err != nil {
+		t.Fatalf("read application_id: %v", err)
+	}
+	if applicationID != gsdApplicationID {
+		t.Errorf("application_id = %d, want %d", applicationID, gsdApplicationID)
 	}
 
 	for _, tableName := range []string{
@@ -356,15 +363,51 @@ func TestAddAppendsPositionsAcrossResolvedTasksAndGeneratesStatus(t *testing.T) 
 	}
 }
 
-func TestOpenRejectsUnsafeBootstrapStates(t *testing.T) {
+func TestOpenRejectsUnsupportedDatabaseStates(t *testing.T) {
 	t.Parallel()
 
+	migrations, err := loadMigrations(migrationFiles)
+	if err != nil {
+		t.Fatalf("loadMigrations() error = %v", err)
+	}
+	maxRevision := migrations[len(migrations)-1].revision
+
 	tests := []struct {
-		name  string
-		setup string
+		name        string
+		setup       string
+		wantMessage string
 	}{
-		{name: "wrong revision", setup: "PRAGMA user_version = 42"},
-		{name: "nonempty version zero", setup: "CREATE TABLE existing (id INTEGER)"},
+		{
+			name:        "foreign current revision",
+			setup:       "CREATE TABLE foreign_data (value TEXT); PRAGMA user_version = 1",
+			wantMessage: "database does not belong to gsd",
+		},
+		{
+			name: "future revision",
+			setup: fmt.Sprintf(
+				"PRAGMA application_id = %d; PRAGMA user_version = %d",
+				gsdApplicationID,
+				maxRevision+1,
+			),
+			wantMessage: fmt.Sprintf(
+				"gsd is older than this database (database revision %d, this gsd supports up to %d); upgrade gsd",
+				maxRevision+1,
+				maxRevision,
+			),
+		},
+		{
+			name:        "nonempty version zero",
+			setup:       "CREATE TABLE existing (id INTEGER)",
+			wantMessage: "database is not empty; delete your development database and try again",
+		},
+		{
+			name: "negative revision",
+			setup: fmt.Sprintf(
+				"PRAGMA application_id = %d; PRAGMA user_version = -1",
+				gsdApplicationID,
+			),
+			wantMessage: "database revision -1 is invalid",
+		},
 	}
 
 	for _, test := range tests {
@@ -392,8 +435,8 @@ func TestOpenRejectsUnsafeBootstrapStates(t *testing.T) {
 			if !ok || code != apperr.Conflict {
 				t.Errorf("Open() error = %v, want conflict", err)
 			}
-			if !strings.Contains(err.Error(), "delete your development database") {
-				t.Errorf("Open() error = %q, want delete guidance", err)
+			if err.Error() != test.wantMessage {
+				t.Errorf("Open() error = %q, want %q", err, test.wantMessage)
 			}
 		})
 	}
@@ -421,7 +464,7 @@ func TestOpenAcceptsExistingCurrentRevision(t *testing.T) {
 	}
 }
 
-func TestConcurrentOpenBootstrapsOnce(t *testing.T) {
+func TestConcurrentOpenAppliesBaselineOnce(t *testing.T) {
 	t.Parallel()
 
 	const openerCount = 4

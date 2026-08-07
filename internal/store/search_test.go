@@ -416,6 +416,11 @@ func TestSearchEmptyResultIsNonNilAndLeavesNoPersistentSchema(t *testing.T) {
 	t.Parallel()
 
 	ctx, storage := openTestStorage(t)
+	var versionBefore int
+	if err := storage.database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&versionBefore); err != nil {
+		t.Fatalf("read user_version before search: %v", err)
+	}
+
 	hits, err := NewSearch(storage).Search(ctx, "absent", false)
 	if err != nil {
 		t.Fatalf("Search(absent) error = %v", err)
@@ -424,12 +429,12 @@ func TestSearchEmptyResultIsNonNilAndLeavesNoPersistentSchema(t *testing.T) {
 		t.Errorf("Search(absent) = %#v, want nonnil empty slice", hits)
 	}
 
-	var version int
-	if err := storage.database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
-		t.Fatalf("read user_version: %v", err)
+	var versionAfter int
+	if err := storage.database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&versionAfter); err != nil {
+		t.Fatalf("read user_version after search: %v", err)
 	}
-	if version != schemaRevision {
-		t.Errorf("user_version = %d, want unchanged %d", version, schemaRevision)
+	if versionAfter != versionBefore {
+		t.Errorf("user_version after search = %d, want unchanged %d", versionAfter, versionBefore)
 	}
 	assertNoTemporarySearchIndex(t, storage)
 }
