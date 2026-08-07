@@ -30,7 +30,7 @@ gsd serve [--addr HOST:PORT]
   flag `--addr`, standard precedence; default `127.0.0.1:8473`. A
   non-loopback host is `invalid_argument` at startup — loopback-only and
   no auth is the v1 exposure contract. Key #2 trips the deferred
-  config-report generalization recorded in `MILESTONE_9.md` (source
+  config-report generalization recorded in `MILESTONE_10.md` (source
   classification pushed into go-config-loader's `configreporter`);
   `gsd config --provenance` reports the new key like `db_path`.
 
