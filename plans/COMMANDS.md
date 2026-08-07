@@ -356,6 +356,8 @@ open (all refusals are `conflict`-coded, exit 1):
 - A gsd database newer than the binary is refused:
   `gsd is older than this database (database revision N, this gsd
   supports up to M); upgrade gsd`.
+- A gsd database stamped with a negative revision is refused as
+  corrupt: `database revision N is invalid`.
 
 ## TUI (post-v1)
 

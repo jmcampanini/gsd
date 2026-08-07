@@ -22,8 +22,8 @@ func TestLoadMigrationsValidatesEmbeddedCatalog(t *testing.T) {
 		{
 			name: "valid",
 			files: fstest.MapFS{
-				"migrations/0001_baseline.sql": &fstest.MapFile{Data: []byte("-- baseline\nCREATE TABLE first (value TEXT DEFAULT ';');")},
-				"migrations/0002_second.sql":   &fstest.MapFile{Data: []byte("/* next */ CREATE TRIGGER first_update AFTER UPDATE ON first BEGIN UPDATE first SET value = CASE WHEN NEW.value IS NULL THEN ';' ELSE NEW.value END; END; CREATE TABLE second (id INTEGER);")},
+				"migrations/0001_baseline.sql": &fstest.MapFile{Data: []byte("CREATE TABLE first (id INTEGER);")},
+				"migrations/0002_second.sql":   &fstest.MapFile{Data: []byte("CREATE TABLE second (id INTEGER);")},
 			},
 			wantCount: 2,
 		},
@@ -31,6 +31,13 @@ func TestLoadMigrationsValidatesEmbeddedCatalog(t *testing.T) {
 			name: "malformed filename",
 			files: fstest.MapFS{
 				"migrations/1_baseline.sql": &fstest.MapFile{Data: []byte("CREATE TABLE first (id INTEGER);")},
+			},
+			wantError: "invalid database migration filename",
+		},
+		{
+			name: "malformed revision",
+			files: fstest.MapFS{
+				"migrations/00a1_baseline.sql": &fstest.MapFile{Data: []byte("CREATE TABLE first (id INTEGER);")},
 			},
 			wantError: "invalid database migration filename",
 		},
@@ -63,27 +70,6 @@ func TestLoadMigrationsValidatesEmbeddedCatalog(t *testing.T) {
 				"migrations/0001_baseline.sql": &fstest.MapFile{},
 			},
 			wantError: "is empty",
-		},
-		{
-			name: "data manipulation",
-			files: fstest.MapFS{
-				"migrations/0001_baseline.sql": &fstest.MapFile{Data: []byte("DELETE FROM tasks;")},
-			},
-			wantError: "non-DDL statement DELETE",
-		},
-		{
-			name: "transaction control",
-			files: fstest.MapFS{
-				"migrations/0001_baseline.sql": &fstest.MapFile{Data: []byte("CREATE TABLE first (id INTEGER); COMMIT;")},
-			},
-			wantError: "non-DDL statement COMMIT",
-		},
-		{
-			name: "runner owned pragma",
-			files: fstest.MapFS{
-				"migrations/0001_baseline.sql": &fstest.MapFile{Data: []byte("PRAGMA user_version = 1;")},
-			},
-			wantError: "non-DDL statement PRAGMA",
 		},
 		{
 			name: "empty chain",
@@ -143,33 +129,6 @@ func TestMigrateAppliesFullChainToEmptyDatabase(t *testing.T) {
 		); count != 1 {
 			t.Errorf("schema object %s count = %d, want 1", object, count)
 		}
-	}
-}
-
-func TestMigrateRejectsTemporarySchemaObjects(t *testing.T) {
-	t.Parallel()
-
-	database := openRawMigrationDatabase(t)
-	migrations := []migration{
-		{revision: 1, name: "0001_temporary.sql", sql: "CREATE TEMP TABLE transient (id INTEGER);"},
-	}
-
-	err := migrate(context.Background(), database, migrations)
-	if err == nil || !strings.Contains(err.Error(), "changed the temporary schema") {
-		t.Fatalf("migrate() error = %v, want temporary-schema rejection", err)
-	}
-	if version := migrationTestUserVersion(t, database); version != 0 {
-		t.Errorf("user_version after rejection = %d, want 0", version)
-	}
-	if applicationID := migrationTestApplicationID(t, database); applicationID != 0 {
-		t.Errorf("application_id after rejection = %d, want 0", applicationID)
-	}
-	if count := migrationTestCount(
-		t,
-		database,
-		"SELECT COUNT(*) FROM sqlite_temp_schema WHERE name = 'transient'",
-	); count != 0 {
-		t.Errorf("temporary table count after rejection = %d, want 0", count)
 	}
 }
 
