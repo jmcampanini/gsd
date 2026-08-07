@@ -343,7 +343,7 @@ with `conflict` and delete-your-dev-db guidance.
 
 ## TUI (post-v1)
 
-The TUI arrives as Milestones 12–15 and targets full parity with the
+The TUI arrives as Milestones 10–13 and targets full parity with the
 CLI, achieved structurally:
 
 - **Full-screen views, no panes**: exactly one view at a time — a root

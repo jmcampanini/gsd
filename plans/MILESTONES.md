@@ -116,16 +116,15 @@ Active planning begins with the Go live milestone:
 
 | # | Milestone | Capability delivered | Data mode |
 |---|-----------|----------------------|-----------|
-| 10 | [Go live](MILESTONE_10.md) | Migrations, install story, real-data import | **live** |
-| 11 | [Serve](MILESTONE_11.md) | Loopback HTTP API | **live** |
-| 12 | [Capture](MILESTONE_12.md) | TUI substrate + `gsd capture` popup | **live** |
-| 13 | [Navigator](MILESTONE_13.md) | Read-only full-screen `gsd tui` | **live** |
-| 14 | [Row verbs](MILESTONE_14.md) | Single-key mutations and reorder in the TUI | **live** |
-| 15 | [Input grammar](MILESTONE_15.md) | `:` command line and richer capture | **live** |
+| 9 | [Go live](MILESTONE_9.md) | Schema migrations; the database becomes durable | **live** |
+| 10 | [Capture](MILESTONE_10.md) | TUI substrate + `gsd capture` popup | **live** |
+| 11 | [Navigator](MILESTONE_11.md) | Read-only full-screen `gsd tui` | **live** |
+| 12 | [Row verbs](MILESTONE_12.md) | Single-key mutations and reorder in the TUI | **live** |
+| 13 | [Input grammar](MILESTONE_13.md) | `:` command line and richer capture | **live** |
 
-v1 closes with Go live; Serve is the first post-v1 milestone.
+v1 closes when Go live lands; Capture is the first post-v1 milestone.
 
-The TUI enters the map as Milestones 12–15, sequenced by foundational
+The TUI enters the map as Milestones 10–13, sequenced by foundational
 layer rather than feature count: each milestone boundary marks a
 foundation review that later TUI work builds on — substrate, then
 navigation, then mutation, then grammar. Leaf features ride their
@@ -133,6 +132,16 @@ layer's milestone as chunks: live `/` search in Navigator, grab-and-move
 reorder in Row verbs, capture runner mode in Input grammar. Pane and
 split layouts, mouse support, and markdown note rendering are parked
 explorations, deliberately unnumbered.
+
+### Optional milestones
+
+Sequenced after the TUI, in live data mode, and entering planning only
+when their trigger fires:
+
+| # | Milestone | Capability delivered | Activation trigger |
+|---|-----------|----------------------|--------------------|
+| 14 | [Serve](MILESTONE_14.md) | Loopback HTTP API | A consumer that can't exec the CLI (browser frontend, remote agent) |
+| 15 | [Query](MILESTONE_15.md) | Read-only SQL escape hatch | Daily use demonstrates the need for raw SQL |
 
 ## Data policy
 
@@ -218,3 +227,20 @@ explorations, deliberately unnumbered.
   `MILESTONE_10.md`. Go live's install story partially shipped early the
   same day: `Formula/gsd.rb` and the self-tap README install
   instructions landed via PR #53.
+- 2026-08-06, roadmap restructure and renumbering: Serve moved behind
+  the TUI and became optional — nothing needs HTTP today (the TUI is
+  in-process and agents drive the CLI's `--json` surface), and
+  deferring it reaches daily use sooner; it activates only when a
+  consumer that can't exec the CLI appears (browser frontend, remote
+  agent). Query returned to the roadmap as an optional milestone after
+  Serve, keeping its cancellation trigger. The roadmap was renumbered
+  as a clean break — Go live retakes 9, the TUI is 10–13, Serve is 14,
+  Query is 15; earlier decision entries keep the numbers that were
+  current when they were written. Go live itself was cut to the
+  migration runner: the install story had already shipped (PR #53 and
+  a verified `brew install --HEAD` on the target machine; the README
+  landing-page rewrite and completion docs were deliberately dropped),
+  and the agent-driven import and functional completeness audit were
+  descoped — real data enters through daily use from a fresh start,
+  and real use surfaces gaps over time, so v1 closes when Go live
+  lands, with no import, soak, or old-tool-demotion gate.

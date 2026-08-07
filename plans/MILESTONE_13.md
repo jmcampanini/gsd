@@ -1,88 +1,54 @@
-# Milestone 13 — Navigator
+# Milestone 13 — Input grammar
 
-Data mode: **live**. Depends on: Milestone 12 (substrate); the `/` chunk
-rides Milestone 8's FTS index.
+Data mode: **live**. Depends on: Milestone 12.
 
-Written light; re-review at plan gate. The paradigm below is settled;
-everything finer is proposed.
+Written light; re-review at plan gate.
 
 ## Capability
 
-`gsd tui` — the full TUI experience, read-only: navigate the whole
-system from a root tree down to any entity's detail without mutating
-anything. This milestone consolidates the navigation layer — the view
-stack, view types, selection model, and data binding — that every later
-TUI verb, reorder, and command-line milestone acts on.
+Full parity, structurally: the CLI grammar arrives inside the TUI, and
+capture grows syntax. One grammar-execution engine serves the `:`
+command line, the edit/tag mnemonics, and capture's richer modes —
+parity is shared code, not discipline.
 
 ## Scope
 
-- **Full-screen views, no panes.** Exactly one view on screen;
-  navigating replaces the screen entirely. The same structure works in
-  a full terminal and a tmux popup. Pane and split layouts are parked
-  explorations, deliberately out of scope.
-- **Three view types.**
-  - *Root tree*: Inbox, Available, Logbook; then loose projects; then
-    areas with their open projects nested. Every container is one jump
-    from the root.
-  - *Container list*: a compact selectable header for the container
-    itself above the rows. Enter on the header opens the container's
-    detail; Enter on a task opens the task's detail; Enter on a nested
-    container drills in. An area lists its open projects, then its
-    loose open tasks, composed from existing list operations.
-  - *Detail*: one uniform view rendering any entity — area, project, or
-    task — mirroring `show` (fields, tags, dates). Notes render as
-    plain escaped text; markdown is a parked exploration.
-- **Navigation**: `j`/`k`/arrows move (the header is the topmost cursor
-  position), Enter descends/opens, Esc/`h` goes back, `q` quits.
-  Keyboard-only.
-- **Freshness**: data loads when a view is entered; re-entering
-  re-reads. No polling or watchers.
-- **`/` is incremental search** with the same semantics as `gsd search`
-  (in the tree since Milestone 8), filtering the current view live.
-  Search implies a query per keystroke, and the virtual index is
-  rebuilt per invocation (~25ms at 5,000 documents): decide index
-  lifetime — per-call, session-held, or debounced — at this plan gate.
+- **`:` opens a command line** accepting the CLI grammar verbatim,
+  minus the binary name (`:projects add "Kitchen reno" --area 3`). It
+  calls the same parser and core; results and errors render through
+  Milestone 12's feedback surfaces.
+- **`e` edit and `t` tag** arrive as mnemonics that prefill the command
+  line for the selected row — verbs the single-key layer couldn't
+  express without a grammar.
+- **Inline capture syntax** (**proposed**: tag, date, and project
+  tokens on the title) shared between `gsd capture` and the TUI's `a`
+  quick add.
+- **Capture runner mode**: the popup accepts the CLI grammar and
+  executes it, riding the `:` engine.
+- Internal ordering of the capture-syntax and command-line chunks is
+  settled at plan gate.
 
 ## Chunks
 
-1. **Stack and root tree** — view stack, root tree over the three views
-   and the area/project containers.
-2. **Container lists** — list views with selectable headers, area
-   composition, drill-in/out.
-3. **Uniform detail** — the `show`-mirroring detail view for all three
-   kinds.
-4. **Live filter** — `/` incremental filtering of the current view.
-
-## User stories
-
-```text
-$ gsd tui        # root: Inbox, Available, Logbook, projects, areas
-                 # ↓ into an area: its projects, then loose tasks
-                 # ↓ into a project: its tasks
-                 # Enter on the header: the project's detail
-                 # Esc, Esc, Esc: back at the root; q: gone
-```
+1. **Grammar engine and `:`** — in-process execution of the CLI grammar
+   against the same parser and services; result and error rendering.
+2. **Edit and tag mnemonics** — `e`/`t` prefill on the selection.
+3. **Inline capture syntax** — the token grammar, in `capture` and `a`.
+4. **Capture runner mode** — the popup executes the grammar.
 
 ## Agent-verified end-to-end workflow
 
-Against the real built binary and a seeded temporary database, driving a
-tmux session:
-
-1. Root shows the three views and the seeded containers in position
-   order; nested projects sit under their areas; loose projects at top
-   level.
-2. Drill area → project → task detail and back; screens contain the
-   expected rows and fields at each step.
-3. Header selection opens area and project detail; content matches
-   `show --json` for the same IDs.
-4. Mutate via the CLI mid-session; re-entering the view reflects it.
-5. `/` narrows the current view live; clearing it restores the view.
+Tmux-driven against the real binary and a seeded temporary database:
+run representative commands through `:` (add, edit, tag, cascade,
+error cases) and verify equivalence with the CLI's `--json` output for
+the same operations; capture with inline syntax lands the parsed
+fields; runner mode round-trips a full command.
 
 ## Exit criteria
 
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
-- [ ] `COMMANDS.md` documents `tui` as a shipped command.
+- [ ] `COMMANDS.md` documents the capture syntax and runner mode.
 
 ## Standards
 
