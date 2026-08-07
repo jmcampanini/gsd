@@ -16,7 +16,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-func TestOpenBootstrapsMilestoneSixSchemaAndConfiguresConnections(t *testing.T) {
+func TestOpenAppliesBaselineMigrationAndConfiguresConnections(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -33,8 +33,8 @@ func TestOpenBootstrapsMilestoneSixSchemaAndConfiguresConnections(t *testing.T) 
 	if err := storage.database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("read user_version: %v", err)
 	}
-	if version != 9006 {
-		t.Errorf("user_version = %d, want 9006", version)
+	if version != 1 {
+		t.Errorf("user_version = %d, want 1", version)
 	}
 
 	for _, tableName := range []string{
@@ -356,15 +356,29 @@ func TestAddAppendsPositionsAcrossResolvedTasksAndGeneratesStatus(t *testing.T) 
 	}
 }
 
-func TestOpenRejectsUnsafeBootstrapStates(t *testing.T) {
+func TestOpenRejectsUnsupportedDatabaseStates(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		setup string
+		name        string
+		setup       string
+		wantMessage string
 	}{
-		{name: "wrong revision", setup: "PRAGMA user_version = 42"},
-		{name: "nonempty version zero", setup: "CREATE TABLE existing (id INTEGER)"},
+		{
+			name:        "future revision",
+			setup:       "PRAGMA user_version = 2",
+			wantMessage: "gsd is older than this database (database revision 2, this gsd supports up to 1); upgrade gsd",
+		},
+		{
+			name:        "nonempty version zero",
+			setup:       "CREATE TABLE existing (id INTEGER)",
+			wantMessage: "database is not empty; delete your development database and try again",
+		},
+		{
+			name:        "negative revision",
+			setup:       "PRAGMA user_version = -1",
+			wantMessage: "database revision -1 is invalid",
+		},
 	}
 
 	for _, test := range tests {
@@ -392,8 +406,8 @@ func TestOpenRejectsUnsafeBootstrapStates(t *testing.T) {
 			if !ok || code != apperr.Conflict {
 				t.Errorf("Open() error = %v, want conflict", err)
 			}
-			if !strings.Contains(err.Error(), "delete your development database") {
-				t.Errorf("Open() error = %q, want delete guidance", err)
+			if err.Error() != test.wantMessage {
+				t.Errorf("Open() error = %q, want %q", err, test.wantMessage)
 			}
 		})
 	}
@@ -421,7 +435,7 @@ func TestOpenAcceptsExistingCurrentRevision(t *testing.T) {
 	}
 }
 
-func TestConcurrentOpenBootstrapsOnce(t *testing.T) {
+func TestConcurrentOpenAppliesBaselineOnce(t *testing.T) {
 	t.Parallel()
 
 	const openerCount = 4

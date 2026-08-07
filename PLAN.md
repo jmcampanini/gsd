@@ -16,8 +16,11 @@ were resolved in its wrap-up; the deferred items carry forward in
 ## Settled design
 
 - **Layout.** Migrations live in `internal/store/migrations/NNNN_name.sql`,
-  embedded via `embed.FS`. Files contain DDL only. The runner derives the
-  max known revision from the filenames and stamps `PRAGMA user_version`
+  embedded via `embed.FS`. Files contain top-level `CREATE`, `ALTER`, and
+  `DROP` DDL only; catalog loading rejects every other top-level statement
+  before the database is opened, and temporary-schema changes are refused
+  before revision stamping. The runner derives the max known revision from
+  the filenames and stamps `PRAGMA user_version`
   itself after each migration, inside that migration's transaction —
   `0001_baseline.sql` therefore carries no `PRAGMA user_version` line.
 - **Baseline.** `0001_baseline.sql` is the accumulated schema through
@@ -47,10 +50,16 @@ were resolved in its wrap-up; the deferred items carry forward in
   the existing 5s busy timeout.
 - **Stability contract, codified.** Additive-or-full-delete, enforced by
   a store-layer lint test that applies the chain migration by migration
-  and diffs end states: an object surviving a migration keeps its column
-  tuples (name, type, constraints) exactly, with additions appended
-  only; whole-object drops are legal; indexes are exempt. `SCHEMA.md`'s
-  contract section is amended to match at consolidation.
+  and diffs end states: an object surviving a migration keeps its
+  SQLite-exposed column metadata (name, type, nullability, default,
+  primary-key position, and generated-column kind) and associated foreign
+  keys and uniqueness constraints exactly, with additions appended only;
+  whole-object drops are legal; explicit indexes are exempt. The lint uses
+  structured SQLite metadata and does not parse raw `CREATE` SQL for
+  `CHECK` text, collations outside uniqueness constraints, foreign-key
+  deferral mode, or generated expressions. `SCHEMA.md`'s contract section
+  is amended to match at
+  consolidation.
 - **Test seam.** The runner's core takes a migrations slice; `Open`
   wires the embedded set; tests feed fabricated chains (multi-step,
   failing, contract-violating). `Open`'s signature and `cmd` wiring are
@@ -68,43 +77,51 @@ loudly instead of being touched.
 
 Implementation:
 
-- [ ] `internal/store/migrations/0001_baseline.sql`: the accumulated
+- [x] `internal/store/migrations/0001_baseline.sql`: the accumulated
       schema, statement order matched to `SCHEMA.md`, no `user_version`
       stamp; delete `schema.sql`.
-- [ ] `internal/store/migrate.go`: runner replacing `bootstrap()` — the
+- [x] `internal/store/migrate.go`: runner replacing `bootstrap()` — the
       guard ladder above, sequential apply of pending migrations, one
       `BEGIN IMMEDIATE` transaction per migration with the
       `user_version` stamp inside it, max revision parsed from the
       embedded filenames; the core takes a migrations slice and `Open`
       wires the embedded set.
-- [ ] Refusal errors `conflict`-coded with the exact messages above;
+- [x] Refusal errors `conflict`-coded with the exact messages above;
       messages state semantics only, per the store-boundary contract.
-- [ ] Update revision expectations across existing store and e2e tests
+- [x] Update revision expectations across existing store and e2e tests
       (9006 → 1) and rework the wrong-revision fixtures to the new
       ladder.
 
 Verification (primary owner: store tests on real temp SQLite,
 fabricated chains where the real chain is too short):
 
-- [ ] Fresh empty database: the full chain applies, lands at max
+- [x] Fresh empty database: the full chain applies, lands at max
       revision, schema objects present.
-- [ ] Sequential apply: a database at revision k applies only k+1..max
+- [x] Sequential apply: a database at revision k applies only k+1..max
       (fabricated two-migration chain).
-- [ ] Mid-migration failure: a failing fabricated migration rolls back
+- [x] Mid-migration failure: a failing fabricated migration rolls back
       atomically — schema and `user_version` both remain at the last
       good revision; a rerun succeeds once the chain is fixed.
-- [ ] Future revision: refused, `conflict`, exact message.
-- [ ] Nonempty version-0: refused, `conflict`, message unchanged.
-- [ ] Contract lint over the real embedded chain (end-state diff per
+- [x] Future revision: refused, `conflict`, exact message.
+- [x] Nonempty version-0: refused, `conflict`, message unchanged.
+- [x] Contract lint over the real embedded chain (end-state diff per
       migration, additive-or-full-delete, indexes exempt), plus
       fabricated violating chains — a column retype, a column loss, and
       a view recreation that loses a column — proving the lint fails
       them.
-- [ ] e2e (subprocess, inside `make check`): a fresh database opens at
+- [x] e2e (subprocess, inside `make check`): a fresh database opens at
       revision 1 (read from the file) and data persists across separate
       binary invocations; a stamped future revision is refused with the
       exact message and exit 1.
-- [ ] `make check` green.
+- [x] `make check` green.
+
+Informational timing (not a gate):
+
+- [x] Build the real binary and a same-source comparison binary under
+      `.sandbox/` with only the migration check bypassed. Use `hyperfine`
+      with warmups and repeated runs against an already-current database
+      for read-only `inbox` and `show` commands. Report absolute latency,
+      delta, and ratio; commit no benchmark code or target.
 
 Human proof (chunk demo `.sandbox/demos/9-chunk-1.html`), exact
 commands:
@@ -117,9 +134,10 @@ gsd --db .sandbox/demo-future.db inbox           # refused: gsd is older than th
 ```
 
 - [ ] Agent verification before review: build the real binary, run the
-      demo command list against a fresh temporary database, capture the
-      verbatim output into the deck, and pass local `make check`; then
-      open the chunk PR against the milestone branch.
+      informational timing phase, run the demo command list against a
+      fresh temporary database, capture the verbatim output into the deck,
+      and pass local `make check`; then open the chunk PR against the
+      milestone branch.
 
 ## Agent-verified end-to-end workflow
 
