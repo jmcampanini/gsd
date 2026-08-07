@@ -243,11 +243,11 @@ against a fresh temporary database:
 
 ## Consolidation checklist (`PROCESS.md`)
 
-- [ ] `COMMANDS.md` documents `capture` as a shipped command — the
+- [x] `COMMANDS.md` documents `capture` as a shipped command — the
       ratified defaults (blank no-op, non-TTY usage error, inline
       write error with exit 1), Esc/Ctrl+C cancel, alt-screen, the
       chrome and color behavior, the `-w 64 -h 4` recommended popup,
       and tmux as the e2e prerequisite — and the TUI (post-v1) section
       is reconciled to point at it.
-- [ ] `DIVERGENCES.md` stays empty.
+- [x] `DIVERGENCES.md` stays empty.
 - [ ] Standard exit workflow plus `MILESTONE_10.md`'s exit criteria.
