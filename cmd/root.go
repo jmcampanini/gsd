@@ -19,6 +19,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/store"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
+	"github.com/jmcampanini/gsd/internal/tui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -97,6 +98,22 @@ func newRootCommandWithRuntimeDependencies(
 	location *time.Location,
 	presentationDependencies presentationDependencies,
 ) *cobra.Command {
+	return newRootCommandWithCaptureRunner(
+		factory,
+		loadConfiguration,
+		location,
+		presentationDependencies,
+		tui.RunCapture,
+	)
+}
+
+func newRootCommandWithCaptureRunner(
+	factory applicationFactory,
+	loadConfiguration configurationLoader,
+	location *time.Location,
+	presentationDependencies presentationDependencies,
+	runCapture captureRunner,
+) *cobra.Command {
 	options := &rootOptions{color: colorAuto}
 	availablePresentation := &presentation{
 		mode:         &options.color,
@@ -132,6 +149,7 @@ func newRootCommandWithRuntimeDependencies(
 		newAreasCommand(options, factory),
 		newAvailableCommand(options, factory),
 		newCancelCommand(options, factory),
+		newCaptureCommand(options, factory, runCapture),
 		newConfigCommand(options, loadConfiguration),
 		newDeleteCommand(options, factory),
 		newDoneCommand(options, factory),

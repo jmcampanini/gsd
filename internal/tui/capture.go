@@ -1,0 +1,179 @@
+package tui
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/jmcampanini/gsd/internal/task"
+)
+
+const (
+	captureFooter   = "enter add · esc cancel"
+	cursorCellWidth = 1
+)
+
+type CaptureModel struct {
+	ctx          context.Context
+	application  task.Application
+	input        textinput.Model
+	footerStyle  lipgloss.Style
+	colorEnabled bool
+	width        int
+	submitting   bool
+	err          error
+}
+
+func NewCaptureModel(
+	ctx context.Context,
+	application task.Application,
+	colorEnabled bool,
+) CaptureModel {
+	input := textinput.New()
+	input.SetVirtualCursor(false)
+	input.Focus()
+
+	model := CaptureModel{
+		ctx:          ctx,
+		application:  application,
+		input:        input,
+		colorEnabled: colorEnabled,
+	}
+	model.applyTheme(true)
+	return model
+}
+
+func (m CaptureModel) Init() tea.Cmd {
+	if m.colorEnabled {
+		return tea.RequestBackgroundColor
+	}
+	return nil
+}
+
+func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		if m.colorEnabled {
+			m.applyTheme(msg.IsDark())
+		}
+		return m, nil
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.resizeInput()
+		return m, nil
+	case captureResultMsg:
+		m.err = msg.err
+		return m, tea.Quit
+	case tea.KeyPressMsg:
+		if m.submitting {
+			return m, nil
+		}
+		switch msg.String() {
+		case "ctrl+c", "esc":
+			return m, tea.Quit
+		case "enter":
+			title := m.input.Value()
+			if strings.TrimSpace(title) == "" {
+				return m, nil
+			}
+			m.submitting = true
+			m.input.Blur()
+			return m, captureTask(m.ctx, m.application, title)
+		}
+	}
+
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+func (m CaptureModel) View() tea.View {
+	view := tea.NewView(m.input.View() + "\n" + m.footerStyle.Render(captureFooter))
+	view.Cursor = m.input.Cursor()
+	return view
+}
+
+func (m CaptureModel) Err() error {
+	return m.err
+}
+
+func (m *CaptureModel) applyTheme(isDark bool) {
+	styles := textinput.Styles{
+		Cursor: textinput.CursorStyle{
+			Shape: tea.CursorBlock,
+			Blink: true,
+		},
+	}
+	badgeStyle := lipgloss.NewStyle().Padding(0, 1)
+	m.footerStyle = lipgloss.NewStyle().PaddingLeft(1)
+
+	if m.colorEnabled {
+		theme := ThemeForBackground(isDark)
+		styles = textinput.DefaultStyles(isDark)
+		inputStyle := lipgloss.NewStyle().
+			Foreground(theme.Text).
+			Background(theme.InputBg)
+		styles.Focused.Prompt = lipgloss.NewStyle()
+		styles.Blurred.Prompt = lipgloss.NewStyle()
+		styles.Focused.Text = inputStyle
+		styles.Blurred.Text = inputStyle
+		styles.Focused.Placeholder = inputStyle.Foreground(theme.Dim)
+		styles.Blurred.Placeholder = inputStyle.Foreground(theme.Dim)
+		styles.Focused.Suggestion = inputStyle.Foreground(theme.Dim)
+		styles.Blurred.Suggestion = inputStyle.Foreground(theme.Dim)
+		badgeStyle = badgeStyle.
+			Foreground(theme.AccentText).
+			Background(theme.Accent)
+		m.footerStyle = m.footerStyle.
+			Foreground(theme.Dim).
+			Faint(true)
+	}
+
+	m.input.SetStyles(styles)
+	m.input.Prompt = badgeStyle.Render("gsd") + " "
+	m.resizeInput()
+}
+
+func (m *CaptureModel) resizeInput() {
+	m.input.SetWidth(max(m.width-lipgloss.Width(m.input.Prompt)-cursorCellWidth, 0))
+}
+
+type captureResultMsg struct {
+	err error
+}
+
+func captureTask(
+	ctx context.Context,
+	application task.Application,
+	title string,
+) tea.Cmd {
+	return func() tea.Msg {
+		_, err := application.Add(ctx, task.AddFields{Title: title})
+		return captureResultMsg{err: err}
+	}
+}
+
+func RunCapture(
+	ctx context.Context,
+	application task.Application,
+	options ProgramOptions,
+) error {
+	model := NewCaptureModel(ctx, application, options.Color != ColorDisabled)
+	finalModel, err := NewProgram(ctx, model, options).Run()
+	if err != nil {
+		return err
+	}
+
+	configured, ok := finalModel.(programModel)
+	if !ok {
+		return fmt.Errorf("unexpected capture program model %T", finalModel)
+	}
+	capture, ok := configured.model.(CaptureModel)
+	if !ok {
+		return fmt.Errorf("unexpected capture model %T", configured.model)
+	}
+	return capture.Err()
+}

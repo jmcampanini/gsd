@@ -115,25 +115,39 @@ type presentation struct {
 	location     *time.Location
 }
 
-func (p presentation) profile(writer io.Writer, explicit bool) (colorprofile.Profile, bool) {
+type colorResolution struct {
+	decision    colorDecision
+	terminal    bool
+	environment []string
+}
+
+func (p presentation) resolve(writer io.Writer, explicit bool) colorResolution {
 	environment := p.dependencies.environment()
 	terminal := p.dependencies.isTerminal(writer)
-	decision := resolveColor(
-		*p.mode,
-		explicit,
-		environmentValue(environment, "NO_COLOR"),
-		terminal,
-		environmentValue(environment, "TERM"),
-	)
-	switch decision {
+	return colorResolution{
+		decision: resolveColor(
+			*p.mode,
+			explicit,
+			environmentValue(environment, "NO_COLOR"),
+			terminal,
+			environmentValue(environment, "TERM"),
+		),
+		terminal:    terminal,
+		environment: scrubColorEnvironment(environment),
+	}
+}
+
+func (p presentation) profile(writer io.Writer, explicit bool) (colorprofile.Profile, bool) {
+	resolution := p.resolve(writer, explicit)
+	switch resolution.decision {
 	case colorDisabled:
-		return colorprofile.NoTTY, terminal
+		return colorprofile.NoTTY, resolution.terminal
 	case colorForced:
-		return colorprofile.TrueColor, terminal
+		return colorprofile.TrueColor, resolution.terminal
 	case colorDetected:
-		return p.dependencies.detectProfile(writer, scrubColorEnvironment(environment)), terminal
+		return p.dependencies.detectProfile(writer, resolution.environment), resolution.terminal
 	default:
-		return colorprofile.NoTTY, terminal
+		return colorprofile.NoTTY, resolution.terminal
 	}
 }
 
