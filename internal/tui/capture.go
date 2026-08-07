@@ -36,7 +36,6 @@ type CaptureModel struct {
 	width           int
 	submitting      bool
 	cancelRequested bool
-	cancelAdd       context.CancelFunc
 	quitting        bool
 	err             error
 	submission      *captureSubmission
@@ -90,10 +89,7 @@ func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resizeInput()
 		return m, nil
 	case captureResultMsg:
-		if m.cancelAdd != nil {
-			m.cancelAdd()
-			m.cancelAdd = nil
-		}
+		m.submission.cancel()
 		m.submitting = false
 		if msg.err == nil || (m.cancelRequested && errors.Is(msg.err, context.Canceled)) {
 			m.quitting = true
@@ -113,7 +109,7 @@ func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+c", "esc":
 				if !m.cancelRequested {
 					m.cancelRequested = true
-					m.cancelAdd()
+					m.submission.cancel()
 				}
 			}
 			return m, nil
@@ -126,9 +122,8 @@ func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if strings.TrimSpace(title) == "" {
 				return m, nil
 			}
-			cancel, command := m.submission.start(m.ctx, m.application, title)
+			command := m.submission.register(m.ctx, m.application, title)
 			m.submitting = true
-			m.cancelAdd = cancel
 			m.input.Blur()
 			return m, command
 		}
@@ -273,26 +268,27 @@ func captureHumanText(value string) string {
 }
 
 type captureSubmission struct {
-	mutex    sync.Mutex
-	cancel   context.CancelFunc
-	done     chan struct{}
-	started  bool
-	finished bool
-	err      error
+	mutex         sync.Mutex
+	cancelContext context.CancelFunc
+	done          chan struct{}
+	started       bool
+	finished      bool
+	err           error
 }
 
-func (s *captureSubmission) start(
+// register exposes the submission to shutdown before Bubble Tea can schedule its command.
+func (s *captureSubmission) register(
 	parent context.Context,
 	application task.Application,
 	title string,
-) (context.CancelFunc, tea.Cmd) {
+) tea.Cmd {
 	ctx, cancel := context.WithCancel(parent)
 	s.mutex.Lock()
-	s.cancel = cancel
+	s.cancelContext = cancel
 	s.done = make(chan struct{})
 	s.mutex.Unlock()
 
-	return cancel, func() tea.Msg {
+	return func() tea.Msg {
 		s.mutex.Lock()
 		if s.finished {
 			err := s.err
@@ -315,6 +311,14 @@ func (s *captureSubmission) start(
 	}
 }
 
+func (s *captureSubmission) cancel() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if s.cancelContext != nil {
+		s.cancelContext()
+	}
+}
+
 func (s *captureSubmission) finish(err error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -329,7 +333,7 @@ func (s *captureSubmission) cancelAndWait() error {
 		s.mutex.Unlock()
 		return nil
 	}
-	s.cancel()
+	s.cancelContext()
 	if !s.started && !s.finished {
 		s.err = context.Canceled
 		s.finished = true
