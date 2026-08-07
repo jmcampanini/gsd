@@ -19,6 +19,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/search"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
+	"github.com/jmcampanini/gsd/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -101,18 +102,16 @@ type humanOutput struct {
 }
 
 func newHumanOutput(writer io.Writer, dark bool, today string) humanOutput {
-	lightDark := lipgloss.LightDark(dark)
-	green := lightDark(lipgloss.Color("#40a02b"), lipgloss.Color("#a6d189"))
-	red := lightDark(lipgloss.Color("#d20f39"), lipgloss.Color("#e78284"))
+	theme := tui.ThemeForBackground(dark)
 	return humanOutput{
 		writer: writer,
 		styles: humanStyles{
 			faint:      lipgloss.NewStyle().Faint(true),
-			green:      lipgloss.NewStyle().Foreground(green),
-			red:        lipgloss.NewStyle().Foreground(red),
-			faintGreen: lipgloss.NewStyle().Faint(true).Foreground(green),
-			faintRed:   lipgloss.NewStyle().Faint(true).Foreground(red),
-			boldRed:    lipgloss.NewStyle().Bold(true).Foreground(red),
+			green:      lipgloss.NewStyle().Foreground(theme.Green),
+			red:        lipgloss.NewStyle().Foreground(theme.Red),
+			faintGreen: lipgloss.NewStyle().Faint(true).Foreground(theme.Green),
+			faintRed:   lipgloss.NewStyle().Faint(true).Foreground(theme.Red),
+			boldRed:    lipgloss.NewStyle().Bold(true).Foreground(theme.Red),
 		},
 		today: today,
 	}

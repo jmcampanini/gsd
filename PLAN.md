@@ -7,7 +7,7 @@ consolidation. This plan is temporary and is retired at consolidation.
 
 ## Progress
 
-- [ ] Chunk 1 — Capture works
+- [x] Chunk 1 — Capture works
 - [ ] Chunk 2 — Capture contract
 
 There is no chunk 0: the Milestone 9 foundation review scheduled
@@ -43,12 +43,15 @@ renders its application error inline with exit 1 on dismiss.
   chrome tokens — `Accent` is Catppuccin Mauve (Latte `#8839ef` /
   Frappé `#ca9ee6`), plus `AccentText`, `InputBg`, `Text`, and a dim
   token drawn from the matching Latte/Frappé entries (cmdk as
-  reference). Green/red remain state accents only.
+  reference). `Cursor` is optional and defaults to nil so the terminal
+  retains control of its cursor color. Green/red remain state accents
+  only.
 - **View.** Borderless vertical stack per Bubble Tea's own
   single-input example — the tmux popup frame is the border. A `gsd`
   badge (`AccentText` on Mauve) renders as the input prompt, the input
-  line sits on `InputBg` with no placeholder, and a faint footer reads
-  `enter add · esc cancel`. The footer row makes the recommended
+  line is composed over a view-level `InputBg` band so the real cursor
+  cannot punch through it, there is no placeholder, and a faint footer
+  reads `enter add · esc cancel`. The footer row makes the recommended
   invocation `tmux display-popup -w 64 -h 4` (the milestone mock's
   `-h 3` leaves one content row inside tmux's frame).
 - **Behavior.** Enter with a non-blank title calls `task.Add` with the
@@ -93,42 +96,44 @@ vanishes without writing.
 
 Implementation:
 
-- [ ] `go.mod`: add `charm.land/bubbletea/v2` and
+- [x] `go.mod`: add `charm.land/bubbletea/v2` and
       `charm.land/bubbles/v2` via `make tidy`.
-- [ ] `internal/tui` theme: green/red pairs extracted from
-      `cmd/output.go` plus the Mauve chrome tokens; light/dark
-      selection driven by `tea.RequestBackgroundColor`.
-- [ ] `cmd/output.go`: consume the extracted pairs from
+- [x] `internal/tui` theme: green/red pairs extracted from
+      `cmd/output.go` plus the Mauve chrome tokens and optional cursor
+      token; light/dark selection driven by `tea.RequestBackgroundColor`.
+- [x] `cmd/output.go`: consume the extracted pairs from
       `internal/tui`; rendering byte-identical (existing SGR
       expectations in `cmd/output_test.go` stay green).
-- [ ] `internal/tui` program constructor: streams from the cobra
+- [x] `internal/tui` program constructor: streams from the cobra
       command, per-program screen mode, capture in alt-screen.
-- [ ] `internal/tui` capture model: badge + `textinput` + footer view;
-      Enter submits non-blank input through `task.Application.Add`
+- [x] `internal/tui` capture model: badge + view-level input band +
+      `textinput` + footer view; Enter submits non-blank input through
+      `task.Application.Add`
       (title verbatim, no other fields) and quits; blank Enter is a
       no-op; Esc and Ctrl+C quit without calling `Add`.
-- [ ] `cmd/capture.go`: `gsd capture` registered on the root command,
+- [x] `cmd/capture.go`: `gsd capture` registered on the root command,
       running the program through `withTaskApplication` with the
       command's streams and color decision.
 
 Verification (primary owner: `internal/tui` model tests with a fake
 `task.Application`; command wiring in `cmd`):
 
-- [ ] Typing updates the input; Enter with a non-blank title calls
+- [x] Typing updates the input; Enter with a non-blank title calls
       `Add` exactly once with the verbatim title and no other fields,
       then quits cleanly.
-- [ ] Blank input (empty and whitespace-only): Enter is a no-op — no
+- [x] Blank input (empty and whitespace-only): Enter is a no-op — no
       `Add` call, program still running.
-- [ ] Esc and Ctrl+C quit without calling `Add`.
-- [ ] Theme selects Latte/Frappé values by background and the plain
-      style set when color is disabled.
-- [ ] `cmd`: capture receives the factory's applications and the
+- [x] Esc and Ctrl+C quit without calling `Add`.
+- [x] Theme selects Latte/Frappé values by background, keeps the
+      terminal-default cursor unless a token is set, maintains a
+      continuous input band, and uses plain styles when color is disabled.
+- [x] `cmd`: capture receives the factory's applications and the
       command streams; the factory opens once at run and never for
       `--help`.
-- [ ] `make check` green.
+- [x] `make check` green.
 
 Human proof (chunk demo `.sandbox/demos/10-chunk-1.html`; popup frames
-captured with `tmux capture-pane` while open), exact commands:
+captured from an attached tmux client while open), exact commands:
 
 ```sh
 tmux display-popup -w 64 -h 4 -E 'gsd --db .sandbox/demo.db capture'
@@ -139,10 +144,9 @@ tmux display-popup -w 64 -h 4 -E 'gsd --db .sandbox/demo.db capture'
 gsd --db .sandbox/demo.db inbox     # unchanged
 ```
 
-- [ ] Agent verification before review: build the real binary, run the
+- [x] Agent verification before review: build the real binary, run the
       demo command list against a fresh temporary database, capture
-      the verbatim output into the deck, and pass local `make check`;
-      then open the chunk PR against the milestone branch.
+      the verbatim output into the deck, and pass local `make check`.
 
 ## Chunk 2 — Capture contract
 
@@ -162,6 +166,12 @@ Implementation:
       with the red accent; any key dismisses; the command returns the
       error so the root adapter emits the standard stderr line and
       exit 1.
+- [ ] In-flight submission lifecycle: run `Add` with a child context;
+      Esc and Ctrl+C request cancellation, and the program waits for
+      `Add` to return before quitting so command cleanup never closes
+      the database under a running write. A canceled `Add` exits 0, an
+      `Add` that wins the cancellation race keeps the normal success
+      path, and any other failure enters the error state.
 - [ ] Color chain wired end to end: `--color` and `NO_COLOR` select
       the plain style set; the surface stays functional uncolored.
 - [ ] e2e tmux harness: private tmux server per test, popup-sized
@@ -176,6 +186,10 @@ tests for guards, tmux e2e for cross-invocation persistence):
 - [ ] Model: a failing fake `Add` renders the error inline; any key
       quits carrying the error; the styled and plain error renders
       both contain the message.
+- [ ] Model: blocked fake `Add` calls observe Esc/Ctrl+C cancellation;
+      the program waits for the command result, maps context
+      cancellation to a clean exit, preserves a success that wins the
+      race, and never starts a duplicate `Add`.
 - [ ] `cmd`: `--json` and non-TTY invocations exit 2 with zero factory
       opens; messages match; help with an unopenable `--db` path still
       exits 0.
@@ -206,8 +220,7 @@ tmux display-popup -w 64 -h 4 -E 'env GSD_DB=.sandbox/demo-env.db gsd capture'
 
 - [ ] Agent verification before review: build the real binary, run the
       demo command list against a fresh temporary database, capture
-      the verbatim output into the deck, and pass local `make check`;
-      then open the chunk PR against the milestone branch.
+      the verbatim output into the deck, and pass local `make check`.
 
 ## Agent-verified end-to-end workflow
 
