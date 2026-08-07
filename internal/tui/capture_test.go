@@ -228,6 +228,57 @@ func TestCaptureCursorThemeTokenFlowsToView(t *testing.T) {
 	assertColor(t, "themed cursor", cursor.Color, theme.Cursor)
 }
 
+func TestCaptureCursorFollowsDisplayWidth(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "wide rune", value: "界"},
+		{name: "combining grapheme", value: "e\u0301"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			model := NewCaptureModel(context.Background(), &captureApplication{}, false)
+			updated, _ := model.Update(tea.WindowSizeMsg{Width: 20, Height: 2})
+			model = updated.(CaptureModel)
+			model.input.SetValue(test.value)
+
+			cursor := model.View().Cursor
+			if cursor == nil {
+				t.Fatal("capture cursor = nil, want visible cursor")
+			}
+			wantX := lipgloss.Width(model.input.Prompt) + lipgloss.Width(test.value)
+			if cursor.X != wantX {
+				t.Errorf("capture cursor X = %d, want %d", cursor.X, wantX)
+			}
+		})
+	}
+}
+
+func TestCaptureCursorFollowsScrolledViewport(t *testing.T) {
+	model := NewCaptureModel(context.Background(), &captureApplication{}, false)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 12, Height: 2})
+	model = updated.(CaptureModel)
+	model.input.SetValue("abcdefgh")
+
+	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	model = updated.(CaptureModel)
+
+	input := ansi.Strip(model.input.View())
+	wantX := strings.Index(input, "h")
+	if wantX < 0 {
+		t.Fatalf("rendered input = %q, want h under cursor", input)
+	}
+	cursor := model.View().Cursor
+	if cursor == nil {
+		t.Fatal("capture cursor = nil, want visible cursor")
+	}
+	if cursor.X != wantX {
+		t.Errorf("capture cursor X = %d, want visible h at %d", cursor.X, wantX)
+	}
+}
+
 func TestCaptureViewHasBadgeInputAndFooter(t *testing.T) {
 	model := NewCaptureModel(context.Background(), &captureApplication{}, true)
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 40, Height: 2})

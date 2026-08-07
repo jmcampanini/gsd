@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -12,8 +13,9 @@ import (
 )
 
 const (
-	captureFooter   = "enter add · esc cancel"
-	cursorCellWidth = 1
+	captureFooter    = "enter add · esc cancel"
+	cursorCellWidth  = 1
+	cursorProbeColor = "#010203"
 )
 
 type CaptureModel struct {
@@ -93,8 +95,34 @@ func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m CaptureModel) View() tea.View {
 	view := tea.NewView(m.inputView() + "\n" + m.footerStyle.Render(captureFooter))
-	view.Cursor = m.input.Cursor()
+	view.Cursor = m.inputCursor()
 	return view
+}
+
+func (m CaptureModel) inputCursor() *tea.Cursor {
+	cursor := m.input.Cursor()
+	if cursor == nil {
+		return nil
+	}
+
+	// Render a throwaway virtual cursor to locate Bubbles' private viewport offset.
+	probe := m.input
+	styles := probe.Styles()
+	marker := lipgloss.Color(cursorProbeColor)
+	styles.Cursor = textinput.CursorStyle{Color: marker}
+	probe.SetStyles(styles)
+	probe.SetVirtualCursor(true)
+
+	input := probe.View()
+	canvas := lipgloss.NewCanvas(lipgloss.Width(input), 1).
+		Compose(lipgloss.NewLayer(input))
+	for x := range canvas.Width() {
+		if sameColor(canvas.CellAt(x, 0).Style.Fg, marker) {
+			cursor.X = x
+			break
+		}
+	}
+	return cursor
 }
 
 func (m CaptureModel) Err() error {
@@ -158,6 +186,15 @@ func (m *CaptureModel) setTheme(theme Theme, isDark bool) {
 
 func (m *CaptureModel) resizeInput() {
 	m.input.SetWidth(max(m.width-lipgloss.Width(m.input.Prompt)-cursorCellWidth, 0))
+}
+
+func sameColor(left, right color.Color) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	leftR, leftG, leftB, leftA := left.RGBA()
+	rightR, rightG, rightB, rightA := right.RGBA()
+	return leftR == rightR && leftG == rightG && leftB == rightB && leftA == rightA
 }
 
 type captureResultMsg struct {
