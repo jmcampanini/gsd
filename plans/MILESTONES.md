@@ -152,7 +152,8 @@ when their trigger fires:
   collide with real migration numbers, and the binary failed loud on a
   mismatch; development databases were disposable by declaration. No
   dev-range guard survives Go live — a leftover throwaway database
-  simply fails the newer-database refusal in `COMMANDS.md` § Database.
+  never carried gsd's `application_id`, so it fails the
+  foreign-identity refusal in `COMMANDS.md` § Database.
 - **Go live onward (live):** the accumulated schema became migration
   `0001_baseline`; every later schema change ships as a numbered
   migration that applies automatically on open. Real data must survive

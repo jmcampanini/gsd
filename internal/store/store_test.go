@@ -366,6 +366,12 @@ func TestAddAppendsPositionsAcrossResolvedTasksAndGeneratesStatus(t *testing.T) 
 func TestOpenRejectsUnsupportedDatabaseStates(t *testing.T) {
 	t.Parallel()
 
+	migrations, err := loadMigrations(migrationFiles)
+	if err != nil {
+		t.Fatalf("loadMigrations() error = %v", err)
+	}
+	maxRevision := migrations[len(migrations)-1].revision
+
 	tests := []struct {
 		name        string
 		setup       string
@@ -379,10 +385,15 @@ func TestOpenRejectsUnsupportedDatabaseStates(t *testing.T) {
 		{
 			name: "future revision",
 			setup: fmt.Sprintf(
-				"PRAGMA application_id = %d; PRAGMA user_version = 2",
+				"PRAGMA application_id = %d; PRAGMA user_version = %d",
 				gsdApplicationID,
+				maxRevision+1,
 			),
-			wantMessage: "gsd is older than this database (database revision 2, this gsd supports up to 1); upgrade gsd",
+			wantMessage: fmt.Sprintf(
+				"gsd is older than this database (database revision %d, this gsd supports up to %d); upgrade gsd",
+				maxRevision+1,
+				maxRevision,
+			),
 		},
 		{
 			name:        "nonempty version zero",

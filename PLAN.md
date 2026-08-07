@@ -74,6 +74,26 @@ were resolved in its wrap-up; the deferred items carry forward in
   `plans/` retires (the lint test carries the mechanical part
   regardless; `AGENTS.md` is the natural candidate).
 
+## Post-review amendments
+
+Adopted from the Milestone 9 foundation review, deviating from the
+settled design above:
+
+- **Policy enforcement moved to the test layer.** The DDL-only and
+  temporary-schema rules are enforced by the migration-policy lint in
+  `internal/store/migration_policy_test.go`, not at runtime: catalog
+  loading validates filenames, revision contiguity, and non-emptiness
+  only, and the runner validates identity, revision, and emptiness.
+  The embedded catalog is fixed at compile time, so runtime re-parsing
+  proved nothing `make check` had not already proven.
+- **The negative-revision refusal is canonical.** `COMMANDS.md`
+  § Database documents `database revision N is invalid` as a
+  corruption rung.
+- **`MILESTONES.md` § Data policy** names the foreign-identity refusal
+  for leftover throwaway databases: they never carried gsd's
+  `application_id`, so the newer-database rung is unreachable for
+  them.
+
 ## Chunk 1 — Migration runner
 
 Human outcome: the database becomes durable — a fresh database is
