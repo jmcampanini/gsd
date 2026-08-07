@@ -21,22 +21,26 @@ migration, and real data enters through daily use.
   schema-convergence audit (i.e., `SCHEMA.md`; the FTS index is virtual
   and persists nothing). v1 ships no live migrations; the runner exists
   for everything after.
-- A database newer than the binary (`user_version` > known max, below
-  the dev-only range) is a fail-loud error ("gsd is older than this
-  database").
-- Pre-baseline throwaway dbs are refused by name: their `user_version`
-  sits in the dev-only range (`9000 + roadmap milestone number`), which can
-  never collide with migration numbers, and the runner answers it with the
-  delete-your-dev-db message. They hold throwaway data by declaration.
+- A database newer than the binary (`user_version` > known max) is a
+  fail-loud error ("gsd is older than this database").
+- Pre-baseline throwaway dbs get no special case: the dev-range stamps
+  (`9000 + roadmap milestone number`) are never met in the wild, so a
+  leftover simply fails the newer-database guard. Only a genuinely
+  empty version-0 database receives the baseline; a nonempty version-0
+  file is refused as foreign.
 - From here, every schema change ships as a new migration file, and
-  `SCHEMA.md`'s stability contract is in force: columns/tables are
-  add-only, views only gain columns.
+  `SCHEMA.md`'s stability contract is in force as
+  **additive-or-full-delete**: a surviving table or view only gains
+  appended columns — never renames, retypes, or losses — and removal is
+  only a whole-object drop. A lint test enforces the contract as an
+  end-state schema diff across the migration chain; indexes are exempt.
 
 ## Chunks
 
-1. **Migration runner** — runner + baseline + guards + tests (fresh db,
-   sequential apply, mid-migration failure rolls back, future version
-   refused, dev-range stamp refused). Single chunk: the milestone is one
+1. **Migration runner** — runner + baseline + guards + contract lint +
+   tests (fresh db, sequential apply, mid-migration failure rolls back,
+   future version refused, nonempty version-0 refused,
+   additive-or-full-delete lint). Single chunk: the milestone is one
    vertical capability, the durable-database lifecycle.
 
 ## Carried from Milestone 8
@@ -89,13 +93,12 @@ $ gsd inbox                        # migrations applied silently; data intact
 ## Agent-verified end-to-end workflow
 
 1. Migration tests inside `make check` (fresh apply, sequential apply,
-   mid-migration failure rollback, future-version refusal, dev-range
-   refusal).
+   mid-migration failure rollback, future-version refusal, nonempty
+   version-0 refusal, additive-or-full-delete lint).
 2. The agent drives the real built binary: a fresh database opens at
    the baseline revision and data persists across invocations; a
-   dev-range database is refused with the delete-your-dev-db message; a
    future-revision database is refused with "gsd is older than this
-   database".
+   database"; a nonempty version-0 file is refused as foreign.
 
 ## Exit criteria
 
@@ -103,8 +106,12 @@ Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
 - [ ] `COMMANDS.md` § Database reconciled to live-era semantics: an
       empty version-0 database receives the baseline migration;
-      dev-range and future revisions fail loud with their exact
-      messages.
+      nonempty version-0 and future revisions fail loud with their
+      exact messages. No canonical document still claims a dev-range
+      guard exists.
+- [ ] `SCHEMA.md`'s stability contract amended to
+      additive-or-full-delete, with the lint test named as its
+      enforcement.
 - [ ] The temporary `DIVERGENCES.md` intake is empty; canonical specs
       describe the shipped system exactly.
 
