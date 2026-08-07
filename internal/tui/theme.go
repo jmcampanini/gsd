@@ -18,25 +18,14 @@ type Theme struct {
 }
 
 func ThemeForBackground(isDark bool) Theme {
-	if isDark {
-		return Theme{
-			Accent:     lipgloss.Color("#ca9ee6"),
-			AccentText: lipgloss.Color("#303446"),
-			InputBg:    lipgloss.Color("#414559"),
-			Text:       lipgloss.Color("#c6d0f5"),
-			Dim:        lipgloss.Color("#838ba7"),
-			Green:      lipgloss.Color("#a6d189"),
-			Red:        lipgloss.Color("#e78284"),
-		}
-	}
-
+	lightDark := lipgloss.LightDark(isDark)
 	return Theme{
-		Accent:     lipgloss.Color("#8839ef"),
-		AccentText: lipgloss.Color("#eff1f5"),
-		InputBg:    lipgloss.Color("#dce0e8"),
-		Text:       lipgloss.Color("#4c4f69"),
-		Dim:        lipgloss.Color("#8c8fa1"),
-		Green:      lipgloss.Color("#40a02b"),
-		Red:        lipgloss.Color("#d20f39"),
+		Accent:     lightDark(lipgloss.Color("#8839ef"), lipgloss.Color("#ca9ee6")),
+		AccentText: lightDark(lipgloss.Color("#eff1f5"), lipgloss.Color("#303446")),
+		InputBg:    lightDark(lipgloss.Color("#dce0e8"), lipgloss.Color("#414559")),
+		Text:       lightDark(lipgloss.Color("#4c4f69"), lipgloss.Color("#c6d0f5")),
+		Dim:        lightDark(lipgloss.Color("#8c8fa1"), lipgloss.Color("#838ba7")),
+		Green:      lightDark(lipgloss.Color("#40a02b"), lipgloss.Color("#a6d189")),
+		Red:        lightDark(lipgloss.Color("#d20f39"), lipgloss.Color("#e78284")),
 	}
 }
