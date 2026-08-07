@@ -23,7 +23,7 @@ func newCaptureCommand(
 			if options.json {
 				return usageError("--json is not supported by gsd capture; use gsd add TITLE for noninteractive capture")
 			}
-			if !options.presentation.dependencies.isTerminal(command.InOrStdin()) {
+			if !options.presentation.isTerminalInput(command.InOrStdin()) {
 				return usageError("gsd capture requires terminal input; use gsd add TITLE for noninteractive capture")
 			}
 			resolution := options.presentation.resolve(
@@ -40,24 +40,11 @@ func newCaptureCommand(
 					Output:      command.OutOrStdout(),
 					Environment: resolution.environment,
 					Screen:      tui.ScreenAlt,
-					Color:       captureColorMode(resolution.decision),
+					Color:       resolution.decision,
 				})
 			})
 		},
 	}
 
 	return command
-}
-
-func captureColorMode(decision colorDecision) tui.ColorMode {
-	switch decision {
-	case colorDisabled:
-		return tui.ColorDisabled
-	case colorDetected:
-		return tui.ColorDetected
-	case colorForced:
-		return tui.ColorForced
-	default:
-		return tui.ColorDisabled
-	}
 }

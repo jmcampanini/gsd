@@ -12,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/colorprofile"
 	"github.com/jmcampanini/gsd/internal/task"
+	"github.com/jmcampanini/gsd/internal/tui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -26,17 +27,17 @@ func TestResolveColorPrecedenceAndTerminalBranches(t *testing.T) {
 		noColor      string
 		terminal     bool
 		terminalName string
-		want         colorDecision
+		want         tui.ColorMode
 	}{
-		{name: "default terminal", mode: colorAuto, terminal: true, terminalName: "xterm-256color", want: colorDetected},
-		{name: "default pipe", mode: colorAuto, terminalName: "xterm-256color", want: colorDisabled},
-		{name: "default dumb terminal", mode: colorAuto, terminal: true, terminalName: "dumb", want: colorDisabled},
-		{name: "nonempty NO_COLOR", mode: colorAuto, noColor: "0", terminal: true, terminalName: "xterm", want: colorDisabled},
-		{name: "explicit always beats everything", mode: colorAlways, explicit: true, noColor: "1", terminalName: "dumb", want: colorForced},
-		{name: "explicit never", mode: colorNever, explicit: true, terminal: true, terminalName: "xterm", want: colorDisabled},
-		{name: "explicit auto beats NO_COLOR", mode: colorAuto, explicit: true, noColor: "1", terminal: true, terminalName: "xterm", want: colorDetected},
-		{name: "explicit auto still respects pipe", mode: colorAuto, explicit: true, terminalName: "xterm", want: colorDisabled},
-		{name: "explicit auto still respects dumb", mode: colorAuto, explicit: true, terminal: true, terminalName: "dumb", want: colorDisabled},
+		{name: "default terminal", mode: colorAuto, terminal: true, terminalName: "xterm-256color", want: tui.ColorDetected},
+		{name: "default pipe", mode: colorAuto, terminalName: "xterm-256color", want: tui.ColorDisabled},
+		{name: "default dumb terminal", mode: colorAuto, terminal: true, terminalName: "dumb", want: tui.ColorDisabled},
+		{name: "nonempty NO_COLOR", mode: colorAuto, noColor: "0", terminal: true, terminalName: "xterm", want: tui.ColorDisabled},
+		{name: "explicit always beats everything", mode: colorAlways, explicit: true, noColor: "1", terminalName: "dumb", want: tui.ColorForced},
+		{name: "explicit never", mode: colorNever, explicit: true, terminal: true, terminalName: "xterm", want: tui.ColorDisabled},
+		{name: "explicit auto beats NO_COLOR", mode: colorAuto, explicit: true, noColor: "1", terminal: true, terminalName: "xterm", want: tui.ColorDetected},
+		{name: "explicit auto still respects pipe", mode: colorAuto, explicit: true, terminalName: "xterm", want: tui.ColorDisabled},
+		{name: "explicit auto still respects dumb", mode: colorAuto, explicit: true, terminal: true, terminalName: "dumb", want: tui.ColorDisabled},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -67,7 +68,7 @@ func TestPresentationProfileUsesScrubbedEnvironment(t *testing.T) {
 					"COLORTERM=truecolor",
 				}
 			},
-			isTerminal: func(any) bool { return true },
+			isTerminalWriter: func(io.Writer) bool { return true },
 			detectProfile: func(_ io.Writer, environment []string) colorprofile.Profile {
 				detectedEnvironment = append([]string(nil), environment...)
 				return colorprofile.ANSI256
@@ -129,8 +130,8 @@ func TestPresentationQueriesBackgroundOnceOnlyForStyledTerminalStdout(t *testing
 			available := presentation{
 				mode: &mode,
 				dependencies: presentationDependencies{
-					environment: func() []string { return []string{"TERM=xterm"} },
-					isTerminal:  func(any) bool { return test.terminal },
+					environment:      func() []string { return []string{"TERM=xterm"} },
+					isTerminalWriter: func(io.Writer) bool { return test.terminal },
 					detectProfile: func(io.Writer, []string) colorprofile.Profile {
 						return test.detected
 					},
@@ -173,8 +174,8 @@ func TestErrorStreamStaysUnstyledAndEscaped(t *testing.T) {
 	t.Parallel()
 
 	dependencies := presentationDependencies{
-		environment: func() []string { return []string{"TERM=xterm"} },
-		isTerminal:  func(any) bool { return true },
+		environment:      func() []string { return []string{"TERM=xterm"} },
+		isTerminalWriter: func(io.Writer) bool { return true },
 		detectProfile: func(io.Writer, []string) colorprofile.Profile {
 			return colorprofile.TrueColor
 		},

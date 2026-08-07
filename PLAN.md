@@ -250,4 +250,4 @@ against a fresh temporary database:
       and tmux as the e2e prerequisite — and the TUI (post-v1) section
       is reconciled to point at it.
 - [x] `DIVERGENCES.md` stays empty.
-- [ ] Standard exit workflow plus `MILESTONE_10.md`'s exit criteria.
+- [x] Standard exit workflow plus `MILESTONE_10.md`'s exit criteria.
