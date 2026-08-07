@@ -48,6 +48,9 @@ func TestThemeForBackground(t *testing.T) {
 			assertColor(t, "InputBg", got.InputBg, test.want.InputBg)
 			assertColor(t, "Text", got.Text, test.want.Text)
 			assertColor(t, "Dim", got.Dim, test.want.Dim)
+			if got.Cursor != nil {
+				t.Errorf("Cursor = %v, want terminal default", got.Cursor)
+			}
 			assertColor(t, "Green", got.Green, test.want.Green)
 			assertColor(t, "Red", got.Red, test.want.Red)
 		})
@@ -56,6 +59,13 @@ func TestThemeForBackground(t *testing.T) {
 
 func assertColor(t *testing.T, token string, got, want color.Color) {
 	t.Helper()
+
+	if got == nil || want == nil {
+		if got != want {
+			t.Errorf("%s = %v, want %v", token, got, want)
+		}
+		return
+	}
 
 	gotR, gotG, gotB, gotA := got.RGBA()
 	wantR, wantG, wantB, wantA := want.RGBA()

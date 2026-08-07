@@ -20,6 +20,7 @@ type CaptureModel struct {
 	ctx          context.Context
 	application  task.Application
 	input        textinput.Model
+	theme        Theme
 	footerStyle  lipgloss.Style
 	colorEnabled bool
 	width        int
@@ -91,7 +92,7 @@ func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m CaptureModel) View() tea.View {
-	view := tea.NewView(m.input.View() + "\n" + m.footerStyle.Render(captureFooter))
+	view := tea.NewView(m.inputView() + "\n" + m.footerStyle.Render(captureFooter))
 	view.Cursor = m.input.Cursor()
 	return view
 }
@@ -100,22 +101,35 @@ func (m CaptureModel) Err() error {
 	return m.err
 }
 
-func (m *CaptureModel) applyTheme(isDark bool) {
-	styles := textinput.Styles{
-		Cursor: textinput.CursorStyle{
-			Shape: tea.CursorBlock,
-			Blink: true,
-		},
+func (m CaptureModel) inputView() string {
+	input := m.input.View()
+	if !m.colorEnabled || m.width == 0 {
+		return input
 	}
+
+	canvas := lipgloss.NewCanvas(m.width, 1).Compose(lipgloss.NewLayer(input))
+	for x := range m.width {
+		cell := canvas.CellAt(x, 0)
+		if cell.Style.Bg == nil {
+			cell.Style.Bg = m.theme.InputBg
+		}
+	}
+	return canvas.Render()
+}
+
+func (m *CaptureModel) applyTheme(isDark bool) {
+	m.setTheme(ThemeForBackground(isDark), isDark)
+}
+
+func (m *CaptureModel) setTheme(theme Theme, isDark bool) {
+	m.theme = theme
+	styles := textinput.Styles{}
 	badgeStyle := lipgloss.NewStyle().Padding(0, 1)
 	m.footerStyle = lipgloss.NewStyle().PaddingLeft(1)
 
 	if m.colorEnabled {
-		theme := ThemeForBackground(isDark)
 		styles = textinput.DefaultStyles(isDark)
-		inputStyle := lipgloss.NewStyle().
-			Foreground(theme.Text).
-			Background(theme.InputBg)
+		inputStyle := lipgloss.NewStyle().Foreground(theme.Text)
 		styles.Focused.Prompt = lipgloss.NewStyle()
 		styles.Blurred.Prompt = lipgloss.NewStyle()
 		styles.Focused.Text = inputStyle
@@ -132,6 +146,11 @@ func (m *CaptureModel) applyTheme(isDark bool) {
 			Faint(true)
 	}
 
+	styles.Cursor = textinput.CursorStyle{
+		Color: theme.Cursor,
+		Shape: tea.CursorBlock,
+		Blink: true,
+	}
 	m.input.SetStyles(styles)
 	m.input.Prompt = badgeStyle.Render("gsd") + " "
 	m.resizeInput()

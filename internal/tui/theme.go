@@ -12,6 +12,7 @@ type Theme struct {
 	InputBg    color.Color
 	Text       color.Color
 	Dim        color.Color
+	Cursor     color.Color
 	Green      color.Color
 	Red        color.Color
 }

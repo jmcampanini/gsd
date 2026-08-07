@@ -31,6 +31,26 @@ func (a *captureApplication) Add(
 	return task.Task{}, a.err
 }
 
+func TestCaptureInitRequestsBackgroundOnlyWithColor(t *testing.T) {
+	tests := []struct {
+		name        string
+		color       bool
+		wantCommand bool
+	}{
+		{name: "colored", color: true, wantCommand: true},
+		{name: "plain"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			model := NewCaptureModel(context.Background(), &captureApplication{}, test.color)
+			if got := model.Init(); (got != nil) != test.wantCommand {
+				t.Errorf("Init command present = %t, want %t", got != nil, test.wantCommand)
+			}
+		})
+	}
+}
+
 func TestCaptureEnterAddsExactTitleOnce(t *testing.T) {
 	type contextKey struct{}
 	ctx := context.WithValue(context.Background(), contextKey{}, "capture")
@@ -136,13 +156,11 @@ func TestCaptureCancelDoesNotAdd(t *testing.T) {
 
 func TestCaptureAdaptsThemeToTerminalBackground(t *testing.T) {
 	model := NewCaptureModel(context.Background(), &captureApplication{}, true)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 40, Height: 2})
+	model = updated.(CaptureModel)
+
 	dark := ThemeForBackground(true)
-	assertColor(
-		t,
-		"dark input background",
-		model.input.Styles().Focused.Text.GetBackground(),
-		dark.InputBg,
-	)
+	assertInputBand(t, model, dark.InputBg)
 
 	updated, command := model.Update(tea.BackgroundColorMsg{Color: color.White})
 	model = updated.(CaptureModel)
@@ -150,12 +168,7 @@ func TestCaptureAdaptsThemeToTerminalBackground(t *testing.T) {
 		t.Fatal("background update command should be nil")
 	}
 	light := ThemeForBackground(false)
-	assertColor(
-		t,
-		"light input background",
-		model.input.Styles().Focused.Text.GetBackground(),
-		light.InputBg,
-	)
+	assertInputBand(t, model, light.InputBg)
 	assertColor(
 		t,
 		"light input text",
@@ -199,6 +212,22 @@ func TestCaptureColorDisabledUsesPlainStylesAndVisibleCursor(t *testing.T) {
 	}
 }
 
+func TestCaptureCursorThemeTokenFlowsToView(t *testing.T) {
+	model := NewCaptureModel(context.Background(), &captureApplication{}, true)
+	if cursor := model.View().Cursor; cursor == nil || cursor.Color != nil {
+		t.Fatalf("default cursor = %#v, want visible terminal-default cursor", cursor)
+	}
+
+	theme := ThemeForBackground(true)
+	theme.Cursor = lipgloss.Color("#babbf1")
+	model.setTheme(theme, true)
+	cursor := model.View().Cursor
+	if cursor == nil {
+		t.Fatal("themed cursor = nil, want visible cursor")
+	}
+	assertColor(t, "themed cursor", cursor.Color, theme.Cursor)
+}
+
 func TestCaptureViewHasBadgeInputAndFooter(t *testing.T) {
 	model := NewCaptureModel(context.Background(), &captureApplication{}, true)
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 40, Height: 2})
@@ -217,6 +246,17 @@ func TestCaptureViewHasBadgeInputAndFooter(t *testing.T) {
 	}
 	if lines[1] != " "+captureFooter {
 		t.Errorf("footer = %q, want %q", lines[1], " "+captureFooter)
+	}
+}
+
+func assertInputBand(t *testing.T, model CaptureModel, background color.Color) {
+	t.Helper()
+
+	canvas := lipgloss.NewCanvas(model.width, 1).
+		Compose(lipgloss.NewLayer(model.inputView()))
+	badgeWidth := lipgloss.Width(" gsd ")
+	for x := badgeWidth; x < model.width; x++ {
+		assertColor(t, "input band", canvas.CellAt(x, 0).Style.Bg, background)
 	}
 }
 
