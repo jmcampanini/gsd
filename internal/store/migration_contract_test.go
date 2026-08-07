@@ -2,10 +2,13 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -13,9 +16,15 @@ type migrationSchemaSnapshot map[string]migrationSchemaObject
 
 type migrationSchemaObject struct {
 	kind        string
+	virtual     bool
 	columns     []migrationSchemaColumn
 	foreignKeys []migrationSchemaForeignKey
 	uniques     []migrationSchemaUnique
+}
+
+type migrationTableMarker struct {
+	tableName   string
+	triggerName string
 }
 
 type migrationSchemaColumn struct {
@@ -64,6 +73,31 @@ func TestEmbeddedMigrationChainPreservesSchemaContract(t *testing.T) {
 	}
 }
 
+func TestReleasedMigrationsRemainUnchanged(t *testing.T) {
+	t.Parallel()
+
+	released := []struct {
+		name     string
+		checksum string
+	}{
+		{
+			name:     "migrations/0001_baseline.sql",
+			checksum: "5f78a707c728208795d6b5247b487b514d92c1e46c5e074dc683b99bd8c90280",
+		},
+	}
+	for _, migration := range released {
+		contents, err := fs.ReadFile(migrationFiles, migration.name)
+		if err != nil {
+			t.Errorf("read released migration %s: %v", migration.name, err)
+			continue
+		}
+		checksum := fmt.Sprintf("%x", sha256.Sum256(contents))
+		if checksum != migration.checksum {
+			t.Errorf("released migration %s checksum = %s, want %s", migration.name, checksum, migration.checksum)
+		}
+	}
+}
+
 func TestMigrationContractAllowsAppendedColumnsAndWholeObjectDrops(t *testing.T) {
 	t.Parallel()
 
@@ -86,6 +120,19 @@ func TestMigrationContractAllowsAppendedColumnsAndWholeObjectDrops(t *testing.T)
 	}
 	if err := lintMigrationContract(context.Background(), openRawMigrationDatabase(t), migrations); err != nil {
 		t.Fatalf("lintMigrationContract() error = %v", err)
+	}
+}
+
+func TestMigrationContractRejectsTableReplacement(t *testing.T) {
+	t.Parallel()
+
+	migrations := migrationContractFixture(
+		"CREATE TABLE sample (value TEXT);",
+		"DROP TABLE sample; CREATE TABLE sample (value TEXT, added TEXT);",
+	)
+	err := lintMigrationContract(context.Background(), openRawMigrationDatabase(t), migrations)
+	if err == nil || !strings.Contains(err.Error(), "replaced table") {
+		t.Fatalf("lintMigrationContract() error = %v, want table-replacement violation", err)
 	}
 }
 
@@ -173,6 +220,10 @@ func lintMigrationContract(
 		return err
 	}
 	for index := range migrations {
+		markers, err := markMigrationTables(ctx, database, previous)
+		if err != nil {
+			return fmt.Errorf("mark tables before migration revision %d: %w", index+1, err)
+		}
 		if err := migrate(ctx, database, migrations[:index+1]); err != nil {
 			return fmt.Errorf("apply migrations through revision %d: %w", index+1, err)
 		}
@@ -180,8 +231,14 @@ func lintMigrationContract(
 		if err != nil {
 			return err
 		}
+		if err := verifyMigrationTableMarkers(ctx, database, markers, current); err != nil {
+			return fmt.Errorf("migration revision %d: %w", index+1, err)
+		}
 		if err := compareMigrationSchemas(previous, current); err != nil {
 			return fmt.Errorf("migration revision %d: %w", index+1, err)
+		}
+		if err := removeMigrationTableMarkers(ctx, database, markers); err != nil {
+			return fmt.Errorf("remove markers after migration revision %d: %w", index+1, err)
 		}
 		previous = current
 	}
@@ -189,9 +246,92 @@ func lintMigrationContract(
 	return nil
 }
 
+func markMigrationTables(
+	ctx context.Context,
+	database *sql.DB,
+	schema migrationSchemaSnapshot,
+) ([]migrationTableMarker, error) {
+	names := make([]string, 0, len(schema))
+	for name, object := range schema {
+		if object.kind == "table" && !object.virtual {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+
+	markers := make([]migrationTableMarker, 0, len(names))
+	for index, name := range names {
+		marker := migrationTableMarker{
+			tableName:   name,
+			triggerName: fmt.Sprintf("__gsd_migration_contract_%d", index),
+		}
+		if _, err := database.ExecContext(
+			ctx,
+			fmt.Sprintf(
+				"CREATE TRIGGER %s AFTER INSERT ON %s BEGIN SELECT 1; END",
+				quoteMigrationIdentifier(marker.triggerName),
+				quoteMigrationIdentifier(marker.tableName),
+			),
+		); err != nil {
+			return nil, fmt.Errorf("mark table %s: %w", name, err)
+		}
+		markers = append(markers, marker)
+	}
+
+	return markers, nil
+}
+
+func verifyMigrationTableMarkers(
+	ctx context.Context,
+	database *sql.DB,
+	markers []migrationTableMarker,
+	after migrationSchemaSnapshot,
+) error {
+	for _, marker := range markers {
+		current, exists := after[marker.tableName]
+		if !exists || current.kind != "table" {
+			continue
+		}
+		var count int
+		if err := database.QueryRowContext(
+			ctx,
+			"SELECT COUNT(*) FROM sqlite_schema WHERE type = 'trigger' AND name = ? AND tbl_name = ?",
+			marker.triggerName,
+			marker.tableName,
+		).Scan(&count); err != nil {
+			return fmt.Errorf("inspect marker for table %s: %w", marker.tableName, err)
+		}
+		if count != 1 {
+			return fmt.Errorf("schema object %s replaced table", marker.tableName)
+		}
+	}
+
+	return nil
+}
+
+func removeMigrationTableMarkers(
+	ctx context.Context,
+	database *sql.DB,
+	markers []migrationTableMarker,
+) error {
+	for _, marker := range markers {
+		if _, err := database.ExecContext(
+			ctx,
+			"DROP TRIGGER IF EXISTS "+quoteMigrationIdentifier(marker.triggerName),
+		); err != nil {
+			return fmt.Errorf("remove marker for table %s: %w", marker.tableName, err)
+		}
+	}
+	return nil
+}
+
+func quoteMigrationIdentifier(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
+}
+
 func readMigrationSchema(ctx context.Context, database *sql.DB) (migrationSchemaSnapshot, error) {
 	rows, err := database.QueryContext(ctx, `
-SELECT type, name
+SELECT type, name, sql
 FROM sqlite_schema
 WHERE type IN ('table', 'view')
   AND name NOT LIKE 'sqlite\_%' ESCAPE '\'
@@ -201,16 +341,19 @@ ORDER BY type, name
 		return nil, fmt.Errorf("list schema objects: %w", err)
 	}
 	type identity struct {
-		kind string
-		name string
+		kind    string
+		name    string
+		virtual bool
 	}
 	identities := make([]identity, 0)
 	for rows.Next() {
 		var current identity
-		if err := rows.Scan(&current.kind, &current.name); err != nil {
+		var definition string
+		if err := rows.Scan(&current.kind, &current.name, &definition); err != nil {
 			_ = rows.Close()
 			return nil, fmt.Errorf("scan schema object: %w", err)
 		}
+		current.virtual = strings.HasPrefix(strings.ToUpper(strings.TrimSpace(definition)), "CREATE VIRTUAL TABLE")
 		identities = append(identities, current)
 	}
 	if err := rows.Err(); err != nil {
@@ -223,7 +366,7 @@ ORDER BY type, name
 
 	snapshot := make(migrationSchemaSnapshot, len(identities))
 	for _, current := range identities {
-		object, err := readMigrationSchemaObject(ctx, database, current.kind, current.name)
+		object, err := readMigrationSchemaObject(ctx, database, current.kind, current.name, current.virtual)
 		if err != nil {
 			return nil, err
 		}
@@ -238,12 +381,13 @@ func readMigrationSchemaObject(
 	database *sql.DB,
 	kind string,
 	name string,
+	virtual bool,
 ) (migrationSchemaObject, error) {
 	columns, err := readMigrationSchemaColumns(ctx, database, name)
 	if err != nil {
 		return migrationSchemaObject{}, err
 	}
-	object := migrationSchemaObject{kind: kind, columns: columns}
+	object := migrationSchemaObject{kind: kind, virtual: virtual, columns: columns}
 	if kind == "view" {
 		return object, nil
 	}
