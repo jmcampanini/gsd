@@ -44,7 +44,7 @@ func NewCaptureModel(
 		input:        input,
 		colorEnabled: colorEnabled,
 	}
-	model.applyTheme(true)
+	model.setTheme(ThemeForBackground(true))
 	return model
 }
 
@@ -59,7 +59,7 @@ func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.BackgroundColorMsg:
 		if m.colorEnabled {
-			m.applyTheme(msg.IsDark())
+			m.setTheme(ThemeForBackground(msg.IsDark()))
 		}
 		return m, nil
 	case tea.WindowSizeMsg:
@@ -145,27 +145,28 @@ func (m CaptureModel) inputView() string {
 	return canvas.Render()
 }
 
-func (m *CaptureModel) applyTheme(isDark bool) {
-	m.setTheme(ThemeForBackground(isDark), isDark)
-}
-
-func (m *CaptureModel) setTheme(theme Theme, isDark bool) {
+func (m *CaptureModel) setTheme(theme Theme) {
 	m.theme = theme
-	styles := textinput.Styles{}
+	styles := textinput.Styles{
+		Cursor: textinput.CursorStyle{
+			Color: theme.Cursor,
+			Shape: tea.CursorBlock,
+			Blink: true,
+		},
+	}
 	badgeStyle := lipgloss.NewStyle().Padding(0, 1)
 	m.footerStyle = lipgloss.NewStyle().PaddingLeft(1)
 
 	if m.colorEnabled {
-		styles = textinput.DefaultStyles(isDark)
 		inputStyle := lipgloss.NewStyle().Foreground(theme.Text)
-		styles.Focused.Prompt = lipgloss.NewStyle()
-		styles.Blurred.Prompt = lipgloss.NewStyle()
-		styles.Focused.Text = inputStyle
-		styles.Blurred.Text = inputStyle
-		styles.Focused.Placeholder = inputStyle.Foreground(theme.Dim)
-		styles.Blurred.Placeholder = inputStyle.Foreground(theme.Dim)
-		styles.Focused.Suggestion = inputStyle.Foreground(theme.Dim)
-		styles.Blurred.Suggestion = inputStyle.Foreground(theme.Dim)
+		state := textinput.StyleState{
+			Text:        inputStyle,
+			Placeholder: inputStyle.Foreground(theme.Dim),
+			Suggestion:  inputStyle.Foreground(theme.Dim),
+			Prompt:      lipgloss.NewStyle(),
+		}
+		styles.Focused = state
+		styles.Blurred = state
 		badgeStyle = badgeStyle.
 			Foreground(theme.AccentText).
 			Background(theme.Accent)
@@ -174,11 +175,6 @@ func (m *CaptureModel) setTheme(theme Theme, isDark bool) {
 			Faint(true)
 	}
 
-	styles.Cursor = textinput.CursorStyle{
-		Color: theme.Cursor,
-		Shape: tea.CursorBlock,
-		Blink: true,
-	}
 	m.input.SetStyles(styles)
 	m.input.Prompt = badgeStyle.Render("gsd") + " "
 	m.resizeInput()

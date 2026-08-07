@@ -220,7 +220,7 @@ func TestCaptureCursorThemeTokenFlowsToView(t *testing.T) {
 
 	theme := ThemeForBackground(true)
 	theme.Cursor = lipgloss.Color("#babbf1")
-	model.setTheme(theme, true)
+	model.setTheme(theme)
 	cursor := model.View().Cursor
 	if cursor == nil {
 		t.Fatal("themed cursor = nil, want visible cursor")
