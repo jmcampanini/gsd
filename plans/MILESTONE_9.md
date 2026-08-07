@@ -110,15 +110,15 @@ $ gsd inbox                        # migrations applied silently; data intact
 
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
-- [ ] `COMMANDS.md` § Database reconciled to live-era semantics: an
+- [x] `COMMANDS.md` § Database reconciled to live-era semantics: an
       empty version-0 database receives the identity-stamped baseline;
       foreign identities, nonempty version-0, and future revisions fail
       loud with their exact messages. No canonical document still claims
       a dev-range guard exists.
-- [ ] `SCHEMA.md`'s stability contract amended to
+- [x] `SCHEMA.md`'s stability contract amended to
       additive-or-full-delete, with the lint test named as its
       enforcement.
-- [ ] The temporary `DIVERGENCES.md` intake is empty; canonical specs
+- [x] The temporary `DIVERGENCES.md` intake is empty; canonical specs
       describe the shipped system exactly.
 
 ## Standards

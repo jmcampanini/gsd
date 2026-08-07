@@ -145,16 +145,19 @@ when their trigger fires:
 
 ## Data policy
 
-- **Before Go live (throwaway):** no migrations. Each schema-changing
-  milestone bumps `PRAGMA user_version`, stamped in a dev-only range
-  (`9000 + roadmap milestone number`) so throwaway stamps can never collide
-  with real migration numbers later. On mismatch, the binary fails loud with
-  "throwaway db from an older milestone — delete it." Development databases
-  are disposable by declaration.
-- **Go live onward (live):** the accumulated schema becomes migration
-  `0001_baseline`; every later schema change ships as a numbered migration.
-  Real data must survive every subsequent milestone under the schema stability
-  contract in `SCHEMA.md`.
+- **Before Go live (throwaway era, historical):** development ran
+  without migrations. Each schema-changing milestone bumped
+  `PRAGMA user_version` in a dev-only range
+  (`9000 + roadmap milestone number`) so throwaway stamps could never
+  collide with real migration numbers, and the binary failed loud on a
+  mismatch; development databases were disposable by declaration. No
+  dev-range guard survives Go live — a leftover throwaway database
+  simply fails the newer-database refusal in `COMMANDS.md` § Database.
+- **Go live onward (live):** the accumulated schema became migration
+  `0001_baseline`; every later schema change ships as a numbered
+  migration that applies automatically on open. Real data must survive
+  every subsequent milestone under the schema stability contract in
+  `SCHEMA.md`.
 
 ## Decisions and history
 

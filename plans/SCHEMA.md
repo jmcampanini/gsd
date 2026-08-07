@@ -226,10 +226,24 @@ CREATE INDEX idx_area_tags_tag    ON area_tags(tag_id);
 
 ## The stability contract
 
-From Go live, real data must survive every migration. The contract:
+From Go live, real data must survive every migration. Every schema
+change ships as a numbered migration, and the contract is
+**additive-or-full-delete**, for tables and views alike:
 
-- **The tables above are stable.** Columns may be added; never renamed,
-  retyped, or removed.
+- **A surviving object only gains appended columns.** A table or view
+  that survives a migration keeps its existing columns exactly — names,
+  types, nullability, defaults, primary-key positions, and
+  generated-column kinds — and its foreign keys and uniqueness
+  constraints; new columns append at the end. Never renames, retypes,
+  or losses.
+- **Removal is a whole-object drop.** Retiring anything means dropping
+  the table or view outright, never trimming it.
+- **Explicit indexes are exempt**; they carry no data.
+- **Enforcement is the migration-contract lint test**
+  (`TestEmbeddedMigrationChainPreservesSchemaContract` in
+  `internal/store/migration_contract_test.go`), which applies the
+  embedded chain migration by migration and diffs each end state
+  against these rules.
 - **Three views wrap the spec's named workflows** (below). The two
   task-shaped views return `tasks.*` plus one fixed enrichment block —
   `project_title`, `governing_area_id`, `governing_area_title`
@@ -243,7 +257,8 @@ From Go live, real data must survive every migration. The contract:
   and belongs to the caller (the CLI orders inbox by `position`, logbook by
   `resolved_at` descending). The `ORDER BY` clauses inside the tag aggregates
   order array elements, not view rows.
-- **Views may be added over time; existing ones only gain columns.**
+- **Tables and views may be added over time**; from then on the
+  contract above governs them.
 
 **`inbox`** — open tasks in no container. The enrichment block is
 definitionally NULL here (kept anyway, so every task-shaped row has
