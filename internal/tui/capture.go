@@ -12,6 +12,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -134,7 +135,12 @@ func (m CaptureModel) View() tea.View {
 
 func (m CaptureModel) footerView() string {
 	if m.err != nil {
-		return m.errorStyle.Render("Error: " + captureHumanText(m.err.Error()))
+		message := "Error: " + captureHumanText(m.err.Error())
+		if m.width > 0 {
+			_, right, _, left := m.errorStyle.GetPadding()
+			message = ansi.Truncate(message, max(m.width-left-right, 0), "…")
+		}
+		return m.errorStyle.Render(message)
 	}
 	if m.cancelRequested {
 		return m.footerStyle.Render(captureCancelStatus)

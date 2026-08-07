@@ -120,6 +120,8 @@ func runTerminalCapture(
 ) (result terminalCaptureResult) {
 	t.Helper()
 
+	// Keep the socket name relative to workDir because absolute checkout paths can
+	// exceed macOS's UNIX-socket limit.
 	socketPath := filepath.Base(workflowDir) + ".sock"
 	statusPath := filepath.Join(workflowDir, "capture.status")
 	if err := os.Remove(statusPath); err != nil && !errors.Is(err, os.ErrNotExist) {

@@ -348,6 +348,38 @@ func TestCaptureErrorFooterIsSanitizedAndStyled(t *testing.T) {
 	}
 }
 
+func TestCaptureLongErrorFitsTwoRows(t *testing.T) {
+	failureMessage := "write failed: " + strings.Repeat("界", 32)
+	failure := errors.New(failureMessage)
+	model := NewCaptureModel(
+		context.Background(),
+		&captureApplication{err: failure},
+		false,
+	)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 20, Height: 2})
+	model = updated.(CaptureModel)
+	model.input.SetValue("Call plumber")
+	updated, addCommand := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = updated.(CaptureModel)
+	updated, _ = model.Update(addCommand())
+	model = updated.(CaptureModel)
+
+	content := ansi.Strip(model.View().Content)
+	lines := strings.Split(content, "\n")
+	if len(lines) != 2 || !strings.Contains(lines[0], "Call plumber") {
+		t.Fatalf("error view did not preserve two rows and the input: %q", content)
+	}
+	if width := lipgloss.Width(lines[1]); width > 20 {
+		t.Errorf("error footer width = %d, want at most 20: %q", width, lines[1])
+	}
+	if !strings.HasSuffix(lines[1], "…") {
+		t.Errorf("error footer = %q, want truncation ellipsis", lines[1])
+	}
+	if !errors.Is(model.Err(), failure) || model.Err().Error() != failureMessage {
+		t.Errorf("capture error = %v, want full error %q", model.Err(), failureMessage)
+	}
+}
+
 func TestCaptureBlankEnterDoesNothing(t *testing.T) {
 	tests := []struct {
 		name  string
