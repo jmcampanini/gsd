@@ -135,6 +135,53 @@ func TestCaptureEnterAddsExactTitleOnce(t *testing.T) {
 	}
 }
 
+func TestRunCaptureWaitsForSubmissionWhenProgramStops(t *testing.T) {
+	application := &blockingCaptureApplication{
+		calls:   make(chan context.Context, 1),
+		release: make(chan struct{}),
+		err:     context.Canceled,
+	}
+	started := make(chan context.Context, 1)
+	finished := make(chan error, 1)
+	go func() {
+		finished <- runCapture(
+			context.Background(),
+			application,
+			false,
+			func(model CaptureModel) (CaptureModel, error) {
+				model.input.SetValue("Call plumber")
+				updated, command := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+				model = updated.(CaptureModel)
+				go func() { _ = command() }()
+				started <- <-application.calls
+				return model, nil
+			},
+		)
+	}()
+
+	addContext := receiveContext(t, started)
+	select {
+	case <-addContext.Done():
+	case <-time.After(time.Second):
+		t.Fatal("program shutdown did not cancel the Add context")
+	}
+	select {
+	case err := <-finished:
+		t.Fatalf("RunCapture returned before Add stopped: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(application.release)
+	select {
+	case err := <-finished:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("RunCapture error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RunCapture did not return after Add stopped")
+	}
+}
+
 func TestCaptureSubmittingCancelWaitsForAdd(t *testing.T) {
 	tests := []struct {
 		name string

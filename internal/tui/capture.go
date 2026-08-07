@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 
 	"charm.land/bubbles/v2/textinput"
@@ -38,12 +39,22 @@ type CaptureModel struct {
 	cancelAdd       context.CancelFunc
 	quitting        bool
 	err             error
+	submission      *captureSubmission
 }
 
 func NewCaptureModel(
 	ctx context.Context,
 	application task.Application,
 	colorEnabled bool,
+) CaptureModel {
+	return newCaptureModel(ctx, application, colorEnabled, &captureSubmission{})
+}
+
+func newCaptureModel(
+	ctx context.Context,
+	application task.Application,
+	colorEnabled bool,
+	submission *captureSubmission,
 ) CaptureModel {
 	input := textinput.New()
 	input.SetVirtualCursor(false)
@@ -54,6 +65,7 @@ func NewCaptureModel(
 		application:  application,
 		input:        input,
 		colorEnabled: colorEnabled,
+		submission:   submission,
 	}
 	model.setTheme(ThemeForBackground(true))
 	return model
@@ -114,11 +126,11 @@ func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if strings.TrimSpace(title) == "" {
 				return m, nil
 			}
-			addContext, cancel := context.WithCancel(m.ctx)
+			cancel, command := m.submission.start(m.ctx, m.application, title)
 			m.submitting = true
 			m.cancelAdd = cancel
 			m.input.Blur()
-			return m, captureTask(addContext, m.application, title)
+			return m, command
 		}
 	}
 
@@ -260,35 +272,133 @@ func captureHumanText(value string) string {
 	return visible.String()
 }
 
-func captureTask(
-	ctx context.Context,
+type captureSubmission struct {
+	mutex    sync.Mutex
+	cancel   context.CancelFunc
+	done     chan struct{}
+	started  bool
+	finished bool
+	err      error
+}
+
+func (s *captureSubmission) start(
+	parent context.Context,
 	application task.Application,
 	title string,
-) tea.Cmd {
-	return func() tea.Msg {
-		_, err := application.Add(ctx, task.AddFields{Title: title})
+) (context.CancelFunc, tea.Cmd) {
+	ctx, cancel := context.WithCancel(parent)
+	s.mutex.Lock()
+	s.cancel = cancel
+	s.done = make(chan struct{})
+	s.mutex.Unlock()
+
+	return cancel, func() tea.Msg {
+		s.mutex.Lock()
+		if s.finished {
+			err := s.err
+			s.mutex.Unlock()
+			return captureResultMsg{err: err}
+		}
+		if s.started {
+			done := s.done
+			s.mutex.Unlock()
+			<-done
+			return captureResultMsg{err: s.result()}
+		}
+		s.started = true
+		s.mutex.Unlock()
+
+		var err error
+		defer func() { s.finish(err) }()
+		_, err = application.Add(ctx, task.AddFields{Title: title})
 		return captureResultMsg{err: err}
 	}
 }
+
+func (s *captureSubmission) finish(err error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.err = err
+	s.finished = true
+	close(s.done)
+}
+
+func (s *captureSubmission) cancelAndWait() error {
+	s.mutex.Lock()
+	if s.done == nil {
+		s.mutex.Unlock()
+		return nil
+	}
+	s.cancel()
+	if !s.started && !s.finished {
+		s.err = context.Canceled
+		s.finished = true
+		close(s.done)
+	}
+	done := s.done
+	s.mutex.Unlock()
+
+	<-done
+	return s.result()
+}
+
+func (s *captureSubmission) result() error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.err
+}
+
+type captureProgramRunner func(CaptureModel) (CaptureModel, error)
 
 func RunCapture(
 	ctx context.Context,
 	application task.Application,
 	options ProgramOptions,
 ) error {
-	model := NewCaptureModel(ctx, application, options.Color != ColorDisabled)
-	finalModel, err := NewProgram(ctx, model, options).Run()
-	if err != nil {
-		return err
-	}
+	return runCapture(
+		ctx,
+		application,
+		options.Color != ColorDisabled,
+		func(model CaptureModel) (CaptureModel, error) {
+			finalModel, err := NewProgram(ctx, model, options).Run()
+			if err != nil {
+				return CaptureModel{}, err
+			}
 
-	configured, ok := finalModel.(programModel)
-	if !ok {
-		return fmt.Errorf("unexpected capture program model %T", finalModel)
+			configured, ok := finalModel.(programModel)
+			if !ok {
+				return CaptureModel{}, fmt.Errorf("unexpected capture program model %T", finalModel)
+			}
+			capture, ok := configured.model.(CaptureModel)
+			if !ok {
+				return CaptureModel{}, fmt.Errorf("unexpected capture model %T", configured.model)
+			}
+			return capture, nil
+		},
+	)
+}
+
+func runCapture(
+	ctx context.Context,
+	application task.Application,
+	colorEnabled bool,
+	runProgram captureProgramRunner,
+) error {
+	submission := &captureSubmission{}
+	defer func() { _ = submission.cancelAndWait() }()
+
+	capture, programErr := runProgram(
+		newCaptureModel(ctx, application, colorEnabled, submission),
+	)
+	submissionErr := submission.cancelAndWait()
+	if programErr != nil {
+		return programErr
 	}
-	capture, ok := configured.model.(CaptureModel)
-	if !ok {
-		return fmt.Errorf("unexpected capture model %T", configured.model)
+	if capture.submitting {
+		if capture.cancelRequested && errors.Is(submissionErr, context.Canceled) {
+			return nil
+		}
+		return submissionErr
 	}
 	return capture.Err()
 }
