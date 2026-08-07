@@ -25,6 +25,8 @@ CREATE TABLE projects (
     CHECK (done_at IS NULL OR cancelled_at IS NULL)
 ) STRICT;
 
+CREATE INDEX idx_projects_area ON projects(area_id);
+
 CREATE TABLE tasks (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id   INTEGER REFERENCES projects(id) ON DELETE RESTRICT,
@@ -47,6 +49,9 @@ CREATE TABLE tasks (
     CHECK (defer_until IS date(defer_until)),
     CHECK (due_on IS date(due_on))
 ) STRICT;
+
+CREATE INDEX idx_tasks_project ON tasks(project_id);
+CREATE INDEX idx_tasks_area    ON tasks(area_id);
 
 CREATE TABLE tags (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,9 +78,6 @@ CREATE TABLE area_tags (
     PRIMARY KEY (area_id, tag_id)
 ) STRICT, WITHOUT ROWID;
 
-CREATE INDEX idx_projects_area ON projects(area_id);
-CREATE INDEX idx_tasks_project ON tasks(project_id);
-CREATE INDEX idx_tasks_area    ON tasks(area_id);
 CREATE INDEX idx_task_tags_tag    ON task_tags(tag_id);
 CREATE INDEX idx_project_tags_tag ON project_tags(tag_id);
 CREATE INDEX idx_area_tags_tag    ON area_tags(tag_id);
@@ -135,4 +137,3 @@ FROM projects p
 LEFT JOIN areas a ON a.id = p.area_id
 WHERE p.status IN ('done', 'cancelled');
 
-PRAGMA user_version = 9006;

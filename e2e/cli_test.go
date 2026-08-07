@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,7 +16,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/task"
-	_ "modernc.org/sqlite"
 )
 
 var (
@@ -629,24 +627,6 @@ func TestTaskWorkflow(t *testing.T) {
 			t.Errorf("informational command %v = %#v, want success without database open", args, result)
 		}
 	}
-
-	wrongRevisionPath := filepath.Join(workflowDir, "wrong-revision.db")
-	wrongRevisionDatabase, err := sql.Open("sqlite", wrongRevisionPath)
-	if err != nil {
-		t.Fatalf("open wrong-revision database: %v", err)
-	}
-	if _, err := wrongRevisionDatabase.Exec("PRAGMA user_version = 42"); err != nil {
-		_ = wrongRevisionDatabase.Close()
-		t.Fatalf("set wrong database revision: %v", err)
-	}
-	if err := wrongRevisionDatabase.Close(); err != nil {
-		t.Fatalf("close wrong-revision database: %v", err)
-	}
-	assertJSONError(
-		t,
-		runGSD(t, "inbox", "--db", wrongRevisionPath, "--json"),
-		apperr.Conflict,
-	)
 }
 
 func TestTaskTimeWorkflow(t *testing.T) {
