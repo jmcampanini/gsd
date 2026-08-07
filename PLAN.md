@@ -7,7 +7,7 @@ consolidation. This plan is temporary and is retired at consolidation.
 
 ## Progress
 
-- [ ] Chunk 1 — Migration runner
+- [x] Chunk 1 — Migration runner
 
 There is no chunk 0: the Milestone 8 foundation review's fix-now findings
 were resolved in its wrap-up; the deferred items carry forward in
@@ -141,7 +141,7 @@ sqlite3 .sandbox/demo-future.db "PRAGMA application_id = 1196639281; PRAGMA user
 gsd --db .sandbox/demo-future.db inbox           # refused: gsd is older than this database
 ```
 
-- [ ] Agent verification before review: build the real binary, run the
+- [x] Agent verification before review: build the real binary, run the
       informational timing phase, run the demo command list against a
       fresh temporary database, capture the verbatim output into the deck,
       and pass local `make check`; then open the chunk PR against the
@@ -173,14 +173,14 @@ in `e2e/` inside `make check`.
 
 ## Consolidation checklist (`PROCESS.md`)
 
-- [ ] `COMMANDS.md` § Database reconciled to live-era semantics with the
+- [x] `COMMANDS.md` § Database reconciled to live-era semantics with the
       exact refusal messages; no canonical document still claims a
       dev-range guard exists.
-- [ ] `SCHEMA.md` § stability contract amended to
+- [x] `SCHEMA.md` § stability contract amended to
       additive-or-full-delete: surviving objects gain appended columns
       only, removal is whole-object, indexes exempt, the lint test named
       as the enforcement.
-- [ ] `MILESTONES.md` data policy checked so the dev-range description
+- [x] `MILESTONES.md` data policy checked so the dev-range description
       reads as history only.
-- [ ] `DIVERGENCES.md` stays empty.
+- [x] `DIVERGENCES.md` stays empty.
 - [ ] Standard exit workflow plus `MILESTONE_9.md`'s exit criteria.
