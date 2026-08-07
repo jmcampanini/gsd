@@ -1,81 +1,56 @@
-# Milestone 15 — Query
+# Milestone 15 — Input grammar
 
-Data mode: **live**. Depends on: Milestone 9 (schema stability
-contract). **Optional**: returns only if daily use demonstrates the
-need for raw SQL; sequenced after Serve (Milestone 14).
+Data mode: **live**. Depends on: Milestone 14.
 
-Written light; re-review at plan gate on activation.
+Written light; re-review at plan gate.
 
 ## Capability
 
-The escape hatch that makes gsd infinitely extendable without new
-features: `gsd query` runs arbitrary read-only SQL against the
-documented schema, exposing the stability contract `SCHEMA.md` has
-carried since Go live — tables stable, views only gain columns — as a
-user-facing query surface.
+Full parity, structurally: the CLI grammar arrives inside the TUI, and
+capture grows syntax. One grammar-execution engine serves the `:`
+command line, the edit/tag mnemonics, and capture's richer modes —
+parity is shared code, not discipline.
 
 ## Scope
 
-- Command:
-
-```text
-gsd query "SELECT ..."
-gsd query -              # SQL from stdin
-```
-
-- Read-only by construction: a separate read-only connection
-  (`query_only` pragma and/or open-mode flag — both, belt and
-  suspenders). Any write attempt fails as `invalid_argument`; so do
-  non-SELECT statements.
-- Human output: aligned table of selected columns; `--json`: array of
-  row objects keyed by column name.
-- Documentation: `SCHEMA.md`'s contract section gets a short "recipes"
-  addendum (reverse tag lookup, per-project counts, area review) —
-  documented example queries, explicitly not schema.
+- **`:` opens a command line** accepting the CLI grammar verbatim,
+  minus the binary name (`:projects add "Kitchen reno" --area 3`). It
+  calls the same parser and core; results and errors render through
+  Milestone 14's feedback surfaces.
+- **`e` edit and `t` tag** arrive as mnemonics that prefill the command
+  line for the selected row — verbs the single-key layer couldn't
+  express without a grammar.
+- **Inline capture syntax** (**proposed**: tag, date, and project
+  tokens on the title) shared between `gsd capture` and the TUI's `a`
+  quick add.
+- **Capture runner mode**: the popup accepts the CLI grammar and
+  executes it, riding the `:` engine.
+- Internal ordering of the capture-syntax and command-line chunks is
+  settled at plan gate.
 
 ## Chunks
 
-1. **The whole command** — read-only connection, output modes, error
-   mapping, recipes doc. Single chunk.
-
-## User stories
-
-### Questions gsd never anticipated get answered anyway
-
-```text
-$ gsd query "SELECT governing_area_title, COUNT(*) c
-             FROM available GROUP BY 1 ORDER BY c DESC"
-Home   7
-Work   4
-```
-
-### Agents get the whole database, safely
-
-```text
-$ echo "SELECT id, title FROM logbook LIMIT 3" | gsd query - --json
-[{"id": 41, "title": "..."}, ...]
-$ gsd query "DELETE FROM tasks"
-{"error": {"code": "invalid_argument", "message": "query is read-only"}}
-```
+1. **Grammar engine and `:`** — in-process execution of the CLI grammar
+   against the same parser and services; result and error rendering.
+2. **Edit and tag mnemonics** — `e`/`t` prefill on the selection.
+3. **Inline capture syntax** — the token grammar, in `capture` and `a`.
+4. **Capture runner mode** — the popup executes the grammar.
 
 ## Agent-verified end-to-end workflow
 
-On a seeded temporary database:
-
-1. Every documented recipe runs and returns plausibly-shaped results.
-2. Write-attempt matrix: `DELETE`, `UPDATE`, `INSERT`, `PRAGMA
-   user_version = 9`, `ATTACH` — all refused, database file unchanged
-   (checksum before/after).
-3. The three contract views expose exactly the columns `SCHEMA.md`
-   promises (introspection check).
-4. Capstone: the agent answers a nontrivial question about the seeded
-   data ("what was finished last week, by area?") using only
-   `gsd query`.
+Tmux-driven against the real binary and a seeded temporary database:
+run representative commands through `:` (add, edit, tag, cascade,
+error cases) and verify equivalence with the CLI's `--json` output for
+the same operations; capture with inline syntax lands the parsed
+fields; runner mode round-trips a full command.
 
 ## Exit criteria
 
-Standard exit workflow (see [`PROCESS.md`](PROCESS.md)).
+Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
+
+- [ ] `COMMANDS.md` documents the capture syntax and runner mode.
 
 ## Standards
 
-CLI-CMD-002/003, CLI-OUTPUT-003, CLI-DOCS-004.
+CLI-CMD-002/003, CLI-OUTPUT-001/003; TUI-applicable standards re-checked
+at plan gate.

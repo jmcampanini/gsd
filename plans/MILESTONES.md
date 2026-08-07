@@ -135,20 +135,29 @@ Active planning begins with the Capture milestone:
 | # | Milestone | Capability delivered | Data mode |
 |---|-----------|----------------------|-----------|
 | 10 | [Capture](MILESTONE_10.md) | TUI substrate + `gsd capture` popup | **live** |
-| 11 | [Navigator](MILESTONE_11.md) | Read-only full-screen `gsd tui` | **live** |
-| 12 | [Row verbs](MILESTONE_12.md) | Single-key mutations and reorder in the TUI | **live** |
-| 13 | [Input grammar](MILESTONE_13.md) | `:` command line and richer capture | **live** |
+| 11 | [Boards](MILESTONE_11.md) | Boards, stages, and stage-aware tasks in the CLI | **live** |
+| 12 | [Navigator](MILESTONE_12.md) | Read-only full-screen `gsd tui` | **live** |
+| 13 | [Board view](MILESTONE_13.md) | Read-only strategic board in the TUI | **live** |
+| 14 | [Row verbs](MILESTONE_14.md) | Single-key mutations and reorder in the TUI | **live** |
+| 15 | [Input grammar](MILESTONE_15.md) | `:` command line and richer capture | **live** |
 
 v1 closed when Go live landed; Capture is the first post-v1 milestone.
 
-The TUI enters the map as Milestones 10–13, sequenced by foundational
-layer rather than feature count: each milestone boundary marks a
-foundation review that later TUI work builds on — substrate, then
-navigation, then mutation, then grammar. Leaf features ride their
-layer's milestone as chunks: live `/` search in Navigator, grab-and-move
-reorder in Row verbs, capture runner mode in Input grammar. Pane and
-split layouts, mouse support, and markdown note rendering are parked
-explorations, deliberately unnumbered.
+Boards (11) is the strategic layer of the data model — pipelines
+projects move through — and lands CLI-first, independent of the TUI
+track.
+
+The TUI enters the map as Milestones 10 and 12–15, sequenced by
+foundational layer rather than feature count: each milestone boundary
+marks a foundation review that later TUI work builds on — substrate,
+then navigation, then mutation, then grammar. Leaf features ride their
+layer's milestone as chunks: live `/` search in Navigator,
+grab-and-move reorder and single-key stage movement in Row verbs,
+capture runner mode in Input grammar. Board view (13) is a feature
+milestone riding the layers rather than a layer itself: read-only on
+the navigation layer, with its mutation arriving via Row verbs. Pane
+and split layouts, mouse support, and markdown note rendering are
+parked explorations, deliberately unnumbered.
 
 ### Optional milestones
 
@@ -157,8 +166,9 @@ when their trigger fires:
 
 | # | Milestone | Capability delivered | Activation trigger |
 |---|-----------|----------------------|--------------------|
-| 14 | [Serve](MILESTONE_14.md) | Loopback HTTP API | A consumer that can't exec the CLI (browser frontend, remote agent) |
-| 15 | [Query](MILESTONE_15.md) | Read-only SQL escape hatch | Daily use demonstrates the need for raw SQL |
+| 16 | [Serve](MILESTONE_16.md) | Loopback HTTP API | A consumer that can't exec the CLI (browser frontend, remote agent) |
+| 17 | [Query](MILESTONE_17.md) | Read-only SQL escape hatch | Daily use demonstrates the need for raw SQL |
+| 18 | [History](MILESTONE_18.md) | Change tracking over time | A question about the past that current state and the logbook cannot answer |
 
 ## Data policy
 
@@ -265,3 +275,32 @@ when their trigger fires:
   descoped — real data enters through daily use from a fresh start,
   and real use surfaces gaps over time, so v1 closes when Go live
   lands, with no import, soak, or old-tool-demotion gate.
+- 2026-08-07, Boards planning interview: boards join the roadmap as
+  Milestone 11 — the strategic lens over projects. A board is a
+  user-defined pipeline of named, ordered stages; a project subscribes
+  to at most one board and occupies exactly one stage, stored on the
+  project with the board rendered as a grouped lens (prior art:
+  Linear, GitHub Projects, and Notion all store stage and render
+  columns; Trello's column-as-storage model is the counterexample).
+  Boards are global like tags; membership is optional; stage is
+  orthogonal to `open`/`done`/`cancelled` — the board shows open
+  projects only, the last stage never means done, and the logbook
+  keeps owning finished work. Tasks stay tactical with exactly one
+  narrow stage relationship: `defer until stage` (hidden from
+  `available` until the project reaches or passes the named stage,
+  composing with date defer) plus an opt-in promotes marker
+  (completing the task transactionally moves the project one stage
+  forward — one-way, relative, a reported no-op at the last stage).
+  Derived-from-tasks advancement and hard stage-gating were rejected;
+  Linear-milestone-style stage buckets and WIP limits were deferred
+  with recorded triggers. Vocabulary fixed: board, stage, column
+  (presentation only), move (the verb), promote. The schema folds
+  into `0001_baseline` as a pre-users clean break — no `0002`
+  migration; the existing personal database is recreated once. The
+  roadmap renumbered as a clean break, per the 2026-08-06 precedent:
+  Boards takes 11, Navigator 12, the new read-only Board view 13
+  (its stage-movement key rides Row verbs), Row verbs 14, Input
+  grammar 15, Serve 16, Query 17, and History enters as optional 18 —
+  deliberately underspecified change-over-time tracking, recording
+  from activation, not retroactively. Earlier decision entries keep
+  the numbers that were current when they were written.
