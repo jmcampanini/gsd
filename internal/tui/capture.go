@@ -2,9 +2,12 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image/color"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -13,20 +16,27 @@ import (
 )
 
 const (
-	captureFooter   = "enter add · esc cancel"
-	cursorCellWidth = 1
+	captureFooter       = "enter add · esc cancel"
+	captureAddingStatus = "adding · esc cancel"
+	captureCancelStatus = "canceling"
+	captureAddedStatus  = "added"
+	cursorCellWidth     = 1
 )
 
 type CaptureModel struct {
-	ctx          context.Context
-	application  task.Application
-	input        textinput.Model
-	theme        Theme
-	footerStyle  lipgloss.Style
-	colorEnabled bool
-	width        int
-	submitting   bool
-	err          error
+	ctx             context.Context
+	application     task.Application
+	input           textinput.Model
+	theme           Theme
+	footerStyle     lipgloss.Style
+	errorStyle      lipgloss.Style
+	colorEnabled    bool
+	width           int
+	submitting      bool
+	cancelRequested bool
+	cancelAdd       context.CancelFunc
+	quitting        bool
+	err             error
 }
 
 func NewCaptureModel(
@@ -67,10 +77,32 @@ func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resizeInput()
 		return m, nil
 	case captureResultMsg:
+		if m.cancelAdd != nil {
+			m.cancelAdd()
+			m.cancelAdd = nil
+		}
+		m.submitting = false
+		if msg.err == nil || (m.cancelRequested && errors.Is(msg.err, context.Canceled)) {
+			m.quitting = true
+			return m, tea.Quit
+		}
 		m.err = msg.err
-		return m, tea.Quit
+		return m, nil
 	case tea.KeyPressMsg:
+		if m.err != nil {
+			return m, tea.Quit
+		}
+		if m.quitting {
+			return m, nil
+		}
 		if m.submitting {
+			switch msg.String() {
+			case "ctrl+c", "esc":
+				if !m.cancelRequested {
+					m.cancelRequested = true
+					m.cancelAdd()
+				}
+			}
 			return m, nil
 		}
 		switch msg.String() {
@@ -81,9 +113,11 @@ func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if strings.TrimSpace(title) == "" {
 				return m, nil
 			}
+			addContext, cancel := context.WithCancel(m.ctx)
 			m.submitting = true
+			m.cancelAdd = cancel
 			m.input.Blur()
-			return m, captureTask(m.ctx, m.application, title)
+			return m, captureTask(addContext, m.application, title)
 		}
 	}
 
@@ -93,9 +127,25 @@ func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m CaptureModel) View() tea.View {
-	view := tea.NewView(m.inputView() + "\n" + m.footerStyle.Render(captureFooter))
+	view := tea.NewView(m.inputView() + "\n" + m.footerView())
 	view.Cursor = m.inputCursor()
 	return view
+}
+
+func (m CaptureModel) footerView() string {
+	if m.err != nil {
+		return m.errorStyle.Render("Error: " + captureHumanText(m.err.Error()))
+	}
+	if m.cancelRequested {
+		return m.footerStyle.Render(captureCancelStatus)
+	}
+	if m.quitting {
+		return m.footerStyle.Render(captureAddedStatus)
+	}
+	if m.submitting {
+		return m.footerStyle.Render(captureAddingStatus)
+	}
+	return m.footerStyle.Render(captureFooter)
 }
 
 func (m CaptureModel) inputCursor() *tea.Cursor {
@@ -156,6 +206,7 @@ func (m *CaptureModel) setTheme(theme Theme) {
 	}
 	badgeStyle := lipgloss.NewStyle().Padding(0, 1)
 	m.footerStyle = lipgloss.NewStyle().PaddingLeft(1)
+	m.errorStyle = lipgloss.NewStyle().PaddingLeft(1)
 
 	if m.colorEnabled {
 		inputStyle := lipgloss.NewStyle().Foreground(theme.Text)
@@ -173,6 +224,7 @@ func (m *CaptureModel) setTheme(theme Theme) {
 		m.footerStyle = m.footerStyle.
 			Foreground(theme.Dim).
 			Faint(true)
+		m.errorStyle = m.errorStyle.Foreground(theme.Red)
 	}
 
 	m.input.SetStyles(styles)
@@ -186,6 +238,20 @@ func (m *CaptureModel) resizeInput() {
 
 type captureResultMsg struct {
 	err error
+}
+
+func captureHumanText(value string) string {
+	var visible strings.Builder
+	visible.Grow(len(value))
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			quoted := strconv.QuoteRune(character)
+			visible.WriteString(quoted[1 : len(quoted)-1])
+			continue
+		}
+		visible.WriteRune(character)
+	}
+	return visible.String()
 }
 
 func captureTask(

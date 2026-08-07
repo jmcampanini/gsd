@@ -20,11 +20,21 @@ func newCaptureCommand(
 		Short: "Capture an inbox task",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			if options.json {
+				return usageError("--json is not supported by gsd capture; use gsd add TITLE for noninteractive capture")
+			}
+			if !options.presentation.dependencies.isTerminal(command.InOrStdin()) {
+				return usageError("gsd capture requires terminal input; use gsd add TITLE for noninteractive capture")
+			}
+			resolution := options.presentation.resolve(
+				command.OutOrStdout(),
+				command.Root().PersistentFlags().Changed("color"),
+			)
+			if !resolution.terminal {
+				return usageError("gsd capture requires terminal output; use gsd add TITLE for noninteractive capture")
+			}
+
 			return withTaskApplication(command, options, factory, func(application task.Application) error {
-				resolution := options.presentation.resolve(
-					command.OutOrStdout(),
-					command.Root().PersistentFlags().Changed("color"),
-				)
 				return runCapture(command.Context(), application, tui.ProgramOptions{
 					Input:       command.InOrStdin(),
 					Output:      command.OutOrStdout(),
