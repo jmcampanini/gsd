@@ -127,12 +127,6 @@ func writeJSON(writer io.Writer, value any) error {
 	return nil
 }
 
-// writeCommandOutput is the JSON/human dispatch point for every site whose two
-// modes share one payload; only tagging, recursive delete, and tag rename
-// branch by hand because their JSON payloads differ. If a cross-cutting output
-// policy lands (--quiet, another machine surface such as CSV), the next
-// refactor is moving dispatch into the with*Application wrappers so it exists
-// in exactly one place.
 func writeCommandOutput[T any](
 	command *cobra.Command,
 	options *rootOptions,

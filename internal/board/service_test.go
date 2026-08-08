@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,7 +23,7 @@ type fakeStore struct {
 	listBoardsResult      []Board
 	listBoardsError       error
 	editBoardResult       Board
-	editBoardTitle        string
+	editBoardID           int64
 	editBoardFields       EditFields
 	editBoardTimestamp    string
 	reorderBoardResult    Board
@@ -44,7 +45,7 @@ type fakeStore struct {
 	listStagesError       error
 	renameStageResult     Stage
 	renameStageBoardID    int64
-	renameStageOldTitle   string
+	renameStageID         int64
 	renameStageTitle      string
 	renameStageTimestamp  string
 	reorderStageResult    Stage
@@ -54,7 +55,7 @@ type fakeStore struct {
 	reorderStageTimestamp string
 	deleteStageResult     Stage
 	deleteStageBoardID    int64
-	deleteStageTitle      string
+	deleteStageID         int64
 	transactionStore      Transaction
 	transactionError      error
 	transactionCalls      int
@@ -83,9 +84,9 @@ func (f *fakeStore) ListBoards(context.Context) ([]Board, error) {
 	return f.listBoardsResult, f.listBoardsError
 }
 
-func (f *fakeStore) EditBoard(_ context.Context, title string, fields EditFields, timestamp string) (Board, error) {
+func (f *fakeStore) EditBoard(_ context.Context, id int64, fields EditFields, timestamp string) (Board, error) {
 	f.calls = append(f.calls, "edit board")
-	f.editBoardTitle = title
+	f.editBoardID = id
 	f.editBoardFields = fields
 	f.editBoardTimestamp = timestamp
 	return f.editBoardResult, nil
@@ -134,10 +135,10 @@ func (f *fakeStore) ListStages(_ context.Context, boardID int64) ([]Stage, error
 	return f.listStages[boardID], f.listStagesError
 }
 
-func (f *fakeStore) RenameStage(_ context.Context, boardID int64, oldTitle, title, timestamp string) (Stage, error) {
+func (f *fakeStore) RenameStage(_ context.Context, boardID, id int64, title, timestamp string) (Stage, error) {
 	f.calls = append(f.calls, "rename stage")
 	f.renameStageBoardID = boardID
-	f.renameStageOldTitle = oldTitle
+	f.renameStageID = id
 	f.renameStageTitle = title
 	f.renameStageTimestamp = timestamp
 	return f.renameStageResult, nil
@@ -152,10 +153,10 @@ func (f *fakeStore) ReorderStage(_ context.Context, boardID, id int64, placement
 	return f.reorderStageResult, nil
 }
 
-func (f *fakeStore) DeleteStage(_ context.Context, boardID int64, title string) (Stage, error) {
+func (f *fakeStore) DeleteStage(_ context.Context, boardID, id int64) (Stage, error) {
 	f.calls = append(f.calls, "delete stage")
 	f.deleteStageBoardID = boardID
-	f.deleteStageTitle = title
+	f.deleteStageID = id
 	return f.deleteStageResult, nil
 }
 
@@ -383,7 +384,7 @@ func TestAddStageDefaultsToAppendWithoutSecondMutation(t *testing.T) {
 	}
 }
 
-func TestAddStageRelativePlacementAppendsThenReordersInTheSameTransaction(t *testing.T) {
+func TestAddStageRelativePlacementResolvesThenAppendsAndReordersInSameTransaction(t *testing.T) {
 	t.Parallel()
 
 	transaction := &fakeStore{
@@ -410,13 +411,36 @@ func TestAddStageRelativePlacementAppendsThenReordersInTheSameTransaction(t *tes
 		t.Fatalf("AddStage() error = %v", err)
 	}
 	want := StageResult{Board: transaction.findBoards["work"], Stage: transaction.reorderStageResult}
-	if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(transaction.calls, []string{"find board work", "add stage Review", "find stage Doing", "reorder stage"}) {
-		t.Errorf("AddStage() result/calls = %#v/%v, want append, resolve, reorder", got, transaction.calls)
+	if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(transaction.calls, []string{"find board work", "find stage Doing", "add stage Review", "reorder stage"}) {
+		t.Errorf("AddStage() result/calls = %#v/%v, want resolve, append, reorder", got, transaction.calls)
 	}
 	wantPlacement := domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: 12}
 	wantTimestamp := "2026-08-08T01:02:03.456Z"
 	if transaction.reorderStageBoardID != 7 || transaction.reorderStageID != 15 || transaction.reorderStagePlacement != wantPlacement || transaction.addStageTimestamps[0] != wantTimestamp || transaction.reorderStageTimestamp != wantTimestamp {
 		t.Errorf("AddStage() reorder delegation = %#v, want board/stage IDs, numeric placement, and one timestamp", transaction)
+	}
+}
+
+func TestAddStageResolvesUnknownRelativePlacementBeforeInsert(t *testing.T) {
+	t.Parallel()
+
+	transaction := &fakeStore{
+		findBoards:     map[string]Board{"work": {ID: 7, Title: "Work"}},
+		findStageError: apperr.New(apperr.NotFound, "no stage Review", nil),
+	}
+	store := &fakeStore{transactionStore: transaction}
+	_, err := NewService(store).AddStage(
+		context.Background(),
+		"work",
+		"Review",
+		Placement{Anchor: domain.PlacementAfter, Reference: "Review"},
+	)
+	if code, _ := apperr.CodeOf(err); code != apperr.NotFound ||
+		!strings.Contains(err.Error(), "Review") || !strings.Contains(err.Error(), "Work") {
+		t.Fatalf("AddStage() error = %v, want stored-board not_found", err)
+	}
+	if !reflect.DeepEqual(transaction.calls, []string{"find board work", "find stage Review"}) || transaction.addStageCalls != 0 {
+		t.Errorf("AddStage() calls = %v, want placement resolution before insert", transaction.calls)
 	}
 }
 
@@ -497,7 +521,7 @@ func TestRenameStageReturnsStoredBoardAndPreviousSpelling(t *testing.T) {
 		t.Fatalf("RenameStage() error = %v", err)
 	}
 	want := StageRenameResult{Board: transaction.findBoards["WORK"], Stage: transaction.renameStageResult, PreviousTitle: "Doing"}
-	if !reflect.DeepEqual(got, want) || transaction.renameStageBoardID != 7 || transaction.renameStageOldTitle != "Doing" || transaction.renameStageTitle != "In Progress" {
+	if !reflect.DeepEqual(got, want) || transaction.renameStageBoardID != 7 || transaction.renameStageID != 12 || transaction.renameStageTitle != "In Progress" {
 		t.Errorf("RenameStage() = %#v/%#v, want stored context and old spelling", got, transaction)
 	}
 }

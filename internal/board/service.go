@@ -145,7 +145,7 @@ func (s *Service) Edit(ctx context.Context, title string, fields EditFields) (Bo
 		if err != nil {
 			return err
 		}
-		edited, err = store.EditBoard(ctx, found.Title, fields, timestamp)
+		edited, err = store.EditBoard(ctx, found.ID, fields, timestamp)
 		return err
 	})
 	if err != nil {
@@ -233,6 +233,10 @@ func (s *Service) AddStage(
 		if err != nil {
 			return err
 		}
+		numeric, err := resolveStagePlacement(ctx, store, foundBoard, placement)
+		if err != nil {
+			return err
+		}
 		added, err := store.AddStage(ctx, foundBoard.ID, stageTitle, timestamp)
 		if err != nil {
 			return err
@@ -241,10 +245,6 @@ func (s *Service) AddStage(
 		result = StageResult{Board: foundBoard, Stage: added}
 		if placement.Anchor == domain.PlacementLast {
 			return nil
-		}
-		numeric, err := resolveStagePlacement(ctx, store, foundBoard.ID, added, placement)
-		if err != nil {
-			return err
 		}
 		result.Stage, err = store.ReorderStage(ctx, foundBoard.ID, added.ID, numeric, timestamp)
 		return err
@@ -275,14 +275,14 @@ func (s *Service) RenameStage(
 		if err != nil {
 			return err
 		}
-		foundStage, err := store.FindStage(ctx, foundBoard.ID, stageTitle)
+		foundStage, err := findStage(ctx, store, foundBoard, stageTitle)
 		if err != nil {
 			return err
 		}
 		renamed, err := store.RenameStage(
 			ctx,
 			foundBoard.ID,
-			foundStage.Title,
+			foundStage.ID,
 			newTitle,
 			timestamp,
 		)
@@ -322,13 +322,17 @@ func (s *Service) ReorderStage(
 		if err != nil {
 			return err
 		}
-		foundStage, err := store.FindStage(ctx, foundBoard.ID, stageTitle)
+		foundStage, err := findStage(ctx, store, foundBoard, stageTitle)
 		if err != nil {
 			return err
 		}
-		numeric, err := resolveStagePlacement(ctx, store, foundBoard.ID, foundStage, placement)
+		numeric, err := resolveStagePlacement(ctx, store, foundBoard, placement)
 		if err != nil {
 			return err
+		}
+		if (placement.Anchor == domain.PlacementAfter || placement.Anchor == domain.PlacementBefore) &&
+			numeric.ReferenceID == foundStage.ID {
+			return selfPlacementError("stage")
 		}
 		reordered, err := store.ReorderStage(
 			ctx,
@@ -364,11 +368,11 @@ func (s *Service) DeleteStage(
 		if err != nil {
 			return err
 		}
-		foundStage, err := store.FindStage(ctx, foundBoard.ID, stageTitle)
+		foundStage, err := findStage(ctx, store, foundBoard, stageTitle)
 		if err != nil {
 			return err
 		}
-		deleted, err := store.DeleteStage(ctx, foundBoard.ID, foundStage.Title)
+		deleted, err := store.DeleteStage(ctx, foundBoard.ID, foundStage.ID)
 		if err != nil {
 			return err
 		}
@@ -406,8 +410,7 @@ func resolveBoardPlacement(
 func resolveStagePlacement(
 	ctx context.Context,
 	store Transaction,
-	boardID int64,
-	subject Stage,
+	currentBoard Board,
 	placement Placement,
 ) (domain.Placement, error) {
 	numeric := domain.Placement{Anchor: placement.Anchor}
@@ -415,15 +418,32 @@ func resolveStagePlacement(
 		return numeric, nil
 	}
 
-	reference, err := store.FindStage(ctx, boardID, placement.Reference)
+	reference, err := findStage(ctx, store, currentBoard, placement.Reference)
 	if err != nil {
 		return domain.Placement{}, err
 	}
-	if reference.ID == subject.ID {
-		return domain.Placement{}, selfPlacementError("stage")
-	}
 	numeric.ReferenceID = reference.ID
 	return numeric, nil
+}
+
+func findStage(
+	ctx context.Context,
+	store Transaction,
+	currentBoard Board,
+	title string,
+) (Stage, error) {
+	found, err := store.FindStage(ctx, currentBoard.ID, title)
+	if err == nil {
+		return found, nil
+	}
+	if code, coded := apperr.CodeOf(err); !coded || code != apperr.NotFound {
+		return Stage{}, err
+	}
+	return Stage{}, apperr.New(
+		apperr.NotFound,
+		fmt.Sprintf("no stage %s on board %s", title, currentBoard.Title),
+		err,
+	)
 }
 
 func validateBoardAndStageTitles(boardTitle, stageTitle string) error {

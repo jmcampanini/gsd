@@ -91,15 +91,15 @@ type Transaction interface {
 	AddBoard(context.Context, AddFields, string) (Board, error)
 	FindBoard(context.Context, string) (Board, error)
 	ListBoards(context.Context) ([]Board, error)
-	EditBoard(context.Context, string, EditFields, string) (Board, error)
+	EditBoard(context.Context, int64, EditFields, string) (Board, error)
 	ReorderBoard(context.Context, int64, domain.Placement, string) (Board, error)
 	DeleteBoard(context.Context, int64) (Board, error)
 	AddStage(context.Context, int64, string, string) (Stage, error)
 	FindStage(context.Context, int64, string) (Stage, error)
 	ListStages(context.Context, int64) ([]Stage, error)
-	RenameStage(context.Context, int64, string, string, string) (Stage, error)
+	RenameStage(context.Context, int64, int64, string, string) (Stage, error)
 	ReorderStage(context.Context, int64, int64, domain.Placement, string) (Stage, error)
-	DeleteStage(context.Context, int64, string) (Stage, error)
+	DeleteStage(context.Context, int64, int64) (Stage, error)
 }
 
 type Store interface {

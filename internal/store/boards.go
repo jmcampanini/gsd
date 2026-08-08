@@ -55,12 +55,12 @@ func (s *Boards) ListBoards(ctx context.Context) ([]board.Board, error) {
 
 func (s *Boards) EditBoard(
 	ctx context.Context,
-	name string,
+	id int64,
 	fields board.EditFields,
 	timestamp string,
 ) (board.Board, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction board.Transaction) (board.Board, error) {
-		return transaction.EditBoard(ctx, name, fields, timestamp)
+		return transaction.EditBoard(ctx, id, fields, timestamp)
 	})
 }
 
@@ -101,11 +101,11 @@ func (s *Boards) ListStages(ctx context.Context, boardID int64) ([]board.Stage, 
 
 func (s *Boards) RenameStage(
 	ctx context.Context,
-	boardID int64,
-	oldName, newName, timestamp string,
+	boardID, id int64,
+	newName, timestamp string,
 ) (board.Stage, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction board.Transaction) (board.Stage, error) {
-		return transaction.RenameStage(ctx, boardID, oldName, newName, timestamp)
+		return transaction.RenameStage(ctx, boardID, id, newName, timestamp)
 	})
 }
 
@@ -122,11 +122,10 @@ func (s *Boards) ReorderStage(
 
 func (s *Boards) DeleteStage(
 	ctx context.Context,
-	boardID int64,
-	name string,
+	boardID, id int64,
 ) (board.Stage, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction board.Transaction) (board.Stage, error) {
-		return transaction.DeleteStage(ctx, boardID, name)
+		return transaction.DeleteStage(ctx, boardID, id)
 	})
 }
 
@@ -220,21 +219,17 @@ func (s *boardsCore) ListBoards(ctx context.Context) ([]board.Board, error) {
 
 func (s *boardsCore) EditBoard(
 	ctx context.Context,
-	name string,
+	id int64,
 	fields board.EditFields,
 	timestamp string,
 ) (board.Board, error) {
 	if fields.Title == nil && fields.Note == nil {
 		return board.Board{}, errors.New("board edit requires at least one field")
 	}
-	current, err := s.FindBoard(ctx, name)
-	if err != nil {
-		return board.Board{}, err
-	}
 	if fields.Title != nil {
 		existing, findErr := s.FindBoard(ctx, *fields.Title)
 		switch code, coded := apperr.CodeOf(findErr); {
-		case findErr == nil && existing.ID != current.ID:
+		case findErr == nil && existing.ID != id:
 			return board.Board{}, apperr.New(
 				apperr.Conflict,
 				fmt.Sprintf("board already exists: %s", existing.Title),
@@ -258,13 +253,16 @@ func (s *boardsCore) EditBoard(
 		arguments = append(arguments, *fields.Note)
 	}
 	assignments = append(assignments, "updated_at = ?")
-	arguments = append(arguments, timestamp, current.ID)
+	arguments = append(arguments, timestamp, id)
 
 	edited, err := scanBoard(s.executor.QueryRowContext(
 		ctx,
 		"UPDATE boards SET "+strings.Join(assignments, ", ")+" WHERE id = ? RETURNING "+boardColumns,
 		arguments...,
 	))
+	if errors.Is(err, sql.ErrNoRows) {
+		return board.Board{}, apperr.New(apperr.NotFound, fmt.Sprintf("no board %d", id), err)
+	}
 	if err != nil {
 		return board.Board{}, fmt.Errorf("edit board: %w", err)
 	}
@@ -366,7 +364,7 @@ func (s *boardsCore) FindStage(ctx context.Context, boardID int64, name string) 
 	if errors.Is(err, sql.ErrNoRows) {
 		return board.Stage{}, apperr.New(
 			apperr.NotFound,
-			fmt.Sprintf("no stage %s on board %d", name, boardID),
+			fmt.Sprintf("no stage %s", name),
 			err,
 		)
 	}
@@ -410,16 +408,12 @@ func (s *boardsCore) ListStages(ctx context.Context, boardID int64) ([]board.Sta
 
 func (s *boardsCore) RenameStage(
 	ctx context.Context,
-	boardID int64,
-	oldName, newName, timestamp string,
+	boardID, id int64,
+	newName, timestamp string,
 ) (board.Stage, error) {
-	current, err := s.FindStage(ctx, boardID, oldName)
-	if err != nil {
-		return board.Stage{}, err
-	}
 	existing, findErr := s.FindStage(ctx, boardID, newName)
 	switch code, coded := apperr.CodeOf(findErr); {
-	case findErr == nil && existing.ID != current.ID:
+	case findErr == nil && existing.ID != id:
 		return board.Stage{}, apperr.New(
 			apperr.Conflict,
 			fmt.Sprintf("stage already exists: %s", existing.Title),
@@ -435,7 +429,14 @@ func (s *boardsCore) RenameStage(
 UPDATE stages
 SET title = ?, updated_at = ?
 WHERE board_id = ? AND id = ?
-RETURNING `+stageColumns, newName, timestamp, boardID, current.ID))
+RETURNING `+stageColumns, newName, timestamp, boardID, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return board.Stage{}, apperr.New(
+			apperr.NotFound,
+			fmt.Sprintf("no stage %d on board %d", id, boardID),
+			err,
+		)
+	}
 	if err != nil {
 		return board.Stage{}, fmt.Errorf("rename stage: %w", err)
 	}
@@ -486,21 +487,22 @@ SELECT id FROM stages WHERE board_id = ? ORDER BY position, id`, boardID)
 
 func (s *boardsCore) DeleteStage(
 	ctx context.Context,
-	boardID int64,
-	name string,
+	boardID, id int64,
 ) (board.Stage, error) {
-	deleted, err := s.FindStage(ctx, boardID, name)
-	if err != nil {
-		return board.Stage{}, err
-	}
-	if err := deleteRows(
+	deleted, err := scanStage(s.executor.QueryRowContext(
 		ctx,
-		s.executor,
-		1,
-		"DELETE FROM stages WHERE board_id = ? AND id = ?",
+		"DELETE FROM stages WHERE board_id = ? AND id = ? RETURNING "+stageColumns,
 		boardID,
-		deleted.ID,
-	); err != nil {
+		id,
+	))
+	if errors.Is(err, sql.ErrNoRows) {
+		return board.Stage{}, apperr.New(
+			apperr.NotFound,
+			fmt.Sprintf("no stage %d on board %d", id, boardID),
+			err,
+		)
+	}
+	if err != nil {
 		return board.Stage{}, fmt.Errorf("delete stage: %w", err)
 	}
 	return deleted, nil

@@ -103,7 +103,7 @@ func TestBoardStoreCRUDUsesNoCaseNamesStoredSpellingAndOrdinalLists(t *testing.T
 	note := "revised"
 	edited, err := boards.EditBoard(
 		ctx,
-		"DELIVERY",
+		delivery.ID,
 		board.EditFields{Title: &caseTitle, Note: &note},
 		"2026-01-02T00:00:00.000Z",
 	)
@@ -116,7 +116,7 @@ func TestBoardStoreCRUDUsesNoCaseNamesStoredSpellingAndOrdinalLists(t *testing.T
 		t.Errorf("EditBoard(case only) = %#v, want edited complete row", edited)
 	}
 	conflictingTitle := "PERSONAL"
-	if _, err := boards.EditBoard(ctx, "delivery", board.EditFields{Title: &conflictingTitle}, at); errorCode(err) != apperr.Conflict || !strings.Contains(err.Error(), personal.Title) {
+	if _, err := boards.EditBoard(ctx, edited.ID, board.EditFields{Title: &conflictingTitle}, at); errorCode(err) != apperr.Conflict || !strings.Contains(err.Error(), personal.Title) {
 		t.Errorf("EditBoard(conflict) error = %v, want conflict naming %q", err, personal.Title)
 	}
 
@@ -139,6 +139,9 @@ func TestBoardStoreCRUDUsesNoCaseNamesStoredSpellingAndOrdinalLists(t *testing.T
 	ready := addStoredStage(t, boards, edited.ID, "Ready", at)
 	done := addStoredStage(t, boards, edited.ID, "Done", at)
 	otherReady := addStoredStage(t, boards, personal.ID, "ready", at)
+	if ready.Position != 0 || done.Position != 1 || otherReady.Position != 0 {
+		t.Errorf("added stage positions = %d/%d/%d, want per-board ordinals 0/1/0", ready.Position, done.Position, otherReady.Position)
+	}
 	if _, err := boards.AddStage(ctx, edited.ID, "READY", at); errorCode(err) != apperr.Conflict || !strings.Contains(err.Error(), ready.Title) {
 		t.Errorf("AddStage(case duplicate) error = %v, want conflict naming %q", err, ready.Title)
 	}
@@ -151,14 +154,14 @@ func TestBoardStoreCRUDUsesNoCaseNamesStoredSpellingAndOrdinalLists(t *testing.T
 	}
 
 	caseStageTitle := "ready"
-	renamed, err := boards.RenameStage(ctx, edited.ID, "READY", caseStageTitle, "2026-01-03T00:00:00.000Z")
+	renamed, err := boards.RenameStage(ctx, edited.ID, ready.ID, caseStageTitle, "2026-01-03T00:00:00.000Z")
 	if err != nil {
 		t.Fatalf("RenameStage(case only) error = %v", err)
 	}
 	if renamed.ID != ready.ID || renamed.Title != caseStageTitle || renamed.UpdatedAt != "2026-01-03T00:00:00.000Z" {
 		t.Errorf("RenameStage(case only) = %#v, want same row with stored new spelling", renamed)
 	}
-	if _, err := boards.RenameStage(ctx, edited.ID, "ready", "DONE", at); errorCode(err) != apperr.Conflict || !strings.Contains(err.Error(), done.Title) {
+	if _, err := boards.RenameStage(ctx, edited.ID, renamed.ID, "DONE", at); errorCode(err) != apperr.Conflict || !strings.Contains(err.Error(), done.Title) {
 		t.Errorf("RenameStage(conflict) error = %v, want conflict naming %q", err, done.Title)
 	}
 
@@ -279,7 +282,7 @@ func TestBoardAndStageDeletesReturnSnapshotsCascadeAndLeaveOrdinalGaps(t *testin
 	first := addStoredStage(t, boards, doomed.ID, "first", at)
 	second := addStoredStage(t, boards, doomed.ID, "second", at)
 
-	deletedStage, err := boards.DeleteStage(ctx, doomed.ID, "FIRST")
+	deletedStage, err := boards.DeleteStage(ctx, doomed.ID, first.ID)
 	if err != nil {
 		t.Fatalf("DeleteStage() error = %v", err)
 	}
@@ -310,7 +313,7 @@ func TestBoardAndStageDeletesReturnSnapshotsCascadeAndLeaveOrdinalGaps(t *testin
 	if _, err := boards.DeleteBoard(ctx, doomed.ID); errorCode(err) != apperr.NotFound {
 		t.Errorf("DeleteBoard(missing) error = %v, want not_found", err)
 	}
-	if _, err := boards.DeleteStage(ctx, kept.ID, "missing"); errorCode(err) != apperr.NotFound {
+	if _, err := boards.DeleteStage(ctx, kept.ID, 999); errorCode(err) != apperr.NotFound {
 		t.Errorf("DeleteStage(missing) error = %v, want not_found", err)
 	}
 }
