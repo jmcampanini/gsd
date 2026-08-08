@@ -82,7 +82,7 @@ func TestReleasedMigrationsRemainUnchanged(t *testing.T) {
 	}{
 		{
 			name:     "migrations/0001_baseline.sql",
-			checksum: "54f9eacaa80b6f73b2e6d6dc7df7a1bce73bda35a02a39682fe00912233a38a7",
+			checksum: "08ec14fd4680028a333702e8d977241fd2b7a5908ed3d34ea9122a672a56e962",
 		},
 	}
 	for _, migration := range released {

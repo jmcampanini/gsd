@@ -968,6 +968,11 @@ func decodeTasks(t *testing.T, result processResult) []task.Task {
 	return decodeJSON[[]task.Task](t, result, "tasks")
 }
 
+func decodeTaskEdition(t *testing.T, result processResult) task.Edition {
+	t.Helper()
+	return decodeJSON[task.Edition](t, result, "task edition")
+}
+
 func decodeJSON[T any](t *testing.T, result processResult, description string) T {
 	t.Helper()
 	if result.exitCode != 0 || result.stderr != "" {

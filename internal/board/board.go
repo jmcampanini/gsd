@@ -5,6 +5,7 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
+	"github.com/jmcampanini/gsd/internal/task"
 )
 
 type Board struct {
@@ -81,6 +82,12 @@ type StageResult struct {
 	Stage Stage
 }
 
+type StageDeletion struct {
+	Stage         Stage       `json:"stage"`
+	ClearedDefers []task.Task `json:"cleared_defers"`
+	Board         Board       `json:"-"`
+}
+
 type StageRenameResult struct {
 	Board         Board
 	Stage         Stage
@@ -100,6 +107,7 @@ type Transaction interface {
 	ListShownProjects(context.Context, int64) ([]ShownProject, error)
 	BoardOccupied(context.Context, int64) (bool, error)
 	StageOccupied(context.Context, int64) (bool, error)
+	ClearTaskStageDefers(context.Context, int64, string) ([]task.Task, error)
 	RenameStage(context.Context, int64, int64, string, string) (Stage, error)
 	ReorderStage(context.Context, int64, int64, domain.Placement, string) (Stage, error)
 	DeleteStage(context.Context, int64, int64) (Stage, error)
@@ -121,5 +129,5 @@ type Application interface {
 	AddStage(context.Context, string, string, Placement) (StageResult, error)
 	RenameStage(context.Context, string, string, string) (StageRenameResult, error)
 	ReorderStage(context.Context, string, string, Placement) (StageResult, error)
-	DeleteStage(context.Context, string, string) (StageResult, error)
+	DeleteStage(context.Context, string, string) (StageDeletion, error)
 }

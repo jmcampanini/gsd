@@ -10,6 +10,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/board"
 	"github.com/jmcampanini/gsd/internal/domain"
+	"github.com/jmcampanini/gsd/internal/task"
 )
 
 const (
@@ -112,6 +113,14 @@ func (s *Boards) BoardOccupied(ctx context.Context, boardID int64) (bool, error)
 
 func (s *Boards) StageOccupied(ctx context.Context, stageID int64) (bool, error) {
 	return s.poolCore().StageOccupied(ctx, stageID)
+}
+
+func (s *Boards) ClearTaskStageDefers(
+	ctx context.Context,
+	stageID int64,
+	timestamp string,
+) ([]task.Task, error) {
+	return s.poolCore().ClearTaskStageDefers(ctx, stageID, timestamp)
 }
 
 func (s *Boards) RenameStage(
@@ -473,6 +482,28 @@ func (s *boardsCore) StageOccupied(ctx context.Context, stageID int64) (bool, er
 		return false, fmt.Errorf("check stage occupancy: %w", err)
 	}
 	return occupied, nil
+}
+
+func (s *boardsCore) ClearTaskStageDefers(
+	ctx context.Context,
+	stageID int64,
+	timestamp string,
+) ([]task.Task, error) {
+	rows, err := s.executor.QueryContext(ctx, `
+UPDATE tasks
+SET defer_stage_id = NULL, updated_at = ?
+WHERE defer_stage_id = ?
+RETURNING `+taskColumnsWithTags("tasks.id"), timestamp, stageID)
+	if err != nil {
+		return nil, fmt.Errorf("clear stage task defers: %w", err)
+	}
+
+	cleared, err := collectRows(rows, scanTask, "scan cleared stage task defer", "iterate cleared stage task defers")
+	if err != nil {
+		return nil, err
+	}
+	sortTasks(cleared)
+	return cleared, nil
 }
 
 func (s *boardsCore) RenameStage(

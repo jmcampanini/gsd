@@ -14,67 +14,101 @@ import (
 )
 
 type recordingStore struct {
-	addCalls             int
-	title                string
-	note                 string
-	addedProjectID       *int64
-	addedAreaID          *int64
-	addedDueOn           *string
-	addedDeferUntil      *string
-	addedTags            []string
-	timestamp            string
-	addResult            *Task
-	addError             error
-	inboxCalls           int
-	inboxResult          []ViewTask
-	availableCalls       int
-	availableResult      []ViewTask
-	findCalls            int
-	findResults          []Task
-	findError            error
-	findErrors           []error
-	listCalls            int
-	listedFilter         ListFilter
-	listResult           []Task
-	listError            error
-	projectExistsCalls   int
-	projectExistsError   error
-	areaExistsCalls      int
-	areaExistsError      error
-	editCalls            int
-	editID               int64
-	editFields           EditFields
-	editTimestamp        string
-	reorderCalls         int
-	reorderID            int64
-	reorderPlacement     domain.Placement
-	reorderTimestamp     string
-	reorderResult        Task
-	reorderError         error
-	doneCalls            int
-	cancelCalls          int
-	reopenCalls          int
-	deleteCalls          int
-	lifecycleID          int64
-	lifecycleTimestamp   string
-	resolveCalls         int
-	resolvedNames        []string
-	resolveResult        []tag.Tag
-	resolveError         error
-	attachCalls          int
-	attachedID           int64
-	attachedTags         []tag.Tag
-	attachError          error
-	detachCalls          int
-	detachedID           int64
-	detachedTags         []tag.Tag
-	detachError          error
-	transactionCalls     int
-	transactionStore     Transaction
-	transactionError     error
-	readTransactionCalls int
-	readTransactionStore Transaction
-	readTransactionError error
+	addCalls               int
+	title                  string
+	note                   string
+	addedProjectID         *int64
+	addedAreaID            *int64
+	addedDueOn             *string
+	addedDeferUntil        *string
+	addedDeferStageID      *int64
+	addedPromotes          bool
+	addedTags              []string
+	timestamp              string
+	addResult              *Task
+	addError               error
+	inboxCalls             int
+	inboxResult            []ViewTask
+	availableCalls         int
+	availableResult        []ViewTask
+	findCalls              int
+	findResults            []Task
+	findError              error
+	findErrors             []error
+	listCalls              int
+	listedFilter           ListFilter
+	listResult             []Task
+	listError              error
+	projectExistsCalls     int
+	projectExistsError     error
+	findProjectCalls       int
+	findProjectID          int64
+	findProjectResult      domain.Project
+	findProjectError       error
+	findStageCalls         int
+	findStageProjectID     int64
+	findStageTitle         string
+	findStageResult        StageReference
+	findStageError         error
+	findStageByIDCalls     int
+	findStageByIDID        int64
+	findStageByIDResult    StageReference
+	findStageByIDError     error
+	stageExistsCalls       int
+	stageExistsTitle       string
+	stageExistsResult      bool
+	stageExistsError       error
+	findNextStageCalls     int
+	nextStageLookupBoardID int64
+	nextStageLookupFromPos int64
+	findNextStageResult    *StageReference
+	findNextStageError     error
+	moveProjectStageCalls  int
+	moveProjectID          int64
+	moveProjectStageID     int64
+	moveProjectTimestamp   string
+	moveProjectResult      domain.Project
+	moveProjectError       error
+	areaExistsCalls        int
+	areaExistsError        error
+	editCalls              int
+	editID                 int64
+	editFields             EditFields
+	editTimestamp          string
+	editResult             *Task
+	editError              error
+	reorderCalls           int
+	reorderID              int64
+	reorderPlacement       domain.Placement
+	reorderTimestamp       string
+	reorderResult          Task
+	reorderError           error
+	doneCalls              int
+	doneResult             *Task
+	doneError              error
+	cancelCalls            int
+	reopenCalls            int
+	deleteCalls            int
+	lifecycleID            int64
+	lifecycleTimestamp     string
+	resolveCalls           int
+	resolvedNames          []string
+	resolveResult          []tag.Tag
+	resolveError           error
+	attachCalls            int
+	attachedID             int64
+	attachedTags           []tag.Tag
+	attachError            error
+	detachCalls            int
+	detachedID             int64
+	detachedTags           []tag.Tag
+	detachError            error
+	transactionCalls       int
+	transactionStore       Transaction
+	transactionError       error
+	readTransactionCalls   int
+	readTransactionStore   Transaction
+	readTransactionError   error
 }
 
 func (r *recordingStore) Add(
@@ -89,6 +123,8 @@ func (r *recordingStore) Add(
 	r.addedAreaID = fields.AreaID
 	r.addedDueOn = fields.DueOn
 	r.addedDeferUntil = fields.DeferUntil
+	r.addedDeferStageID = fields.DeferStageID
+	r.addedPromotes = fields.Promotes
 	r.addedTags = fields.Tags
 	r.timestamp = timestamp
 	if r.addError != nil {
@@ -99,15 +135,17 @@ func (r *recordingStore) Add(
 	}
 
 	return Task{
-		ID:         1,
-		ProjectID:  fields.ProjectID,
-		AreaID:     fields.AreaID,
-		Title:      fields.Title,
-		Note:       fields.Note,
-		DueOn:      fields.DueOn,
-		DeferUntil: fields.DeferUntil,
-		CreatedAt:  timestamp,
-		UpdatedAt:  timestamp,
+		ID:           1,
+		ProjectID:    fields.ProjectID,
+		AreaID:       fields.AreaID,
+		Title:        fields.Title,
+		Note:         fields.Note,
+		DueOn:        fields.DueOn,
+		DeferUntil:   fields.DeferUntil,
+		DeferStageID: fields.DeferStageID,
+		Promotes:     fields.Promotes,
+		CreatedAt:    timestamp,
+		UpdatedAt:    timestamp,
 	}, nil
 }
 
@@ -146,6 +184,50 @@ func (r *recordingStore) ProjectExists(context.Context, int64) error {
 	return r.projectExistsError
 }
 
+func (r *recordingStore) FindProject(_ context.Context, id int64) (domain.Project, error) {
+	r.findProjectCalls++
+	r.findProjectID = id
+	return r.findProjectResult, r.findProjectError
+}
+
+func (r *recordingStore) FindStage(_ context.Context, projectID int64, title string) (StageReference, error) {
+	r.findStageCalls++
+	r.findStageProjectID = projectID
+	r.findStageTitle = title
+	return r.findStageResult, r.findStageError
+}
+
+func (r *recordingStore) FindStageByID(_ context.Context, id int64) (StageReference, error) {
+	r.findStageByIDCalls++
+	r.findStageByIDID = id
+	return r.findStageByIDResult, r.findStageByIDError
+}
+
+func (r *recordingStore) StageExists(_ context.Context, title string) (bool, error) {
+	r.stageExistsCalls++
+	r.stageExistsTitle = title
+	return r.stageExistsResult, r.stageExistsError
+}
+
+func (r *recordingStore) FindNextStage(_ context.Context, boardID, currentPosition int64) (*StageReference, error) {
+	r.findNextStageCalls++
+	r.nextStageLookupBoardID = boardID
+	r.nextStageLookupFromPos = currentPosition
+	return r.findNextStageResult, r.findNextStageError
+}
+
+func (r *recordingStore) MoveProjectStage(
+	_ context.Context,
+	projectID, stageID int64,
+	timestamp string,
+) (domain.Project, error) {
+	r.moveProjectStageCalls++
+	r.moveProjectID = projectID
+	r.moveProjectStageID = stageID
+	r.moveProjectTimestamp = timestamp
+	return r.moveProjectResult, r.moveProjectError
+}
+
 func (r *recordingStore) AreaExists(context.Context, int64) error {
 	r.areaExistsCalls++
 	return r.areaExistsError
@@ -161,6 +243,12 @@ func (r *recordingStore) Edit(
 	r.editID = id
 	r.editFields = fields
 	r.editTimestamp = timestamp
+	if r.editError != nil {
+		return Task{}, r.editError
+	}
+	if r.editResult != nil {
+		return *r.editResult, nil
+	}
 
 	return Task{ID: id, UpdatedAt: timestamp}, nil
 }
@@ -181,6 +269,12 @@ func (r *recordingStore) Reorder(
 func (r *recordingStore) Done(_ context.Context, id int64, timestamp string) (Task, error) {
 	r.doneCalls++
 	r.recordLifecycle(id, timestamp)
+	if r.doneError != nil {
+		return Task{}, r.doneError
+	}
+	if r.doneResult != nil {
+		return *r.doneResult, nil
+	}
 	return Task{ID: id, DoneAt: &timestamp}, nil
 }
 
@@ -273,7 +367,7 @@ func TestAddPreservesAcceptedTextAndNormalizesTimestamp(t *testing.T) {
 	projectID := int64(7)
 	dueOn := "tomorrow"
 	deferUntil := "today"
-	created, err := service.Add(context.Background(), AddFields{
+	created, err := service.Add(context.Background(), AddRequest{
 		ProjectID:  &projectID,
 		Title:      title,
 		Note:       note,
@@ -316,7 +410,7 @@ func TestAddValidatesAndDelegatesArea(t *testing.T) {
 
 	areaID := int64(11)
 	store := &recordingStore{}
-	if _, err := NewService(store).Add(context.Background(), AddFields{AreaID: &areaID, Title: "area task"}); err != nil {
+	if _, err := NewService(store).Add(context.Background(), AddRequest{AreaID: &areaID, Title: "area task"}); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
 	if store.addCalls != 1 || store.addedAreaID == nil || *store.addedAreaID != areaID {
@@ -325,7 +419,7 @@ func TestAddValidatesAndDelegatesArea(t *testing.T) {
 
 	projectID := int64(7)
 	invalidAreaID := int64(0)
-	for _, fields := range []AddFields{
+	for _, fields := range []AddRequest{
 		{AreaID: &invalidAreaID, Title: "valid"},
 		{ProjectID: &projectID, AreaID: &areaID, Title: "valid"},
 	} {
@@ -344,6 +438,7 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 	t.Parallel()
 
 	invalidDate := "2026-02-30"
+	blankDeferStage := " "
 	invalidProjectID := int64(0)
 	tests := []struct {
 		name       string
@@ -352,6 +447,7 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 		note       string
 		dueOn      *string
 		deferUntil *string
+		deferStage *string
 		tags       []string
 	}{
 		{name: "blank title", title: " \t\n"},
@@ -360,6 +456,7 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 		{name: "nonpositive project ID", projectID: &invalidProjectID, title: "valid"},
 		{name: "invalid due date", title: "valid", dueOn: &invalidDate},
 		{name: "invalid defer date", title: "valid", deferUntil: &invalidDate},
+		{name: "blank defer stage", title: "valid", deferStage: &blankDeferStage},
 		{name: "blank tag", title: "valid", tags: []string{" "}},
 		{name: "invalid tag UTF-8", title: "valid", tags: []string{string([]byte{0xff})}},
 	}
@@ -370,12 +467,13 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 
 			store := &recordingStore{}
 			service := NewService(store)
-			_, err := service.Add(context.Background(), AddFields{
+			_, err := service.Add(context.Background(), AddRequest{
 				ProjectID:  test.projectID,
 				Title:      test.title,
 				Note:       test.note,
 				DueOn:      test.dueOn,
 				DeferUntil: test.deferUntil,
+				DeferStage: test.deferStage,
 				Tags:       test.tags,
 			})
 			if err == nil {
@@ -416,7 +514,7 @@ func TestAddWithTagsOwnsTransactionNormalizesNamesAndReturnsRefresh(t *testing.T
 	}
 	store := &recordingStore{transactionStore: transactionStore}
 
-	got, err := NewService(store).Add(context.Background(), AddFields{
+	got, err := NewService(store).Add(context.Background(), AddRequest{
 		Title: "tagged task",
 		Tags:  []string{"Errands", "ERRANDS", "é", "É"},
 	})
@@ -458,7 +556,7 @@ func TestAddWithoutTagsKeepsDirectStorePath(t *testing.T) {
 	t.Parallel()
 
 	store := &recordingStore{}
-	if _, err := NewService(store).Add(context.Background(), AddFields{Title: "untagged"}); err != nil {
+	if _, err := NewService(store).Add(context.Background(), AddRequest{Title: "untagged"}); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
 	if store.addCalls != 1 || store.transactionCalls != 0 {
@@ -496,7 +594,7 @@ func TestAddWithTagsReturnsTransactionErrors(t *testing.T) {
 				transactionStore: test.transaction,
 				transactionError: test.outerError,
 			}
-			_, err := NewService(store).Add(context.Background(), AddFields{
+			_, err := NewService(store).Add(context.Background(), AddRequest{
 				Title: "tagged",
 				Tags:  []string{"known"},
 			})
@@ -507,6 +605,101 @@ func TestAddWithTagsReturnsTransactionErrors(t *testing.T) {
 				t.Errorf("outer store calls = %#v, want transaction boundary only", store)
 			}
 		})
+	}
+}
+
+func TestAddResolvesDeferStageOnTheProjectBoard(t *testing.T) {
+	t.Parallel()
+
+	projectID := int64(7)
+	projectStageID := int64(11)
+	target := StageReference{ID: 13, BoardID: 17, Title: "Waiting", Position: 3}
+	notFound := apperr.New(apperr.NotFound, "stage Waiting not found", nil)
+	tests := []struct {
+		name     string
+		request  AddRequest
+		store    *recordingStore
+		wantCode apperr.Code
+	}{
+		{
+			name:     "project required",
+			request:  AddRequest{Title: "task", DeferStage: &target.Title},
+			store:    &recordingStore{},
+			wantCode: apperr.InvalidArgument,
+		},
+		{
+			name:    "project must be on board",
+			request: AddRequest{ProjectID: &projectID, Title: "task", DeferStage: &target.Title},
+			store: &recordingStore{
+				findProjectResult: domain.Project{ID: projectID},
+			},
+			wantCode: apperr.InvalidArgument,
+		},
+		{
+			name:    "unknown title remains not found",
+			request: AddRequest{ProjectID: &projectID, Title: "task", DeferStage: &target.Title},
+			store: &recordingStore{
+				findProjectResult:   domain.Project{ID: projectID, StageID: &projectStageID},
+				findStageByIDResult: StageReference{ID: projectStageID, BoardID: target.BoardID},
+				findStageError:      notFound,
+			},
+			wantCode: apperr.NotFound,
+		},
+		{
+			name:    "title only on another board is invalid",
+			request: AddRequest{ProjectID: &projectID, Title: "task", DeferStage: &target.Title},
+			store: &recordingStore{
+				findProjectResult:   domain.Project{ID: projectID, StageID: &projectStageID},
+				findStageByIDResult: StageReference{ID: projectStageID, BoardID: target.BoardID},
+				findStageError:      notFound,
+				stageExistsResult:   true,
+			},
+			wantCode: apperr.InvalidArgument,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			outer := &recordingStore{transactionStore: test.store}
+			_, err := NewService(outer).Add(context.Background(), test.request)
+			if code, ok := apperr.CodeOf(err); !ok || code != test.wantCode {
+				t.Fatalf("Add() error = %v, want %s", err, test.wantCode)
+			}
+			if outer.transactionCalls != 1 || outer.addCalls != 0 || test.store.addCalls != 0 {
+				t.Errorf("transaction/outer add/transaction add calls = %d/%d/%d, want 1/0/0", outer.transactionCalls, outer.addCalls, test.store.addCalls)
+			}
+		})
+	}
+
+	transaction := &recordingStore{
+		findProjectResult:   domain.Project{ID: projectID, StageID: &projectStageID},
+		findStageByIDResult: StageReference{ID: projectStageID, BoardID: target.BoardID},
+		findStageResult:     target,
+	}
+	outer := &recordingStore{transactionStore: transaction}
+	created, err := NewService(outer).Add(context.Background(), AddRequest{
+		ProjectID:  &projectID,
+		Title:      "task",
+		DeferStage: &target.Title,
+		Promotes:   true,
+	})
+	if err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if outer.transactionCalls != 1 || transaction.addCalls != 1 ||
+		transaction.findProjectID != projectID || transaction.findStageByIDCalls != 1 ||
+		transaction.findStageByIDID != projectStageID ||
+		transaction.findStageProjectID != target.BoardID || transaction.findStageTitle != target.Title {
+		t.Errorf("defer-stage resolution calls = %#v, want one transaction and project-board lookup", transaction)
+	}
+	if transaction.addedDeferStageID == nil || *transaction.addedDeferStageID != target.ID ||
+		created.DeferStageID == nil || *created.DeferStageID != target.ID {
+		t.Errorf("persisted/result defer stage = %#v/%#v, want %d", transaction.addedDeferStageID, created.DeferStageID, target.ID)
+	}
+	if !transaction.addedPromotes || !created.Promotes {
+		t.Errorf("persisted/result promotes = %t/%t, want true", transaction.addedPromotes, created.Promotes)
 	}
 }
 
@@ -810,7 +1003,7 @@ func TestEditPreservesRequestedFieldsAndNormalizesTimestamp(t *testing.T) {
 	projectID := int64(9)
 	dueOn := "today"
 	deferUntil := "tomorrow"
-	edited, err := service.Edit(context.Background(), 7, EditFields{
+	edited, err := service.Edit(context.Background(), 7, EditRequest{
 		Project:    ProjectChange{Set: &projectID},
 		Title:      &title,
 		Note:       &note,
@@ -839,7 +1032,7 @@ func TestEditPreservesRequestedFieldsAndNormalizesTimestamp(t *testing.T) {
 	if store.editFields.DeferUntil.Set == nil || *store.editFields.DeferUntil.Set != "2026-07-28" {
 		t.Errorf("edited defer date = %#v, want canonical 2026-07-28", store.editFields.DeferUntil)
 	}
-	if nowCalls != 1 || store.editTimestamp != "2026-07-27T16:34:56.987Z" || edited.UpdatedAt != store.editTimestamp {
+	if nowCalls != 1 || store.editTimestamp != "2026-07-27T16:34:56.987Z" || edited.Task.UpdatedAt != store.editTimestamp {
 		t.Errorf("clock calls/timestamp = %d/%q, want one call and UTC milliseconds", nowCalls, store.editTimestamp)
 	}
 }
@@ -849,7 +1042,7 @@ func TestEditDistinguishesClearedFieldsFromOmittedFields(t *testing.T) {
 
 	store := &recordingStore{}
 	note := ""
-	_, err := NewService(store).Edit(context.Background(), 7, EditFields{
+	_, err := NewService(store).Edit(context.Background(), 7, EditRequest{
 		Project:    ProjectChange{Clear: true},
 		Note:       &note,
 		DueOn:      DateChange{Clear: true},
@@ -876,7 +1069,7 @@ func TestEditDistinguishesClearedFieldsFromOmittedFields(t *testing.T) {
 
 	omittedStore := &recordingStore{}
 	title := "revised"
-	_, err = NewService(omittedStore).Edit(context.Background(), 7, EditFields{Title: &title})
+	_, err = NewService(omittedStore).Edit(context.Background(), 7, EditRequest{Title: &title})
 	if err != nil {
 		t.Fatalf("Edit(omitted due) error = %v", err)
 	}
@@ -895,7 +1088,7 @@ func TestEditValidatesAndDelegatesAreaIntent(t *testing.T) {
 	t.Parallel()
 
 	areaID := int64(11)
-	accepted := []EditFields{
+	accepted := []EditRequest{
 		{Area: AreaChange{Set: &areaID}},
 		{Area: AreaChange{Clear: true}},
 	}
@@ -911,7 +1104,7 @@ func TestEditValidatesAndDelegatesAreaIntent(t *testing.T) {
 
 	projectID := int64(7)
 	invalidAreaID := int64(0)
-	invalid := []EditFields{
+	invalid := []EditRequest{
 		{Area: AreaChange{Set: &invalidAreaID}},
 		{Area: AreaChange{Set: &areaID, Clear: true}},
 		{Project: ProjectChange{Set: &projectID}, Area: AreaChange{Set: &areaID}},
@@ -942,34 +1135,43 @@ func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
 	tests := []struct {
 		name   string
 		id     int64
-		fields EditFields
+		fields EditRequest
 	}{
-		{name: "nonpositive ID", fields: EditFields{Title: &validTitle}},
+		{name: "nonpositive ID", fields: EditRequest{Title: &validTitle}},
 		{name: "no fields", id: 1},
-		{name: "blank title", id: 1, fields: EditFields{Title: &blankTitle}},
-		{name: "invalid title UTF-8", id: 1, fields: EditFields{Title: &invalidTitle}},
-		{name: "invalid note UTF-8", id: 1, fields: EditFields{Note: &invalidNote}},
+		{name: "blank title", id: 1, fields: EditRequest{Title: &blankTitle}},
+		{name: "invalid title UTF-8", id: 1, fields: EditRequest{Title: &invalidTitle}},
+		{name: "invalid note UTF-8", id: 1, fields: EditRequest{Note: &invalidNote}},
 		{
 			name: "nonpositive project ID",
 			id:   1,
-			fields: EditFields{Project: ProjectChange{
+			fields: EditRequest{Project: ProjectChange{
 				Set: &invalidProjectID,
 			}},
 		},
 		{
 			name: "set and clear project",
 			id:   1,
-			fields: EditFields{Project: ProjectChange{
+			fields: EditRequest{Project: ProjectChange{
 				Set:   &validProjectID,
 				Clear: true,
 			}},
 		},
-		{name: "invalid due date", id: 1, fields: EditFields{DueOn: DateChange{Set: &invalidDate}}},
-		{name: "invalid defer date", id: 1, fields: EditFields{DeferUntil: DateChange{Set: &invalidDate}}},
+		{name: "invalid due date", id: 1, fields: EditRequest{DueOn: DateChange{Set: &invalidDate}}},
+		{name: "invalid defer date", id: 1, fields: EditRequest{DeferUntil: DateChange{Set: &invalidDate}}},
+		{name: "blank defer stage", id: 1, fields: EditRequest{DeferStage: StageChange{Set: &blankTitle}}},
+		{
+			name: "set and clear defer stage",
+			id:   1,
+			fields: EditRequest{DeferStage: StageChange{
+				Set:   &validTitle,
+				Clear: true,
+			}},
+		},
 		{
 			name: "set and clear due date",
 			id:   1,
-			fields: EditFields{DueOn: DateChange{
+			fields: EditRequest{DueOn: DateChange{
 				Set:   &validDate,
 				Clear: true,
 			}},
@@ -977,7 +1179,7 @@ func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
 		{
 			name: "set and clear defer date",
 			id:   1,
-			fields: EditFields{DeferUntil: DateChange{
+			fields: EditRequest{DeferUntil: DateChange{
 				Set:   &validDate,
 				Clear: true,
 			}},
@@ -996,8 +1198,187 @@ func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
 			if code, ok := apperr.CodeOf(err); !ok || code != apperr.InvalidArgument {
 				t.Errorf("Edit() error = %v, want invalid_argument", err)
 			}
-			if store.editCalls != 0 {
-				t.Errorf("store Edit() calls = %d, want 0", store.editCalls)
+			if store.editCalls != 0 || store.transactionCalls != 0 {
+				t.Errorf("store Edit()/transaction calls = %d/%d, want 0/0", store.editCalls, store.transactionCalls)
+			}
+		})
+	}
+}
+
+func TestEditValidatesDeferStageAgainstTheDestinationProject(t *testing.T) {
+	t.Parallel()
+
+	currentProjectID := int64(3)
+	destinationProjectID := int64(7)
+	projectStageID := int64(11)
+	target := StageReference{ID: 13, BoardID: 17, Title: "Waiting", Position: 3}
+	notFound := apperr.New(apperr.NotFound, "stage Waiting not found", nil)
+	tests := []struct {
+		name        string
+		transaction *recordingStore
+		wantCode    apperr.Code
+	}{
+		{
+			name: "project required",
+			transaction: &recordingStore{
+				findResults: []Task{{ID: 5}},
+			},
+			wantCode: apperr.InvalidArgument,
+		},
+		{
+			name: "project must be on board",
+			transaction: &recordingStore{
+				findResults:       []Task{{ID: 5, ProjectID: &currentProjectID}},
+				findProjectResult: domain.Project{ID: currentProjectID},
+			},
+			wantCode: apperr.InvalidArgument,
+		},
+		{
+			name: "unknown title remains not found",
+			transaction: &recordingStore{
+				findResults:       []Task{{ID: 5, ProjectID: &currentProjectID}},
+				findProjectResult: domain.Project{ID: currentProjectID, StageID: &projectStageID},
+				findStageError:    notFound,
+			},
+			wantCode: apperr.NotFound,
+		},
+		{
+			name: "title only on another board is invalid",
+			transaction: &recordingStore{
+				findResults:       []Task{{ID: 5, ProjectID: &currentProjectID}},
+				findProjectResult: domain.Project{ID: currentProjectID, StageID: &projectStageID},
+				findStageError:    notFound,
+				stageExistsResult: true,
+			},
+			wantCode: apperr.InvalidArgument,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			outer := &recordingStore{transactionStore: test.transaction}
+			_, err := NewService(outer).Edit(context.Background(), 5, EditRequest{
+				DeferStage: StageChange{Set: &target.Title},
+			})
+			if code, ok := apperr.CodeOf(err); !ok || code != test.wantCode {
+				t.Fatalf("Edit() error = %v, want %s", err, test.wantCode)
+			}
+			if outer.transactionCalls != 1 || outer.editCalls != 0 || test.transaction.editCalls != 0 {
+				t.Errorf("transaction/outer edit/transaction edit calls = %d/%d/%d, want 1/0/0", outer.transactionCalls, outer.editCalls, test.transaction.editCalls)
+			}
+		})
+	}
+
+	oldDeferStageID := int64(9)
+	editedTask := Task{ID: 5, ProjectID: &destinationProjectID, DeferStageID: &target.ID}
+	transaction := &recordingStore{
+		findResults:         []Task{{ID: 5, ProjectID: &currentProjectID, DeferStageID: &oldDeferStageID}},
+		findProjectResult:   domain.Project{ID: destinationProjectID, StageID: &projectStageID},
+		findStageByIDResult: StageReference{ID: projectStageID, BoardID: target.BoardID},
+		findStageResult:     target,
+		editResult:          &editedTask,
+	}
+	outer := &recordingStore{transactionStore: transaction}
+	result, err := NewService(outer).Edit(context.Background(), 5, EditRequest{
+		Project:    ProjectChange{Set: &destinationProjectID},
+		DeferStage: StageChange{Set: &target.Title},
+	})
+	if err != nil {
+		t.Fatalf("Edit() error = %v", err)
+	}
+	if outer.transactionCalls != 1 || transaction.findCalls != 1 || transaction.findProjectID != destinationProjectID ||
+		transaction.findStageByIDCalls != 1 || transaction.findStageProjectID != target.BoardID ||
+		transaction.editCalls != 1 {
+		t.Errorf("destination-stage edit calls = %#v, want destination project %d resolved in one transaction", transaction, destinationProjectID)
+	}
+	if transaction.editFields.DeferStageID.Set == nil || *transaction.editFields.DeferStageID.Set != target.ID ||
+		transaction.editFields.DeferStageID.Clear {
+		t.Errorf("persisted defer stage = %#v, want explicit stage %d", transaction.editFields.DeferStageID, target.ID)
+	}
+	if !reflect.DeepEqual(result.Task, editedTask) || len(result.ClearedDefers) != 0 {
+		t.Errorf("Edit() = %#v, want edited task with no implicit clear report", result)
+	}
+}
+
+func TestEditClearsStageOnlyForAnActualReparentWithoutExplicitStage(t *testing.T) {
+	t.Parallel()
+
+	currentProjectID := int64(3)
+	destinationProjectID := int64(7)
+	destinationAreaID := int64(8)
+	deferStageID := int64(11)
+	tests := []struct {
+		name      string
+		request   EditRequest
+		edited    Task
+		wantClear bool
+	}{
+		{
+			name:      "project reparent clears",
+			request:   EditRequest{Project: ProjectChange{Set: &destinationProjectID}},
+			edited:    Task{ID: 5, ProjectID: &destinationProjectID},
+			wantClear: true,
+		},
+		{
+			name:      "area reparent clears",
+			request:   EditRequest{Area: AreaChange{Set: &destinationAreaID}},
+			edited:    Task{ID: 5, AreaID: &destinationAreaID},
+			wantClear: true,
+		},
+		{
+			name:    "redundant project restatement preserves",
+			request: EditRequest{Project: ProjectChange{Set: &currentProjectID}},
+			edited:  Task{ID: 5, ProjectID: &currentProjectID, DeferStageID: &deferStageID},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			transaction := &recordingStore{
+				findResults: []Task{{ID: 5, ProjectID: &currentProjectID, DeferStageID: &deferStageID}},
+				editResult:  &test.edited,
+			}
+			outer := &recordingStore{transactionStore: transaction}
+			result, err := NewService(outer).Edit(context.Background(), 5, test.request)
+			if err != nil {
+				t.Fatalf("Edit() error = %v", err)
+			}
+			if outer.transactionCalls != 1 || transaction.editCalls != 1 ||
+				transaction.editFields.DeferStageID.Clear != test.wantClear {
+				t.Errorf("transaction/edit/stage clear = %d/%d/%t, want 1/1/%t", outer.transactionCalls, transaction.editCalls, transaction.editFields.DeferStageID.Clear, test.wantClear)
+			}
+			if test.wantClear {
+				if !reflect.DeepEqual(result.ClearedDefers, []Task{test.edited}) {
+					t.Errorf("cleared defers = %#v, want edited task", result.ClearedDefers)
+				}
+			} else if len(result.ClearedDefers) != 0 {
+				t.Errorf("cleared defers = %#v, want empty", result.ClearedDefers)
+			}
+		})
+	}
+}
+
+func TestEditPropagatesPromotesSetAndClear(t *testing.T) {
+	t.Parallel()
+
+	for _, value := range []bool{true, false} {
+		value := value
+		t.Run(map[bool]string{true: "set", false: "clear"}[value], func(t *testing.T) {
+			t.Parallel()
+
+			store := &recordingStore{}
+			result, err := NewService(store).Edit(context.Background(), 5, EditRequest{Promotes: &value})
+			if err != nil {
+				t.Fatalf("Edit() error = %v", err)
+			}
+			if store.editCalls != 1 || store.transactionCalls != 0 || store.editFields.Promotes == nil ||
+				*store.editFields.Promotes != value {
+				t.Errorf("edit calls/transaction/promotes = %d/%d/%#v, want 1/0/%t", store.editCalls, store.transactionCalls, store.editFields.Promotes, value)
+			}
+			if result.ClearedDefers == nil {
+				t.Error("Edit() cleared defers = nil, want JSON-stable empty list")
 			}
 		})
 	}
@@ -1272,6 +1653,137 @@ func TestTagAndUntagReturnTransactionErrors(t *testing.T) {
 				t.Errorf("outer store calls = %#v, want transaction boundary only", store)
 			}
 		})
+	}
+}
+
+func TestDonePromotesMarkedProjectExactlyOneStage(t *testing.T) {
+	t.Parallel()
+
+	projectID := int64(7)
+	currentStageID := int64(11)
+	nextStageID := int64(13)
+	completed := Task{ID: 5, ProjectID: &projectID, Promotes: true}
+	currentProject := domain.Project{ID: projectID, StageID: &currentStageID}
+	currentStage := StageReference{ID: currentStageID, BoardID: 17, Title: "Doing", Position: 2}
+	nextStage := StageReference{ID: nextStageID, BoardID: 17, Title: "Done", Position: 3}
+	promotedProject := domain.Project{ID: projectID, StageID: &nextStageID}
+	transaction := &recordingStore{
+		doneResult:          &completed,
+		findProjectResult:   currentProject,
+		findStageByIDResult: currentStage,
+		findNextStageResult: &nextStage,
+		moveProjectResult:   promotedProject,
+	}
+	outer := &recordingStore{transactionStore: transaction}
+	result, err := NewService(outer).Done(context.Background(), 5)
+	if err != nil {
+		t.Fatalf("Done() error = %v", err)
+	}
+	if outer.transactionCalls != 1 || outer.doneCalls != 0 || transaction.doneCalls != 1 ||
+		transaction.findProjectCalls != 1 || transaction.findProjectID != projectID ||
+		transaction.findStageByIDCalls != 1 || transaction.findStageByIDID != currentStageID ||
+		transaction.findNextStageCalls != 1 || transaction.nextStageLookupBoardID != currentStage.BoardID ||
+		transaction.nextStageLookupFromPos != currentStage.Position || transaction.moveProjectStageCalls != 1 ||
+		transaction.moveProjectID != projectID || transaction.moveProjectStageID != nextStageID {
+		t.Errorf("promotion orchestration = %#v, want exactly one next-stage move in one transaction", transaction)
+	}
+	if !reflect.DeepEqual(result.Task, completed) || result.PromotedProject == nil ||
+		!reflect.DeepEqual(*result.PromotedProject, promotedProject) || result.Promotion == nil ||
+		result.Promotion.StageTitle != nextStage.Title || result.Promotion.LastStage {
+		t.Errorf("Done() = %#v, want completed task and promoted project metadata", result)
+	}
+}
+
+func TestDoneReportsLastStageWithoutJSONPromotion(t *testing.T) {
+	t.Parallel()
+
+	projectID := int64(7)
+	stageID := int64(11)
+	completed := Task{ID: 5, ProjectID: &projectID, Promotes: true}
+	project := domain.Project{ID: projectID, StageID: &stageID}
+	stage := StageReference{ID: stageID, BoardID: 17, Title: "Done", Position: 3}
+	transaction := &recordingStore{
+		doneResult:          &completed,
+		findProjectResult:   project,
+		findStageByIDResult: stage,
+	}
+	outer := &recordingStore{transactionStore: transaction}
+	result, err := NewService(outer).Done(context.Background(), 5)
+	if err != nil {
+		t.Fatalf("Done() error = %v", err)
+	}
+	if transaction.findNextStageCalls != 1 || transaction.moveProjectStageCalls != 0 {
+		t.Errorf("next/move calls = %d/%d, want 1/0", transaction.findNextStageCalls, transaction.moveProjectStageCalls)
+	}
+	if result.PromotedProject != nil || result.Promotion == nil || !result.Promotion.LastStage ||
+		result.Promotion.StageTitle != stage.Title || !reflect.DeepEqual(result.Promotion.Project, project) {
+		t.Errorf("Done() = %#v, want nil JSON promotion and last-stage human metadata", result)
+	}
+}
+
+func TestDonePromotionIsInertForOffBoardProject(t *testing.T) {
+	t.Parallel()
+
+	projectID := int64(7)
+	completed := Task{ID: 5, ProjectID: &projectID, Promotes: true}
+	transaction := &recordingStore{
+		doneResult:        &completed,
+		findProjectResult: domain.Project{ID: projectID},
+	}
+	outer := &recordingStore{transactionStore: transaction}
+	result, err := NewService(outer).Done(context.Background(), 5)
+	if err != nil {
+		t.Fatalf("Done() error = %v", err)
+	}
+	if transaction.findProjectCalls != 1 || transaction.findStageByIDCalls != 0 ||
+		transaction.findNextStageCalls != 0 || transaction.moveProjectStageCalls != 0 {
+		t.Errorf("off-board promotion calls = %#v, want project lookup only", transaction)
+	}
+	if result.PromotedProject != nil || result.Promotion != nil {
+		t.Errorf("Done() = %#v, want no promotion", result)
+	}
+}
+
+func TestDoneReturnsStageWriteFailureThroughOneTransaction(t *testing.T) {
+	t.Parallel()
+
+	storeError := errors.New("stage write failed")
+	projectID := int64(7)
+	currentStageID := int64(11)
+	nextStageID := int64(13)
+	transaction := &recordingStore{
+		doneResult:          &Task{ID: 5, ProjectID: &projectID, Promotes: true},
+		findProjectResult:   domain.Project{ID: projectID, StageID: &currentStageID},
+		findStageByIDResult: StageReference{ID: currentStageID, BoardID: 17, Position: 2},
+		findNextStageResult: &StageReference{ID: nextStageID, BoardID: 17, Position: 3},
+		moveProjectError:    storeError,
+	}
+	outer := &recordingStore{transactionStore: transaction}
+	result, err := NewService(outer).Done(context.Background(), 5)
+	if !errors.Is(err, storeError) {
+		t.Fatalf("Done() error = %v, want stage write failure", err)
+	}
+	if !reflect.DeepEqual(result, Completion{}) {
+		t.Errorf("Done() = %#v, want zero result on transaction failure", result)
+	}
+	if outer.transactionCalls != 1 || outer.doneCalls != 0 || outer.moveProjectStageCalls != 0 ||
+		transaction.doneCalls != 1 || transaction.moveProjectStageCalls != 1 {
+		t.Errorf("outer/transaction orchestration = %#v/%#v, want both writes attempted through one transaction", outer, transaction)
+	}
+}
+
+func TestReopenDoesNotRunPromotionOrDemotionOrchestration(t *testing.T) {
+	t.Parallel()
+
+	store := &recordingStore{}
+	result, err := NewService(store).Reopen(context.Background(), 5)
+	if err != nil {
+		t.Fatalf("Reopen() error = %v", err)
+	}
+	if result.ID != 5 || store.reopenCalls != 1 || store.transactionCalls != 0 ||
+		store.findProjectCalls != 0 || store.findStageByIDCalls != 0 ||
+		store.findNextStageCalls != 0 || store.moveProjectStageCalls != 0 {
+		t.Errorf("Reopen() result/store = %#v/%#v, want unchanged direct reopen with no demotion", result, store)
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 )
 
 type recordingStore struct {
+	calls                []string
 	addCalls             int
 	addFields            CreateFields
 	addTimestamp         string
@@ -61,6 +62,11 @@ type recordingStore struct {
 	editTimestamp        string
 	editResult           Project
 	editError            error
+	clearDefersCalls     int
+	clearDefersOwnerID   int64
+	clearDefersTimestamp string
+	clearDefersResult    []task.Task
+	clearDefersError     error
 	moveStageCalls       int
 	moveStageProjectID   int64
 	moveStageID          int64
@@ -223,6 +229,7 @@ func (r *recordingStore) Edit(
 	fields UpdateFields,
 	timestamp string,
 ) (Project, error) {
+	r.calls = append(r.calls, "edit")
 	r.editCalls++
 	r.editID = id
 	r.editFields = fields
@@ -232,6 +239,18 @@ func (r *recordingStore) Edit(
 		return r.editResult, r.editError
 	}
 	return Project{ID: id, UpdatedAt: timestamp}, r.editError
+}
+
+func (r *recordingStore) ClearTaskStageDefers(
+	_ context.Context,
+	ownerID int64,
+	timestamp string,
+) ([]task.Task, error) {
+	r.calls = append(r.calls, "clear defers")
+	r.clearDefersCalls++
+	r.clearDefersOwnerID = ownerID
+	r.clearDefersTimestamp = timestamp
+	return r.clearDefersResult, r.clearDefersError
 }
 
 func (r *recordingStore) MoveStage(
@@ -383,6 +402,12 @@ func (r *recordingStore) WithinReadTransaction(
 		store = r
 	}
 	return operation(store)
+}
+
+func callOccursBefore(calls []string, before, after string) bool {
+	beforeIndex := slices.Index(calls, before)
+	afterIndex := slices.Index(calls, after)
+	return beforeIndex >= 0 && afterIndex >= 0 && beforeIndex < afterIndex
 }
 
 func TestStoreErrorsPassThroughUnchanged(t *testing.T) {
@@ -1198,28 +1223,39 @@ func TestEditBoardMembershipSwitchesRestatesAndClears(t *testing.T) {
 		currentStageID := int64(10)
 		first := StageReference{ID: 20, BoardID: 2, BoardTitle: "New", Title: "Intake"}
 		want := Project{ID: 7, StageID: &first.ID, Status: string(ListStatusOpen)}
+		cleared := []task.Task{{ID: 31, Title: "first defer"}, {ID: 32, Title: "second defer"}}
 		transaction := &recordingStore{
 			findResult:           Project{ID: 7, StageID: &currentStageID, Status: string(ListStatusOpen)},
 			findStageByIDResult:  StageReference{ID: currentStageID, BoardID: 1, BoardTitle: "Old", Title: "Doing"},
 			findBoardResult:      BoardReference{ID: 2, Title: "New"},
 			findFirstStageResult: &first,
+			clearDefersResult:    cleared,
 			editResult:           want,
 		}
 		store := &recordingStore{transactionStore: transaction}
 		boardTitle := "new"
+		service := NewService(store)
+		service.now = func() time.Time {
+			return time.Date(2026, time.August, 9, 1, 2, 3, 456000000, time.UTC)
+		}
 
-		got, err := NewService(store).Edit(context.Background(), 7, EditFields{Board: BoardChange{Set: &boardTitle}})
+		got, err := service.Edit(context.Background(), 7, EditFields{Board: BoardChange{Set: &boardTitle}})
 		if err != nil {
 			t.Fatalf("Edit() error = %v", err)
 		}
-		if transaction.editCalls != 1 || transaction.editFields.Stage.Set == nil ||
+		if store.clearDefersCalls != 0 || transaction.clearDefersCalls != 1 ||
+			transaction.clearDefersOwnerID != 7 ||
+			transaction.clearDefersTimestamp != "2026-08-09T01:02:03.456Z" ||
+			transaction.clearDefersTimestamp != transaction.editTimestamp ||
+			!callOccursBefore(transaction.calls, "clear defers", "edit") ||
+			transaction.editCalls != 1 || transaction.editFields.Stage.Set == nil ||
 			*transaction.editFields.Stage.Set != first.ID || transaction.editFields.Stage.Clear {
-			t.Errorf("Edit() persistence = calls %d, fields %#v; want set stage %d", transaction.editCalls, transaction.editFields, first.ID)
+			t.Errorf("Edit() transactional clearing/persistence = outer %#v, transaction %#v; want clear before stage switch", store, transaction)
 		}
 		if !reflect.DeepEqual(got.Project, want) || got.Location == nil ||
 			got.Location.BoardTitle != first.BoardTitle || got.Location.StageTitle != first.Title ||
-			got.ClearedDefers == nil {
-			t.Errorf("Edit() = %#v, want switched project, stored location, and empty defer list", got)
+			!reflect.DeepEqual(got.ClearedDefers, cleared) {
+			t.Errorf("Edit() = %#v, want switched project, stored location, and all cleared defers %#v", got, cleared)
 		}
 	})
 
@@ -1242,8 +1278,8 @@ func TestEditBoardMembershipSwitchesRestatesAndClears(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Edit() error = %v", err)
 		}
-		if transaction.findFirstStageCalls != 0 || transaction.editCalls != 0 {
-			t.Errorf("first-stage/edit calls = %d/%d, want 0/0 for redundant membership", transaction.findFirstStageCalls, transaction.editCalls)
+		if transaction.findFirstStageCalls != 0 || transaction.clearDefersCalls != 0 || transaction.editCalls != 0 {
+			t.Errorf("first-stage/clear/edit calls = %d/%d/%d, want 0/0/0 for redundant membership", transaction.findFirstStageCalls, transaction.clearDefersCalls, transaction.editCalls)
 		}
 		if !reflect.DeepEqual(got.Project, current) || got.Location == nil || got.Location.StageTitle != stage.Title {
 			t.Errorf("Edit() = %#v, want unchanged project and current location", got)
@@ -1340,9 +1376,11 @@ func TestEditBoardMembershipSwitchesRestatesAndClears(t *testing.T) {
 		stageID := int64(10)
 		current := Project{ID: 7, StageID: &stageID, Status: string(ListStatusOpen)}
 		want := Project{ID: 7, Status: string(ListStatusOpen)}
+		cleared := []task.Task{{ID: 41, Title: "stage defer"}, {ID: 42, Title: "another defer"}}
 		transaction := &recordingStore{
 			findResult:          current,
 			findStageByIDResult: StageReference{ID: stageID, BoardID: 2, BoardTitle: "Software", Title: "Doing"},
+			clearDefersResult:   cleared,
 			editResult:          want,
 		}
 		store := &recordingStore{transactionStore: transaction}
@@ -1351,11 +1389,36 @@ func TestEditBoardMembershipSwitchesRestatesAndClears(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Edit() error = %v", err)
 		}
-		if transaction.editCalls != 1 || !transaction.editFields.Stage.Clear || transaction.editFields.Stage.Set != nil {
-			t.Errorf("Edit() persistence = calls %d, fields %#v; want stage clear", transaction.editCalls, transaction.editFields)
+		if store.clearDefersCalls != 0 || transaction.clearDefersCalls != 1 ||
+			transaction.clearDefersOwnerID != current.ID ||
+			!callOccursBefore(transaction.calls, "clear defers", "edit") ||
+			transaction.editCalls != 1 || !transaction.editFields.Stage.Clear || transaction.editFields.Stage.Set != nil {
+			t.Errorf("Edit() transactional clearing/persistence = outer %#v, transaction %#v; want clear before membership removal", store, transaction)
 		}
-		if !reflect.DeepEqual(got.Project, want) || got.Location != nil {
-			t.Errorf("Edit() = %#v, want unboarded project without location", got)
+		if !reflect.DeepEqual(got.Project, want) || got.Location != nil ||
+			!reflect.DeepEqual(got.ClearedDefers, cleared) {
+			t.Errorf("Edit() = %#v, want unboarded project and all cleared defers %#v", got, cleared)
+		}
+	})
+
+	t.Run("clear failure aborts edit", func(t *testing.T) {
+		t.Parallel()
+
+		stageID := int64(10)
+		clearError := apperr.New(apperr.Internal, "clear task stage defers", errors.New("write failed"))
+		transaction := &recordingStore{
+			findResult:          Project{ID: 7, StageID: &stageID, Status: string(ListStatusOpen)},
+			findStageByIDResult: StageReference{ID: stageID, BoardID: 2, BoardTitle: "Software", Title: "Doing"},
+			clearDefersError:    clearError,
+		}
+		store := &recordingStore{transactionStore: transaction}
+
+		got, err := NewService(store).Edit(context.Background(), 7, EditFields{Board: BoardChange{Clear: true}})
+		if !errors.Is(err, clearError) {
+			t.Fatalf("Edit() error = %v, want preserved clear error %v", err, clearError)
+		}
+		if !reflect.DeepEqual(got, Edition{}) || transaction.clearDefersCalls != 1 || transaction.editCalls != 0 {
+			t.Errorf("Edit() result/transaction = %#v/%#v, want zero result and no edit after clear failure", got, transaction)
 		}
 	})
 }

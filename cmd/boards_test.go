@@ -13,6 +13,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/board"
 	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
+	"github.com/jmcampanini/gsd/internal/task"
 )
 
 type fakeBoardApplication struct {
@@ -34,7 +35,7 @@ type fakeBoardApplication struct {
 	renameStageError   error
 	reorderStageResult board.StageResult
 	reorderStageError  error
-	deleteStageResult  board.StageResult
+	deleteStageResult  board.StageDeletion
 	deleteStageError   error
 	addFields          board.AddFields
 	showName           string
@@ -135,7 +136,7 @@ func (f *fakeBoardApplication) DeleteStage(
 	_ context.Context,
 	boardName string,
 	stageName string,
-) (board.StageResult, error) {
+) (board.StageDeletion, error) {
 	f.deleteStageBoard = boardName
 	f.deleteStageName = stageName
 	return f.deleteStageResult, f.deleteStageError
@@ -472,7 +473,7 @@ func TestBoardAndStagePlacementsAdaptNamesExactly(t *testing.T) {
 	}
 }
 
-func TestStageMutationsWriteBareStageJSONAndStoredHumanNames(t *testing.T) {
+func TestStageRenameWritesBareJSONAndStageDeleteWritesClearedDefersEnvelope(t *testing.T) {
 	t.Parallel()
 
 	renaming := board.StageRenameResult{
@@ -495,8 +496,10 @@ func TestStageMutationsWriteBareStageJSONAndStoredHumanNames(t *testing.T) {
 		t.Errorf("rename JSON = %#v, want bare stage %#v", got, renaming.Stage)
 	}
 
-	deletedResult := board.StageResult{
-		Board: board.Board{Title: "Software"}, Stage: board.Stage{ID: 3, BoardID: 1, Title: "Triage\r"},
+	deletedResult := board.StageDeletion{
+		Board:         board.Board{Title: "Software"},
+		Stage:         board.Stage{ID: 3, BoardID: 1, Title: "Triage\r"},
+		ClearedDefers: []task.Task{},
 	}
 	deleteApplication := &fakeBoardApplication{deleteStageResult: deletedResult}
 	deleted := runBoardCommand(t, deleteApplication, "stage", "delete", "software", "triage")
@@ -507,8 +510,10 @@ func TestStageMutationsWriteBareStageJSONAndStoredHumanNames(t *testing.T) {
 	}
 	deletedJSON := runBoardCommand(t, &fakeBoardApplication{deleteStageResult: deletedResult},
 		"stage", "delete", "software", "triage", "--json")
-	if got := decodeBoardJSON[board.Stage](t, deletedJSON.stdout); !reflect.DeepEqual(got, deletedResult.Stage) {
-		t.Errorf("delete JSON = %#v, want bare stage %#v", got, deletedResult.Stage)
+	if got := decodeBoardJSON[board.StageDeletion](t, deletedJSON.stdout); !reflect.DeepEqual(got, board.StageDeletion{
+		Stage: deletedResult.Stage, ClearedDefers: []task.Task{},
+	}) {
+		t.Errorf("delete JSON = %#v, want stage deletion envelope", got)
 	}
 }
 

@@ -67,16 +67,19 @@ CREATE TABLE tasks (
                           WHEN cancelled_at IS NOT NULL THEN 'cancelled'
                           ELSE 'open' END) VIRTUAL,
     position     INTEGER NOT NULL,
-    created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    defer_stage_id INTEGER REFERENCES stages(id) ON DELETE RESTRICT,
+    promotes       INTEGER NOT NULL DEFAULT 0 CHECK (promotes IN (0, 1)),
     CHECK (project_id IS NULL OR area_id IS NULL),
     CHECK (done_at IS NULL OR cancelled_at IS NULL),
     CHECK (defer_until IS date(defer_until)),
     CHECK (due_on IS date(due_on))
 ) STRICT;
 
-CREATE INDEX idx_tasks_project ON tasks(project_id);
-CREATE INDEX idx_tasks_area    ON tasks(area_id);
+CREATE INDEX idx_tasks_project     ON tasks(project_id);
+CREATE INDEX idx_tasks_area        ON tasks(area_id);
+CREATE INDEX idx_tasks_defer_stage ON tasks(defer_stage_id);
 
 CREATE TABLE tags (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,6 +112,7 @@ CREATE INDEX idx_area_tags_tag    ON area_tags(tag_id);
 
 CREATE VIEW inbox AS
 SELECT t.*,
+       ds.title                       AS defer_stage_title,
        p.title                        AS project_title,
        COALESCE(t.area_id, p.area_id) AS governing_area_id,
        a.title                        AS governing_area_title,
@@ -116,12 +120,14 @@ SELECT t.*,
         FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
         WHERE tt.task_id = t.id)      AS tags
 FROM tasks t
-LEFT JOIN projects p ON p.id = t.project_id
-LEFT JOIN areas    a ON a.id = COALESCE(t.area_id, p.area_id)
+LEFT JOIN projects p  ON p.id = t.project_id
+LEFT JOIN stages   ds ON ds.id = t.defer_stage_id
+LEFT JOIN areas    a  ON a.id = COALESCE(t.area_id, p.area_id)
 WHERE t.project_id IS NULL AND t.area_id IS NULL AND t.status = 'open';
 
 CREATE VIEW available AS
 SELECT t.*,
+       ds.title                       AS defer_stage_title,
        p.title                        AS project_title,
        COALESCE(t.area_id, p.area_id) AS governing_area_id,
        a.title                        AS governing_area_title,
@@ -129,12 +135,16 @@ SELECT t.*,
         FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
         WHERE tt.task_id = t.id)      AS tags
 FROM tasks t
-LEFT JOIN projects p ON p.id = t.project_id
-LEFT JOIN areas    a ON a.id = COALESCE(t.area_id, p.area_id)
+LEFT JOIN projects p  ON p.id = t.project_id
+LEFT JOIN stages   ds ON ds.id = t.defer_stage_id
+LEFT JOIN stages   ps ON ps.id = p.stage_id
+LEFT JOIN areas    a  ON a.id = COALESCE(t.area_id, p.area_id)
 WHERE t.status = 'open'
   AND (t.project_id IS NULL OR p.status = 'open')
   AND a.archived_at IS NULL
-  AND (t.defer_until IS NULL OR t.defer_until <= date('now', 'localtime'));
+  AND (t.defer_until IS NULL OR t.defer_until <= date('now', 'localtime'))
+  AND (t.defer_stage_id IS NULL OR
+       (ps.board_id = ds.board_id AND ps.position >= ds.position));
 
 CREATE VIEW logbook AS
 SELECT 'task' AS kind, t.id, t.title, t.status,

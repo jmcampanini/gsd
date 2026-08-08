@@ -37,10 +37,11 @@ integer PKs, add a `uuid` column alongside.
   storage formats to fix exactly this). Compared against
   `date('now', 'localtime')` at query time.
 
-**No boolean columns.** A flag is almost always an event in disguise, so it
-is stored as a nullable `*_at`: NULL means "hasn't happened," a timestamp
-means "happened, and here's when." Archive/unarchive and complete/reopen
-all reduce to stamping or clearing one column.
+**Boolean columns require declared intent.** A flag is almost always an event
+in disguise, so events are stored as nullable `*_at` values: NULL means
+"hasn't happened," and a timestamp records when it happened. The deliberate
+exception is `tasks.promotes`, the schema's first genuine boolean: it declares
+what completing the task should do rather than recording an event.
 
 **State is a pair of mutually exclusive event timestamps, not an enum.**
 Projects and tasks are `open` / `done` / `cancelled`. Rather than a status
@@ -54,13 +55,15 @@ so queries stay readable; it is derivation, not data, and can never disagree
 with the timestamps.
 
 **Hard deletes never destroy other entities.** Entity-to-entity links
-(`projects.area_id`, `tasks.project_id`, `tasks.area_id`) are
-`ON DELETE RESTRICT`: deleting a non-empty container is an error — archive
-it, or empty it first. A recursive delete is something the CLI may offer
-(explicit child deletes in one transaction), never an FK side effect.
-`CASCADE` is reserved for parts with no independent existence: tag-join
-rows. Tasks are leaves in the entity graph, so hard-deleting a task is
-never blocked.
+(`projects.area_id`, `tasks.project_id`, `tasks.area_id`, project stage
+membership, and task stage defers) are `ON DELETE RESTRICT`: deleting an
+occupied container is an error, and stage-defer references are cleared and
+reported before a permitted stage deletion. A recursive delete is something
+the CLI may offer (explicit child deletes in one transaction), never an FK
+side effect. `CASCADE` is reserved for parts with no independent existence:
+tag joins and stages owned by a board. Board deletion is service-guarded
+against occupied stages before that cascade. Tasks are leaves in the entity
+graph, so hard-deleting a task is never blocked.
 
 **`position` is required but automatic.** Manual sort order within a
 container, `NOT NULL` so an unordered row is a constraint violation, computed
@@ -97,9 +100,45 @@ CREATE TABLE areas (
 ) STRICT;
 ```
 
+## `boards` and `stages`
+
+A board is a globally ordered, name-addressed pipeline. Its title is globally
+unique under SQLite `NOCASE`; accepted spelling is stored unchanged. A stage
+is an ordered part of one board, with a title unique under `NOCASE` within
+that board. Stage positions have the same ordinal-only semantics as other
+positions. Deleting an empty board cascades to its stages; project occupancy
+is refused before deletion, with the project FK as a backstop.
+
+```sql
+CREATE TABLE boards (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    title      TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    note       TEXT    NOT NULL DEFAULT '',
+    position   INTEGER NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+) STRICT;
+
+CREATE TABLE stages (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    board_id   INTEGER NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+    title      TEXT    NOT NULL,
+    position   INTEGER NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE (board_id, title COLLATE NOCASE)
+) STRICT;
+
+CREATE INDEX idx_stages_board ON stages(board_id);
+```
+
 ## `projects`
 
-Belongs to at most one area (`area_id` NULL = standalone). Carries the state
+Belongs to at most one area (`area_id` NULL = standalone). Independently, it
+belongs to at most one board by occupying a stage; `stage_id` and
+`stage_position` are either both NULL or both set. The separate position
+columns preserve two independent orders: area siblings and the projects in a
+stage column. Carries the state
 pair; completing or cancelling a project is an app-level transaction that
 also cancels its remaining open tasks and reports what it cancelled — that
 cascade lives in the CLI, not in triggers, because it has to narrate.
@@ -119,13 +158,17 @@ CREATE TABLE projects (
                      CASE WHEN done_at IS NOT NULL THEN 'done'
                           WHEN cancelled_at IS NOT NULL THEN 'cancelled'
                           ELSE 'open' END) VIRTUAL,
-    position     INTEGER NOT NULL,
-    created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    CHECK (done_at IS NULL OR cancelled_at IS NULL)
+    position       INTEGER NOT NULL,
+    created_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    stage_id       INTEGER REFERENCES stages(id) ON DELETE RESTRICT,
+    stage_position INTEGER,
+    CHECK (done_at IS NULL OR cancelled_at IS NULL),
+    CHECK ((stage_id IS NULL) = (stage_position IS NULL))
 ) STRICT;
 
-CREATE INDEX idx_projects_area ON projects(area_id);
+CREATE INDEX idx_projects_area  ON projects(area_id);
+CREATE INDEX idx_projects_stage ON projects(stage_id);
 ```
 
 ## `tasks`
@@ -136,8 +179,14 @@ Belongs to exactly one of: a project, an area (loose task), or nothing
 both set is unrepresentable. A polymorphic parent column would lose FK
 enforcement, so two typed columns win.
 
-`defer_until` hides the task until that day arrives; `due_on` is reserved
-for real external deadlines, never aspirations. Both carry a validity check:
+`defer_until` hides the task until that day arrives; `defer_stage_id` hides it
+until its project reaches or passes that stage's position. These gates are
+independent and both must clear. The defer-stage FK is `RESTRICT`; task
+re-parenting, project board removal or switching, and stage deletion clear
+invalidated references in the same operation before the FK could block.
+`promotes` records declared completion intent as a constrained integer
+boolean. `due_on` is reserved for real external deadlines, never aspirations.
+The two date columns carry a validity check:
 the value must survive a round-trip through SQLite's own date parser
 unchanged, which rejects garbage, non-canonical forms (`2026-8-3`), and
 impossible dates (`2026-02-30` normalizes away and fails the equality).
@@ -162,17 +211,20 @@ CREATE TABLE tasks (
                      CASE WHEN done_at IS NOT NULL THEN 'done'
                           WHEN cancelled_at IS NOT NULL THEN 'cancelled'
                           ELSE 'open' END) VIRTUAL,
-    position     INTEGER NOT NULL,
-    created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    position       INTEGER NOT NULL,
+    created_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    defer_stage_id INTEGER REFERENCES stages(id) ON DELETE RESTRICT,
+    promotes       INTEGER NOT NULL DEFAULT 0 CHECK (promotes IN (0, 1)),
     CHECK (project_id IS NULL OR area_id IS NULL),
     CHECK (done_at IS NULL OR cancelled_at IS NULL),
     CHECK (defer_until IS date(defer_until)),
     CHECK (due_on IS date(due_on))
 ) STRICT;
 
-CREATE INDEX idx_tasks_project ON tasks(project_id);
-CREATE INDEX idx_tasks_area    ON tasks(area_id);
+CREATE INDEX idx_tasks_project     ON tasks(project_id);
+CREATE INDEX idx_tasks_area        ON tasks(area_id);
+CREATE INDEX idx_tasks_defer_stage ON tasks(defer_stage_id);
 ```
 
 ## `tags` and the join tables
@@ -226,7 +278,12 @@ CREATE INDEX idx_area_tags_tag    ON area_tags(tag_id);
 
 ## The stability contract
 
-From Go live, real data must survive every migration. Every schema
+Milestone 11 is an explicit one-time exception to the migration rule below:
+there are no users of the live development database, so the board, stage,
+project-membership, and stage-aware-task schema folds directly into
+`0001_baseline.sql`, with the contract snapshot updated and existing local
+databases recreated by hand. No `0002` is introduced. After that deliberate
+baseline replacement, real data must survive every migration. Every schema
 change ships as a numbered migration, and the contract is
 **additive-or-full-delete**, for tables and views alike:
 
@@ -246,9 +303,9 @@ change ships as a numbered migration, and the contract is
   against these rules.
 - **Three views wrap the spec's named workflows** (below). The two
   task-shaped views return `tasks.*` plus one fixed enrichment block —
-  `project_title`, `governing_area_id`, `governing_area_title`
-  ("governing" = own area, or the one inherited through the project), and
-  `tags` (JSON array of tag names, ordered by title with `NOCASE` so
+  `defer_stage_title`, `project_title`, `governing_area_id`,
+  `governing_area_title` ("governing" = own area, or the one inherited
+  through the project), and `tags` (JSON array of tag names, ordered by title with `NOCASE` so
   every tag listing is alphabetical) — so the common queries need no joins, and the
   governing-area COALESCE is done correctly once, in the view.
 - **CLI `--json` output for an entity is its table row** — same column
@@ -267,6 +324,7 @@ identical columns):
 ```sql
 CREATE VIEW inbox AS
 SELECT t.*,
+       ds.title                       AS defer_stage_title,
        p.title                        AS project_title,
        COALESCE(t.area_id, p.area_id) AS governing_area_id,
        a.title                        AS governing_area_title,
@@ -274,13 +332,16 @@ SELECT t.*,
         FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
         WHERE tt.task_id = t.id)      AS tags
 FROM tasks t
-LEFT JOIN projects p ON p.id = t.project_id
-LEFT JOIN areas    a ON a.id = COALESCE(t.area_id, p.area_id)
+LEFT JOIN projects p  ON p.id = t.project_id
+LEFT JOIN stages   ds ON ds.id = t.defer_stage_id
+LEFT JOIN areas    a  ON a.id = COALESCE(t.area_id, p.area_id)
 WHERE t.project_id IS NULL AND t.area_id IS NULL AND t.status = 'open';
 ```
 
 **`available`** — what you could work on right now: task open, its project
-(if any) open, its governing area not archived, and any defer date arrived.
+(if any) open, its governing area not archived, any defer date arrived, and
+any stage defer reached or passed by stage position. Date and stage are
+independent gates. Moving a project backward can therefore hide a task again.
 The LEFT JOINs make every clause NULL-friendly: an inbox task joins nothing
 and passes. "Today" is the local calendar day, matching the calendar-date
 convention:
@@ -288,6 +349,7 @@ convention:
 ```sql
 CREATE VIEW available AS
 SELECT t.*,
+       ds.title                       AS defer_stage_title,
        p.title                        AS project_title,
        COALESCE(t.area_id, p.area_id) AS governing_area_id,
        a.title                        AS governing_area_title,
@@ -295,12 +357,16 @@ SELECT t.*,
         FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
         WHERE tt.task_id = t.id)      AS tags
 FROM tasks t
-LEFT JOIN projects p ON p.id = t.project_id
-LEFT JOIN areas    a ON a.id = COALESCE(t.area_id, p.area_id)
+LEFT JOIN projects p  ON p.id = t.project_id
+LEFT JOIN stages   ds ON ds.id = t.defer_stage_id
+LEFT JOIN stages   ps ON ps.id = p.stage_id
+LEFT JOIN areas    a  ON a.id = COALESCE(t.area_id, p.area_id)
 WHERE t.status = 'open'
   AND (t.project_id IS NULL OR p.status = 'open')
   AND a.archived_at IS NULL
-  AND (t.defer_until IS NULL OR t.defer_until <= date('now', 'localtime'));
+  AND (t.defer_until IS NULL OR t.defer_until <= date('now', 'localtime'))
+  AND (t.defer_stage_id IS NULL OR
+       (ps.board_id = ds.board_id AND ps.position >= ds.position));
 ```
 
 **`logbook`** — everything that reached an exit, tasks and projects

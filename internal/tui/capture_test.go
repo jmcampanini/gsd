@@ -19,7 +19,7 @@ type captureApplication struct {
 	task.Application
 	calls  int
 	ctx    context.Context
-	fields task.AddFields
+	fields task.AddRequest
 	err    error
 }
 
@@ -32,7 +32,7 @@ type blockingCaptureApplication struct {
 
 func (a *blockingCaptureApplication) Add(
 	ctx context.Context,
-	_ task.AddFields,
+	_ task.AddRequest,
 ) (task.Task, error) {
 	a.calls <- ctx
 	<-a.release
@@ -41,7 +41,7 @@ func (a *blockingCaptureApplication) Add(
 
 func (a *captureApplication) Add(
 	ctx context.Context,
-	fields task.AddFields,
+	fields task.AddRequest,
 ) (task.Task, error) {
 	a.calls++
 	a.ctx = ctx
@@ -105,7 +105,7 @@ func TestCaptureEnterAddsExactTitleOnce(t *testing.T) {
 	if got := application.ctx.Value(contextKey{}); got != "capture" {
 		t.Fatalf("Add context value = %v, want inherited capture value", got)
 	}
-	wantFields := task.AddFields{Title: title}
+	wantFields := task.AddRequest{Title: title}
 	if !reflect.DeepEqual(application.fields, wantFields) {
 		t.Fatalf("Add fields = %#v, want %#v", application.fields, wantFields)
 	}

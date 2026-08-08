@@ -16,14 +16,21 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 	var note string
 	var dueOn string
 	var deferUntil string
+	var deferStage string
 	var projectIDValue string
 	var areaIDValue string
+	var noDeferStage bool
+	var promotes bool
+	var noPromotes bool
 	var tags []string
 	command := &cobra.Command{
 		Use:   "add TITLE",
 		Short: "Add a task",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
+			if err := rejectFalseBooleanFlags(command, "no-defer-stage", "promotes", "no-promotes"); err != nil {
+				return err
+			}
 			projectID, err := parseProjectIDFlag(command, projectIDValue)
 			if err != nil {
 				return err
@@ -37,11 +44,12 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 				return err
 			}
 
-			fields := task.AddFields{
+			fields := task.AddRequest{
 				ProjectID: projectID,
 				AreaID:    areaID,
 				Title:     args[0],
 				Note:      resolvedNote,
+				Promotes:  promotes && !noPromotes,
 				Tags:      tags,
 			}
 			if command.Flags().Changed("due") {
@@ -49,6 +57,12 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 			}
 			if command.Flags().Changed("defer") {
 				fields.DeferUntil = &deferUntil
+			}
+			if command.Flags().Changed("defer-stage") {
+				fields.DeferStage = &deferStage
+			}
+			if noDeferStage {
+				fields.DeferStage = nil
 			}
 
 			return withTaskApplication(command, options, factory, func(application task.Application) error {
@@ -65,7 +79,13 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 	command.Flags().StringVar(&areaIDValue, "area", "", "area ID")
 	command.Flags().StringVar(&dueOn, "due", "", "task due date")
 	command.Flags().StringVar(&deferUntil, "defer", "", "task defer date")
+	command.Flags().StringVar(&deferStage, "defer-stage", "", "project stage until which to defer the task")
+	command.Flags().BoolVar(&noDeferStage, "no-defer-stage", false, "create the task without a stage defer")
+	command.Flags().BoolVar(&promotes, "promotes", false, "advance the task's project when completed")
+	command.Flags().BoolVar(&noPromotes, "no-promotes", false, "create the task without project promotion")
 	command.Flags().StringArrayVar(&tags, "tag", nil, "tag name to attach (repeatable)")
+	command.MarkFlagsMutuallyExclusive("defer-stage", "no-defer-stage")
+	command.MarkFlagsMutuallyExclusive("promotes", "no-promotes")
 
 	return command
 }
@@ -133,15 +153,25 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 	var noDue bool
 	var deferUntil string
 	var noDefer bool
+	var deferStage string
+	var noDeferStage bool
 	var projectIDValue string
 	var noProject bool
 	var areaIDValue string
 	var noArea bool
+	var promotes bool
+	var noPromotes bool
 	command := &cobra.Command{
 		Use:   "edit ID",
 		Short: "Edit a task",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
+			if err := rejectFalseBooleanFlags(
+				command,
+				"no-due", "no-defer", "no-defer-stage", "no-project", "no-area", "promotes", "no-promotes",
+			); err != nil {
+				return err
+			}
 			id, err := task.ParseID(args[0])
 			if err != nil {
 				return err
@@ -158,16 +188,17 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 
 			if !anyFlagChanged(
 				command,
-				"title", "note", "due", "no-due", "defer", "no-defer", "project", "no-project", "area", "no-area",
+				"title", "note", "due", "no-due", "defer", "no-defer", "defer-stage", "no-defer-stage",
+				"project", "no-project", "area", "no-area", "promotes", "no-promotes",
 			) {
 				return apperr.New(
 					apperr.InvalidArgument,
-					"edit requires --title, --note, --due, --no-due, --defer, --no-defer, --project, --no-project, --area, or --no-area",
+					"edit requires --title, --note, --due, --no-due, --defer, --no-defer, --defer-stage, --no-defer-stage, --project, --no-project, --area, --no-area, --promotes, or --no-promotes",
 					nil,
 				)
 			}
 
-			fields := task.EditFields{}
+			fields := task.EditRequest{}
 			fields.Project.Set = projectID
 			fields.Project.Clear = noProject
 			fields.Area.Set = areaID
@@ -190,13 +221,31 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 				fields.DeferUntil.Set = &deferUntil
 			}
 			fields.DeferUntil.Clear = noDefer
+			if command.Flags().Changed("defer-stage") {
+				fields.DeferStage.Set = &deferStage
+			}
+			fields.DeferStage.Clear = noDeferStage
+			if command.Flags().Changed("promotes") {
+				fields.Promotes = &promotes
+			}
+			if noPromotes {
+				value := false
+				fields.Promotes = &value
+			}
+			containmentEdit := anyFlagChanged(command, "project", "no-project", "area", "no-area")
 
 			return withTaskApplication(command, options, factory, func(application task.Application) error {
 				edited, editErr := application.Edit(command.Context(), id, fields)
 				if editErr != nil {
 					return editErr
 				}
-				return writeCommandOutput(command, options, edited, taskMutationWriter(verbEdited))
+				if options.json {
+					if containmentEdit {
+						return writeJSON(command.OutOrStdout(), edited)
+					}
+					return writeJSON(command.OutOrStdout(), edited.Task)
+				}
+				return options.presentation.output(command).writeTaskEdition(edited)
 			})
 		},
 	}
@@ -210,8 +259,14 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 	command.Flags().BoolVar(&noDue, "no-due", false, "clear the task due date")
 	command.Flags().StringVar(&deferUntil, "defer", "", "task defer date")
 	command.Flags().BoolVar(&noDefer, "no-defer", false, "clear the task defer date")
+	command.Flags().StringVar(&deferStage, "defer-stage", "", "project stage until which to defer the task")
+	command.Flags().BoolVar(&noDeferStage, "no-defer-stage", false, "clear the task stage defer")
+	command.Flags().BoolVar(&promotes, "promotes", false, "advance the task's project when completed")
+	command.Flags().BoolVar(&noPromotes, "no-promotes", false, "do not advance the task's project when completed")
 	command.MarkFlagsMutuallyExclusive("due", "no-due")
 	command.MarkFlagsMutuallyExclusive("defer", "no-defer")
+	command.MarkFlagsMutuallyExclusive("defer-stage", "no-defer-stage")
+	command.MarkFlagsMutuallyExclusive("promotes", "no-promotes")
 	command.MarkFlagsMutuallyExclusive("project", "no-project")
 	command.MarkFlagsMutuallyExclusive("area", "no-area")
 
@@ -282,16 +337,30 @@ func newListCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 }
 
 func newDoneCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	return newTaskMutationCommand(
-		options,
-		factory,
-		"done ID",
-		"Complete a task",
-		verbDone,
-		func(ctx context.Context, application task.Application, id int64) (task.Task, error) {
-			return application.Done(ctx, id)
+	return &cobra.Command{
+		Use:   "done ID",
+		Short: "Complete a task",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			id, err := task.ParseID(args[0])
+			if err != nil {
+				return err
+			}
+			return withTaskApplication(command, options, factory, func(application task.Application) error {
+				completion, err := application.Done(command.Context(), id)
+				if err != nil {
+					return err
+				}
+				if options.json {
+					if completion.Task.Promotes {
+						return writeJSON(command.OutOrStdout(), completion)
+					}
+					return writeJSON(command.OutOrStdout(), completion.Task)
+				}
+				return options.presentation.output(command).writeTaskCompletion(completion)
+			})
 		},
-	)
+	}
 }
 
 func newCancelCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
@@ -391,6 +460,22 @@ func newDeleteCommand(options *rootOptions, factory applicationFactory) *cobra.C
 			return application.Delete(ctx, id)
 		},
 	)
+}
+
+func rejectFalseBooleanFlags(command *cobra.Command, names ...string) error {
+	for _, name := range names {
+		if !command.Flags().Changed(name) {
+			continue
+		}
+		value, err := command.Flags().GetBool(name)
+		if err != nil {
+			return usageError("read --" + name + ": " + err.Error())
+		}
+		if !value {
+			return usageError("--" + name + " cannot be false")
+		}
+	}
+	return nil
 }
 
 func anyFlagChanged(command *cobra.Command, names ...string) bool {

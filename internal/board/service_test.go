@@ -11,6 +11,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
+	"github.com/jmcampanini/gsd/internal/task"
 )
 
 type fakeStore struct {
@@ -53,6 +54,11 @@ type fakeStore struct {
 	stageOccupied             bool
 	stageOccupiedError        error
 	stageOccupiedIDs          []int64
+	clearDefersResult         []task.Task
+	clearDefersError          error
+	clearDefersCalls          int
+	clearDefersStageID        int64
+	clearDefersTimestamp      string
 	renameStageResult         Stage
 	renameStageBoardID        int64
 	renameStageID             int64
@@ -169,6 +175,18 @@ func (f *fakeStore) StageOccupied(_ context.Context, stageID int64) (bool, error
 	f.calls = append(f.calls, "stage occupied")
 	f.stageOccupiedIDs = append(f.stageOccupiedIDs, stageID)
 	return f.stageOccupied, f.stageOccupiedError
+}
+
+func (f *fakeStore) ClearTaskStageDefers(
+	_ context.Context,
+	stageID int64,
+	timestamp string,
+) ([]task.Task, error) {
+	f.calls = append(f.calls, "clear defers")
+	f.clearDefersCalls++
+	f.clearDefersStageID = stageID
+	f.clearDefersTimestamp = timestamp
+	return f.clearDefersResult, f.clearDefersError
 }
 
 func (f *fakeStore) RenameStage(_ context.Context, boardID, id int64, title, timestamp string) (Stage, error) {
@@ -624,11 +642,66 @@ func TestOccupiedBoardAndStageDeletesConflictBeforeDelete(t *testing.T) {
 		if code, _ := apperr.CodeOf(err); code != apperr.Conflict {
 			t.Fatalf("DeleteStage() error = %v, want conflict", err)
 		}
-		if !reflect.DeepEqual(got, StageResult{}) || store.transactionCalls != 1 ||
-			!reflect.DeepEqual(transaction.stageOccupiedIDs, []int64{11}) || transaction.deleteStageID != 0 {
-			t.Errorf("DeleteStage() result/delegation = %#v/%#v, want conflict before delete", got, transaction)
+		if !reflect.DeepEqual(got, StageDeletion{}) || store.transactionCalls != 1 ||
+			!reflect.DeepEqual(transaction.stageOccupiedIDs, []int64{11}) ||
+			transaction.clearDefersCalls != 0 || transaction.deleteStageID != 0 {
+			t.Errorf("DeleteStage() result/delegation = %#v/%#v, want conflict before clear and delete", got, transaction)
 		}
 	})
+}
+
+func TestDeleteStageClearsDefersBeforeDeleting(t *testing.T) {
+	t.Parallel()
+
+	cleared := []task.Task{{ID: 31, Title: "first defer"}, {ID: 32, Title: "second defer"}}
+	board := Board{ID: 7, Title: "Work"}
+	stage := Stage{ID: 11, BoardID: board.ID, Title: "Doing"}
+	transaction := &fakeStore{
+		findBoards:        map[string]Board{"work": board},
+		findStages:        map[string]Stage{"doing": stage},
+		clearDefersResult: cleared,
+		deleteStageResult: stage,
+	}
+	store := &fakeStore{transactionStore: transaction}
+	service := NewService(store)
+	service.now = func() time.Time {
+		return time.Date(2026, time.August, 9, 1, 2, 3, 456000000, time.UTC)
+	}
+
+	got, err := service.DeleteStage(context.Background(), "work", "doing")
+	if err != nil {
+		t.Fatalf("DeleteStage() error = %v", err)
+	}
+	want := StageDeletion{Board: board, Stage: stage, ClearedDefers: cleared}
+	if !reflect.DeepEqual(got, want) || store.transactionCalls != 1 || store.clearDefersCalls != 0 ||
+		transaction.clearDefersCalls != 1 || transaction.clearDefersStageID != stage.ID ||
+		transaction.clearDefersTimestamp != "2026-08-09T01:02:03.456Z" ||
+		transaction.deleteStageBoardID != board.ID || transaction.deleteStageID != stage.ID ||
+		!callPrecedes(transaction.calls, "stage occupied", "clear defers") ||
+		!callPrecedes(transaction.calls, "clear defers", "delete stage") {
+		t.Errorf("DeleteStage() result/delegation = %#v/%#v, want transactional occupancy, clear, and delete ordering", got, transaction)
+	}
+}
+
+func TestDeleteStageClearFailureAbortsDelete(t *testing.T) {
+	t.Parallel()
+
+	clearError := apperr.New(apperr.Internal, "clear task stage defers", errors.New("write failed"))
+	transaction := &fakeStore{
+		findBoards:       map[string]Board{"work": {ID: 7, Title: "Work"}},
+		findStages:       map[string]Stage{"doing": {ID: 11, BoardID: 7, Title: "Doing"}},
+		clearDefersError: clearError,
+	}
+	store := &fakeStore{transactionStore: transaction}
+
+	got, err := NewService(store).DeleteStage(context.Background(), "work", "doing")
+	if !errors.Is(err, clearError) {
+		t.Fatalf("DeleteStage() error = %v, want preserved clear error %v", err, clearError)
+	}
+	if !reflect.DeepEqual(got, StageDeletion{}) || transaction.clearDefersCalls != 1 ||
+		transaction.deleteStageID != 0 {
+		t.Errorf("DeleteStage() result/delegation = %#v/%#v, want zero result and no delete after clear failure", got, transaction)
+	}
 }
 
 func TestDeleteSnapshotsOrderedStagesBeforeBoardDeletion(t *testing.T) {

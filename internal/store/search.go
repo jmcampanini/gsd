@@ -253,10 +253,12 @@ func hydrateSearchTasks(
 		batch := ids[start:min(start+searchHydrationBatchSize, len(ids))]
 		rows, err := connection.QueryContext(ctx, `
 SELECT `+qualifiedColumns("matched", taskColumns)+`,
+       ds.title,
        `+tagJSONExpression(taskTagSpec, "matched.id")+` AS tags,
        p.title,
        a.title
 FROM tasks AS matched
+LEFT JOIN stages AS ds ON ds.id = matched.defer_stage_id
 LEFT JOIN projects AS p ON p.id = matched.project_id
 LEFT JOIN areas AS a ON a.id = COALESCE(matched.area_id, p.area_id)
 WHERE matched.id IN (`+queryPlaceholders(len(batch))+`)

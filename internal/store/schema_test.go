@@ -32,7 +32,7 @@ func TestSchemaColumnsConstraintsAndIndexes(t *testing.T) {
 			"id", "area_id", "title", "note", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at", "stage_id", "stage_position",
 		},
 		"tasks": {
-			"id", "project_id", "area_id", "title", "note", "defer_until", "due_on", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at",
+			"id", "project_id", "area_id", "title", "note", "defer_until", "due_on", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at", "defer_stage_id", "promotes",
 		},
 		"tags":         {"id", "title", "created_at", "updated_at"},
 		"task_tags":    {"task_id", "tag_id"},
@@ -48,7 +48,7 @@ func TestSchemaColumnsConstraintsAndIndexes(t *testing.T) {
 	for tableName, indexNames := range map[string][]string{
 		"stages":       {"idx_stages_board"},
 		"projects":     {"idx_projects_area", "idx_projects_stage"},
-		"tasks":        {"idx_tasks_project", "idx_tasks_area"},
+		"tasks":        {"idx_tasks_project", "idx_tasks_area", "idx_tasks_defer_stage"},
 		"task_tags":    {"idx_task_tags_tag"},
 		"project_tags": {"idx_project_tags_tag"},
 		"area_tags":    {"idx_area_tags_tag"},
@@ -90,6 +90,7 @@ WHERE name = ?
 		{table: "projects", parent: "stages", column: "stage_id", onDelete: "RESTRICT"},
 		{table: "tasks", parent: "projects", column: "project_id", onDelete: "RESTRICT"},
 		{table: "tasks", parent: "areas", column: "area_id", onDelete: "RESTRICT"},
+		{table: "tasks", parent: "stages", column: "defer_stage_id", onDelete: "RESTRICT"},
 	} {
 		var count int
 		if err := storage.database.QueryRowContext(ctx, `
@@ -115,7 +116,6 @@ WHERE "table" = ? AND "from" = ? AND on_delete = ?
 			t.Errorf("%s error = nil, want required-column failure", statement)
 		}
 	}
-
 	boardID := insertFixture(t, storage.database, `
 INSERT INTO boards (title, position) VALUES ('Delivery', 0)
 `)
@@ -146,6 +146,15 @@ VALUES ('boarded', 0, ?, 0)
 	if _, err := storage.database.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", boardedProjectID); err != nil {
 		t.Fatalf("delete boarded project: %v", err)
 	}
+	deferredTaskID := insertFixture(t, storage.database, `
+INSERT INTO tasks (title, position, defer_stage_id) VALUES ('stage deferred', 0, ?)
+`, stageID)
+	if _, err := storage.database.ExecContext(ctx, "DELETE FROM stages WHERE id = ?", stageID); err == nil {
+		t.Error("delete deferred-to stage error = nil, want RESTRICT failure")
+	}
+	if _, err := storage.database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", deferredTaskID); err != nil {
+		t.Fatalf("delete stage-deferred task: %v", err)
+	}
 	if _, err := storage.database.ExecContext(ctx, "DELETE FROM boards WHERE id = ?", boardID); err != nil {
 		t.Fatalf("delete board: %v", err)
 	}
@@ -174,6 +183,11 @@ INSERT INTO tasks (project_id, area_id, title, position)
 VALUES (?, ?, 'two containers', 0)
 `, projectID, areaID); err == nil {
 		t.Error("insert task with project and area error = nil, want CHECK failure")
+	}
+	if _, err := storage.database.ExecContext(ctx, `
+INSERT INTO tasks (title, position, promotes) VALUES ('invalid promotes', 0, 2)
+`); err == nil {
+		t.Error("insert task with non-boolean promotes error = nil, want CHECK failure")
 	}
 
 	if _, err := storage.database.ExecContext(ctx, `
@@ -504,6 +518,7 @@ INSERT INTO projects (title, cancelled_at, position) VALUES ('resolved project',
 	wantViews := map[string]string{
 		"inbox": `CREATE VIEW inbox AS
 SELECT t.*,
+       ds.title                       AS defer_stage_title,
        p.title                        AS project_title,
        COALESCE(t.area_id, p.area_id) AS governing_area_id,
        a.title                        AS governing_area_title,
@@ -511,11 +526,13 @@ SELECT t.*,
         FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
         WHERE tt.task_id = t.id)      AS tags
 FROM tasks t
-LEFT JOIN projects p ON p.id = t.project_id
-LEFT JOIN areas    a ON a.id = COALESCE(t.area_id, p.area_id)
+LEFT JOIN projects p  ON p.id = t.project_id
+LEFT JOIN stages   ds ON ds.id = t.defer_stage_id
+LEFT JOIN areas    a  ON a.id = COALESCE(t.area_id, p.area_id)
 WHERE t.project_id IS NULL AND t.area_id IS NULL AND t.status = 'open'`,
 		"available": `CREATE VIEW available AS
 SELECT t.*,
+       ds.title                       AS defer_stage_title,
        p.title                        AS project_title,
        COALESCE(t.area_id, p.area_id) AS governing_area_id,
        a.title                        AS governing_area_title,
@@ -523,12 +540,16 @@ SELECT t.*,
         FROM task_tags tt JOIN tags g ON g.id = tt.tag_id
         WHERE tt.task_id = t.id)      AS tags
 FROM tasks t
-LEFT JOIN projects p ON p.id = t.project_id
-LEFT JOIN areas    a ON a.id = COALESCE(t.area_id, p.area_id)
+LEFT JOIN projects p  ON p.id = t.project_id
+LEFT JOIN stages   ds ON ds.id = t.defer_stage_id
+LEFT JOIN stages   ps ON ps.id = p.stage_id
+LEFT JOIN areas    a  ON a.id = COALESCE(t.area_id, p.area_id)
 WHERE t.status = 'open'
   AND (t.project_id IS NULL OR p.status = 'open')
   AND a.archived_at IS NULL
-  AND (t.defer_until IS NULL OR t.defer_until <= date('now', 'localtime'))`,
+  AND (t.defer_until IS NULL OR t.defer_until <= date('now', 'localtime'))
+  AND (t.defer_stage_id IS NULL OR
+       (ps.board_id = ds.board_id AND ps.position >= ds.position))`,
 		"logbook": `CREATE VIEW logbook AS
 SELECT 'task' AS kind, t.id, t.title, t.status,
        COALESCE(t.done_at, t.cancelled_at) AS resolved_at,
@@ -626,7 +647,7 @@ VALUES (?, 'Cancelled project task', '2026-01-04T00:00:00.000Z', 1)
 `, activeProjectID)
 
 	wantTaskViewColumns := []string{
-		"id", "project_id", "area_id", "title", "note", "defer_until", "due_on", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at", "project_title", "governing_area_id", "governing_area_title", "tags",
+		"id", "project_id", "area_id", "title", "note", "defer_until", "due_on", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at", "defer_stage_id", "promotes", "defer_stage_title", "project_title", "governing_area_id", "governing_area_title", "tags",
 	}
 	for _, view := range []string{"inbox", "available"} {
 		if got := schemaColumnNames(t, storage.database, view); !reflect.DeepEqual(got, wantTaskViewColumns) {

@@ -25,21 +25,7 @@ const (
 	ExitCancelled Exit = "cancelled"
 )
 
-type Project struct {
-	ID            int64           `json:"id"`
-	AreaID        *int64          `json:"area_id"`
-	Title         string          `json:"title"`
-	Note          string          `json:"note"`
-	DoneAt        *string         `json:"done_at"`
-	CancelledAt   *string         `json:"cancelled_at"`
-	Status        string          `json:"status"`
-	Position      int64           `json:"position"`
-	CreatedAt     string          `json:"created_at"`
-	UpdatedAt     string          `json:"updated_at"`
-	StageID       *int64          `json:"stage_id"`
-	StagePosition *int64          `json:"stage_position"`
-	Tags          domain.TagNames `json:"tags"`
-}
+type Project = domain.Project
 
 type AddFields struct {
 	AreaID *int64
@@ -176,6 +162,7 @@ type Transaction interface {
 	Reorder(context.Context, int64, domain.Placement, string) (Project, error)
 	Resolve(context.Context, int64, Exit, string) (Project, error)
 	CancelOpenTasks(context.Context, int64, string) ([]task.Task, error)
+	ClearTaskStageDefers(context.Context, int64, string) ([]task.Task, error)
 	Reopen(context.Context, int64, string) (Project, error)
 	Delete(context.Context, int64) (Project, error)
 	DeleteTasks(context.Context, int64) ([]task.Task, error)

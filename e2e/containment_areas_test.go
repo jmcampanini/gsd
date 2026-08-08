@@ -83,20 +83,20 @@ func TestAreaContainmentAcrossBinaryInvocations(t *testing.T) {
 	assertJSONError(t, runJSON("list", "--area", "99"), apperr.NotFound)
 	assertJSONError(t, runJSON("projects", "list", "--area", "99"), apperr.NotFound)
 
-	movedToArea := decodeTask(t, runJSON("edit", fmt.Sprint(projectTask.ID), "--area", fmt.Sprint(home.ID)))
+	movedToArea := decodeTaskEdition(t, runJSON("edit", fmt.Sprint(projectTask.ID), "--area", fmt.Sprint(home.ID))).Task
 	if movedToArea.ProjectID != nil || !pointsTo(movedToArea.AreaID, home.ID) || movedToArea.Position != loose.Position+1 {
 		t.Errorf("task moved to Home = %#v, want project cleared and append after %#v", movedToArea, loose)
 	}
-	movedBack := decodeTask(t, runJSON("edit", fmt.Sprint(projectTask.ID), "--project", fmt.Sprint(project.ID)))
+	movedBack := decodeTaskEdition(t, runJSON("edit", fmt.Sprint(projectTask.ID), "--project", fmt.Sprint(project.ID))).Task
 	if !pointsTo(movedBack.ProjectID, project.ID) || movedBack.AreaID != nil {
 		t.Errorf("task moved back to project = %#v, want area cleared", movedBack)
 	}
-	looseInProject := decodeTask(t, runJSON("edit", fmt.Sprint(loose.ID), "--project", fmt.Sprint(project.ID)))
+	looseInProject := decodeTaskEdition(t, runJSON("edit", fmt.Sprint(loose.ID), "--project", fmt.Sprint(project.ID))).Task
 	if !pointsTo(looseInProject.ProjectID, project.ID) || looseInProject.AreaID != nil ||
 		looseInProject.Position != movedBack.Position+1 {
 		t.Errorf("loose task moved to project = %#v, want area cleared and append after %#v", looseInProject, movedBack)
 	}
-	projectTaskInInbox := decodeTask(t, runJSON("edit", fmt.Sprint(projectTask.ID), "--no-project"))
+	projectTaskInInbox := decodeTaskEdition(t, runJSON("edit", fmt.Sprint(projectTask.ID), "--no-project")).Task
 	if projectTaskInInbox.ProjectID != nil || projectTaskInInbox.AreaID != nil ||
 		projectTaskInInbox.Position != inboxTask.Position+1 {
 		t.Errorf("project task moved to inbox = %#v, want memberships clear and append after %#v", projectTaskInInbox, inboxTask)
@@ -111,7 +111,7 @@ func TestAreaContainmentAcrossBinaryInvocations(t *testing.T) {
 		t.Errorf("Work project list = %#v, want anchor then reparented project", workProjects)
 	}
 
-	ownAreaTask := decodeTask(t, runJSON("edit", fmt.Sprint(inboxTask.ID), "--area", fmt.Sprint(home.ID)))
+	ownAreaTask := decodeTaskEdition(t, runJSON("edit", fmt.Sprint(inboxTask.ID), "--area", fmt.Sprint(home.ID))).Task
 	for _, id := range []int64{ownAreaTask.ID, looseInProject.ID, projectTaskInInbox.ID} {
 		decodeTask(t, runJSON("done", fmt.Sprint(id)))
 	}
