@@ -8,14 +8,7 @@ import (
 )
 
 func newBoardsCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	command := &cobra.Command{
-		Use:   "boards",
-		Short: "Manage boards",
-		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			return usageError("boards requires a subcommand")
-		},
-	}
+	command := newBoardCommandGroup("boards", "Manage boards")
 	command.AddCommand(
 		newBoardsAddCommand(options, factory),
 		newBoardsListCommand(options, factory),
@@ -71,14 +64,7 @@ func newBoardsListCommand(options *rootOptions, factory applicationFactory) *cob
 }
 
 func newBoardCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	command := &cobra.Command{
-		Use:   "board",
-		Short: "Manage a board",
-		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			return usageError("board requires a subcommand")
-		},
-	}
+	command := newBoardCommandGroup("board", "Manage a board")
 	command.AddCommand(
 		newBoardShowCommand(options, factory),
 		newBoardEditCommand(options, factory),
@@ -188,14 +174,7 @@ func newBoardDeleteCommand(options *rootOptions, factory applicationFactory) *co
 }
 
 func newStagesCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	command := &cobra.Command{
-		Use:   "stages",
-		Short: "Manage stages",
-		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			return usageError("stages requires a subcommand")
-		},
-	}
+	command := newBoardCommandGroup("stages", "Manage stages")
 	command.AddCommand(newStagesAddCommand(options, factory))
 	return command
 }
@@ -228,14 +207,7 @@ func newStagesAddCommand(options *rootOptions, factory applicationFactory) *cobr
 }
 
 func newStageCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	command := &cobra.Command{
-		Use:   "stage",
-		Short: "Manage a stage",
-		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			return usageError("stage requires a subcommand")
-		},
-	}
+	command := newBoardCommandGroup("stage", "Manage a stage")
 	command.AddCommand(
 		newStageRenameCommand(options, factory),
 		newStageReorderCommand(options, factory),
@@ -307,6 +279,17 @@ func newStageDeleteCommand(options *rootOptions, factory applicationFactory) *co
 				}
 				return options.presentation.output(command).writeStageMutation(verbDeleted, result)
 			})
+		},
+	}
+}
+
+func newBoardCommandGroup(use, short string) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			return usageError(use + " requires a subcommand")
 		},
 	}
 }
