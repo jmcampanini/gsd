@@ -98,10 +98,11 @@ gsd stage delete BOARD NAME
 ```
 
 Boards are global, ordered pipelines orthogonal to areas. A board has a note
-and one or more named stages at creation; later stage deletion may leave it
-empty. Board names are globally `NOCASE`-unique, and stage names are
-`NOCASE`-unique within a board; accepted spelling is stored unchanged and
-lookups are case-insensitive under SQLite `NOCASE`.
+and one or more named stages at creation (`boards add` without `--stage` is
+`invalid_argument`); later stage deletion may leave it empty. Board names are
+globally `NOCASE`-unique, and stage names are `NOCASE`-unique within a board;
+accepted spelling is stored unchanged and lookups are case-insensitive under
+SQLite `NOCASE`.
 
 A project belongs to at most one board and occupies one stage. Board entry
 always uses the first stage; switching boards re-enters the new first stage,
@@ -113,8 +114,11 @@ changes inherit the resolved-project and archived-area guards.
 explicit placement positions it among projects in the destination stage; a
 same-stage placement reorders that column, while a bare same-stage move is a
 no-op. Movement may go in either direction, does not enforce sequence, and is
-not gated by tasks. Placement references are project IDs in the destination
-stage, including resolved projects that retain hidden positions. Resolving a
+not gated by tasks. It is a transition verb guarded like one: moving a
+resolved project, or any project under an archived governing area, is a
+`conflict`, checked before the same-stage no-op. Placement references are
+project IDs in the destination stage, including resolved projects that
+retain hidden positions. Resolving a
 project hides it from `board show`; reopening restores it at the same stage
 and position. Deleting an occupied board or stage is a `conflict`; deleting
 an empty board deletes its stages.
@@ -218,7 +222,8 @@ gsd capture
   cancelled, and archived siblings keep their positions, can be moved, and
   can serve as references. The board axis applies the same reference rule:
   resolved projects retain hidden stage positions and remain valid placement
-  references, though resolved projects themselves cannot move. A placement
+  references, though `move` itself carries the transition guards — a resolved
+  project, or one under an archived governing area, cannot move. A placement
   that lands the entity where it already sits succeeds as an ordinary
   reorder. Exactly one placement flag must be meaningfully given. An
   explicitly false boolean placement (`--first=false`) is the same arity
@@ -256,15 +261,17 @@ gsd capture
   exit; tasks the cascade cancelled stay cancelled until individually
   reopened.
 - **A resolved project is closed history**: completing, cancelling, or
-  reopening its tasks, creating a task into it, and re-parenting a task into
-  or out of it are `conflict` errors with reopen-the-project-first guidance
+  reopening its tasks, creating a task into it, re-parenting a task into or
+  out of it, and moving it on the board axis are `conflict` errors with
+  reopen-the-project-first guidance
   (a move blocked by a resolved source and a resolved destination names
   both). Content edits and deletion of contained tasks stay allowed.
 - **An archived area is retired history**, mirroring the resolved-project
   guard through the governing area (own, or inherited through the project):
-  creating a task or project into it, re-parenting into or out of it, and
-  completing, cancelling, or reopening anything it governs are `conflict`
-  errors with unarchive-the-area-first guidance; a move blocked by more than
+  creating a task or project into it, re-parenting into or out of it, moving
+  a project it governs on the board axis, and completing, cancelling, or
+  reopening anything it governs are `conflict` errors with
+  unarchive-the-area-first guidance; a move blocked by more than
   one guard names every blocker. Content edits and deletes stay allowed,
   archiving never mutates contents, and unarchive restores visibility with
   every position intact.
@@ -359,7 +366,11 @@ gsd capture
   rows each with an ordered `stages` array. `board show` returns
   `{"board":{...},"stages":[{...stage row...,"projects":[{...project row...,"progress":{"done":N,"total":M}}]}]}`;
   cancelled tasks count in neither progress value. `board delete` returns
-  `{"board":{...},"stages":[...]}`. A project board edit returns
+  `{"board":{...},"stages":[...]}`. Every other board and stage mutation
+  echoes its bare affected row: `boards add`, `board edit`, and
+  `board reorder` return the board row (an agent wanting the resulting
+  stages follows with `boards list`); `stages add`, `stage rename`, and
+  `stage reorder` return the stage row. A project board edit returns
   `{"project":{...},"cleared_defers":[...]}`. A task containment edit
   returns `{"task":{...},"cleared_defers":[...]}`, and stage deletion returns
   `{"stage":{...},"cleared_defers":[...]}`. These `cleared_defers` values

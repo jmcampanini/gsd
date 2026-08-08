@@ -145,13 +145,14 @@ Hard delete exists but is the uncommon path — the normal end of life is
 - Reopening a project clears only its exit: the cascade is never undone,
   and tasks it cancelled stay cancelled until individually reopened.
 - A done or cancelled project is closed history: completing, cancelling, or
-  reopening its tasks, adding tasks into it, and moving tasks in or out are
-  conflicts until the project is reopened. Content edits and hard deletes
-  of contained tasks stay allowed.
+  reopening its tasks, adding tasks into it, moving tasks in or out, and
+  moving it on its board are conflicts until the project is reopened.
+  Content edits and hard deletes of contained tasks stay allowed.
 - An archived area is retired history through the governing area (own, or
   inherited through the project): creating into it, moving projects or
-  tasks in or out of it, and completing, cancelling, or reopening anything
-  it governs are conflicts until the area is unarchived. Content edits and
+  tasks in or out of it, moving a project it governs on the board axis,
+  and completing, cancelling, or reopening anything it governs are
+  conflicts until the area is unarchived. Content edits and
   hard deletes stay allowed; archiving never mutates contents, and
   unarchive restores visibility with every position intact.
 - Hard deletes never destroy other entities: deleting a non-empty area or
