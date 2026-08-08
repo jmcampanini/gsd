@@ -35,4 +35,20 @@ Entry format:
 
 ## Intake
 
-_No temporary divergences. The next entry number is D-004._
+## D-004: TUI section predates the Navigator plan gate
+- Recorded: 2026-08-08, Milestone 12 plan gate
+- Diverges from: `COMMANDS.md` § TUI (post-v1) — the root-tree shape
+  ("loose projects, then areas with their open projects nested") and
+  "`/` is incremental search with the same semantics as `gsd search`"
+- Temporary behavior or decision: Navigator ships the two-lens tree
+  (root → Boards/Areas → projects → tasks, with a `(no area)`
+  pseudo-row) and `/` as an in-memory fuzzy filter (snacks-picker
+  semantics) over the current view; `gsd search` keeps FTS semantics
+  in the CLI
+- Owner: Javier
+- Consolidate by: Milestone 12 consolidation
+- Reconciliation: `COMMANDS.md` TUI section (tree shape, `/`
+  semantics) and the shipped `tui` command documentation, which joins
+  the `--json`-rejecting exceptions
+
+_The next entry number is D-005._

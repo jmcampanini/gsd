@@ -1,10 +1,10 @@
 # Milestone 12 — Navigator
 
-Data mode: **live**. Depends on: Milestone 10 (substrate); the `/` chunk
-rides Milestone 8's FTS index.
+Data mode: **live**. Depends on: Milestone 10 (substrate) and
+Milestone 11 (boards, for the boards lens).
 
-Written light; re-review at plan gate. The paradigm below is settled;
-everything finer is proposed.
+Settled at the 2026-08-08 plan gate; root `PLAN.md` records the full
+design. The scope below was reconciled to match.
 
 ## Capability
 
@@ -20,41 +20,47 @@ TUI verb, reorder, and command-line milestone acts on.
   navigating replaces the screen entirely. The same structure works in
   a full terminal and a tmux popup. Pane and split layouts are parked
   explorations, deliberately out of scope.
-- **Three view types.**
-  - *Root tree*: Inbox, Available, Logbook; then loose projects; then
-    areas with their open projects nested. Every container is one jump
-    from the root. (**proposed**) A boards section follows the areas,
-    one row per board; opening a board waits for Milestone 13's board
-    view — until then the rows are inert or absent, settled at plan
-    gate.
-  - *Container list*: a compact selectable header for the container
-    itself above the rows. Enter on the header opens the container's
-    detail; Enter on a task opens the task's detail; Enter on a nested
-    container drills in. An area lists its open projects, then its
-    loose open tasks, composed from existing list operations.
-  - *Detail*: one uniform view rendering any entity — area, project, or
-    task — mirroring `show` (fields, tags, dates). Notes render as
-    plain escaped text; markdown is a parked exploration.
+- **Two lenses, one tree.** Boards and areas are two lenses over the
+  same objects — projects; neither contains the other. The levels are
+  the root, the lenses, projects, tasks. The root shows Inbox,
+  Available, Logbook, then Boards and Areas.
+  - *Collections* (Boards, Areas): lists of entities with no header —
+    a collection is not itself an entity. Board rows carry the stage
+    chain; the areas collection ends with a `(no area)` pseudo-row
+    holding loose projects behind a plain non-selectable title.
+  - *Containers* (a board, an area, a project): a compact selectable
+    header for the container itself above the rows. Enter on the
+    header opens the container's detail; Enter on a row opens or
+    drills. An area lists its open projects, then its loose open
+    tasks; a board lists its open projects grouped by stage with
+    progress counts, composed from existing operations. The board
+    list is not throwaway — Milestone 13's column view arrives beside
+    it.
+  - *Detail*: one uniform view rendering any entity — task, project,
+    area, or board — mirroring `show` (fields, tags, dates). Notes
+    render as plain escaped text; markdown is a parked exploration.
 - **Navigation**: `j`/`k`/arrows move (the header is the topmost cursor
-  position), Enter descends/opens, Esc/`h` goes back, `q` quits.
-  Keyboard-only.
+  position), Enter descends/opens, Esc/`h` goes back (at the root,
+  quits), `q` quits. Keyboard-only.
 - **Freshness**: data loads when a view is entered; re-entering
   re-reads. No polling or watchers.
-- **`/` is incremental search** with the same semantics as `gsd search`
-  (in the tree since Milestone 8), filtering the current view live.
-  Search implies a query per keystroke, and the virtual index is
-  rebuilt per invocation (~25ms at 5,000 documents): decide index
-  lifetime — per-call, session-held, or debounced — at this plan gate.
+- **`/` is an incremental fuzzy filter** — snacks-picker semantics,
+  not FTS: in-memory fuzzy subsequence matching with smart-case over
+  the current view's visible rows, matched characters highlighted,
+  view structure preserved. View-local; a global picker is parked
+  (revisit at Milestone 15's command line). `gsd search` remains the
+  CLI's FTS surface; D-004 tracks the `COMMANDS.md` TUI-section
+  mismatch until consolidation.
 
 ## Chunks
 
-1. **Stack and root tree** — view stack, root tree over the three views
-   and the area/project containers.
-2. **Container lists** — list views with selectable headers, area
-   composition, drill-in/out.
-3. **Uniform detail** — the `show`-mirroring detail view for all three
-   kinds.
-4. **Live filter** — `/` incremental filtering of the current view.
+1. **The skeleton stands** — view stack, root view, the three task
+   views, and the two collection views.
+2. **Every hall opens** — the container views: board (stage-grouped),
+   area, project, and `(no area)`.
+3. **Every door opens** — the uniform `show`-mirroring detail view for
+   all four kinds.
+4. **Type to find** — `/` fuzzy filtering of the current view.
 
 ## Carried from Milestone 11
 
@@ -133,10 +139,13 @@ their expected next consumer.
 ## User stories
 
 ```text
-$ gsd tui        # root: Inbox, Available, Logbook, projects, areas
+$ gsd tui        # root: Inbox, Available, Logbook, Boards, Areas
+                 # ↓ into Areas: the areas, then (no area)
                  # ↓ into an area: its projects, then loose tasks
-                 # ↓ into a project: its tasks
+                 # ↓ into a project: its tasks; Enter: a task's detail
                  # Enter on the header: the project's detail
+                 # ↓ into Boards → a board: projects grouped by stage
+                 # /: fuzzy-narrow the view; Esc: clear, then back
                  # Esc, Esc, Esc: back at the root; q: gone
 ```
 
@@ -145,15 +154,16 @@ $ gsd tui        # root: Inbox, Available, Logbook, projects, areas
 Against the real built binary and a seeded temporary database, driving a
 tmux session:
 
-1. Root shows the three views and the seeded containers in position
-   order; nested projects sit under their areas; loose projects at top
-   level.
-2. Drill area → project → task detail and back; screens contain the
-   expected rows and fields at each step.
-3. Header selection opens area and project detail; content matches
-   `show --json` for the same IDs.
+1. The root shows Inbox, Available, Logbook, Boards, Areas; the
+   collections list the seeded boards (with stage chains) and active
+   areas in position order, with `(no area)` last.
+2. Drill Areas → area → project → task detail and back; screens
+   contain the expected rows and fields at each step.
+3. Header selection opens area, project, and board detail; content
+   matches `show --json` for the same identities.
 4. Mutate via the CLI mid-session; re-entering the view reflects it.
-5. `/` narrows the current view live; clearing it restores the view.
+5. `/` fuzzy-narrows the current view live; clearing it restores the
+   view.
 
 ## Exit criteria
 
