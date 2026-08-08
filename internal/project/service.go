@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -23,7 +22,7 @@ func NewService(store Store) *Service {
 	return &Service{store: store, now: time.Now}
 }
 
-func (s *Service) Add(ctx context.Context, fields AddFields) (Project, error) {
+func (s *Service) Add(ctx context.Context, fields AddRequest) (Project, error) {
 	if err := domain.ValidateTitle(fields.Title); err != nil {
 		return Project{}, err
 	}
@@ -45,7 +44,7 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Project, error) {
 		return Project{}, err
 	}
 	timestamp := domain.FormatTimestamp(s.now())
-	create := CreateFields{
+	create := AddFields{
 		AreaID: fields.AreaID,
 		Title:  fields.Title,
 		Note:   fields.Note,
@@ -61,7 +60,7 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Project, error) {
 			if err != nil {
 				return err
 			}
-			if err := containmentConflict("add project", Project{}, foundArea); err != nil {
+			if err := containmentConflict("add project", nil, foundArea); err != nil {
 				return err
 			}
 		}
@@ -163,7 +162,7 @@ func (s *Service) Show(ctx context.Context, id int64) (Detail, error) {
 	return detail, nil
 }
 
-func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Edition, error) {
+func (s *Service) Edit(ctx context.Context, id int64, fields EditRequest) (Edition, error) {
 	if err := validateID(id); err != nil {
 		return Edition{}, err
 	}
@@ -213,7 +212,7 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Editio
 	boardRequested := fields.Board.Set != nil || fields.Board.Clear
 	membershipRequested := fields.Area.Set != nil || fields.Area.Clear || boardRequested
 	if !membershipRequested {
-		updated := UpdateFields{Title: fields.Title, Note: fields.Note}
+		updated := EditFields{Title: fields.Title, Note: fields.Note}
 		edited, err := s.store.Edit(ctx, id, updated, timestamp)
 		if err != nil {
 			return Edition{}, err
@@ -227,7 +226,7 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Editio
 		if err != nil {
 			return err
 		}
-		updated := UpdateFields{Area: fields.Area, Title: fields.Title, Note: fields.Note}
+		updated := EditFields{Area: fields.Area, Title: fields.Title, Note: fields.Note}
 
 		var currentStage *StageReference
 		if boardRequested && current.StageID != nil {
@@ -266,13 +265,13 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Editio
 			return err
 		}
 		if boardMovement || areaMovement {
-			guardedProject := Project{}
+			var resolvedGuard *Project
 			if boardMovement {
-				guardedProject = current
+				resolvedGuard = &current
 			}
 			if err := containmentConflict(
 				fmt.Sprintf("move project %d", id),
-				guardedProject,
+				resolvedGuard,
 				areaReferences...,
 			); err != nil {
 				return err
@@ -285,7 +284,7 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Editio
 			}
 		}
 
-		if !hasUpdateFields(updated) {
+		if !hasEditFields(updated) {
 			result.Project = current
 			return nil
 		}
@@ -335,13 +334,6 @@ func (s *Service) Move(
 		}
 		destination, err := store.FindStage(ctx, currentStage.BoardID, stageTitle)
 		if err != nil {
-			if code, coded := apperr.CodeOf(err); coded && code == apperr.NotFound {
-				return apperr.New(
-					apperr.NotFound,
-					fmt.Sprintf("no stage %s on board %s", stageTitle, currentStage.BoardTitle),
-					err,
-				)
-			}
 			return err
 		}
 		if placement != nil &&
@@ -353,7 +345,7 @@ func (s *Service) Move(
 			if reference.ID == current.ID {
 				return apperr.New(
 					apperr.InvalidArgument,
-					"project cannot be placed relative to itself",
+					fmt.Sprintf("cannot move project %d relative to itself", id),
 					nil,
 				)
 			}
@@ -376,7 +368,7 @@ func (s *Service) Move(
 		}
 		if err := containmentConflict(
 			fmt.Sprintf("move project %d", id),
-			current,
+			&current,
 			areaReferences...,
 		); err != nil {
 			return err
@@ -582,7 +574,7 @@ func resolveEditAreas(
 		destination = nil
 	}
 
-	movement := !sameOptionalID(current.AreaID, destination)
+	movement := !domain.SameOptionalID(current.AreaID, destination)
 	references := make([]AreaReference, 0, 2)
 	if current.AreaID != nil {
 		if destinationArea != nil && destinationArea.ID == *current.AreaID {
@@ -601,9 +593,11 @@ func resolveEditAreas(
 	return references, movement, nil
 }
 
-func containmentConflict(action string, current Project, areas ...AreaReference) error {
-	resolved := current.ID != 0 && (current.DoneAt != nil || current.CancelledAt != nil ||
-		(current.Status != "" && current.Status != string(ListStatusOpen)))
+// resolvedGuard is nil when the operation permits resolved projects (area
+// re-filing); board-axis movement passes the project to refuse resolved ones.
+func containmentConflict(action string, resolvedGuard *Project, areas ...AreaReference) error {
+	resolved := resolvedGuard != nil && (resolvedGuard.DoneAt != nil || resolvedGuard.CancelledAt != nil ||
+		(resolvedGuard.Status != "" && resolvedGuard.Status != string(ListStatusOpen)))
 	archivedIDs := make([]int64, 0, len(areas))
 	for _, currentArea := range areas {
 		if currentArea.ArchivedAt != nil {
@@ -614,19 +608,18 @@ func containmentConflict(action string, current Project, areas ...AreaReference)
 		return nil
 	}
 
-	slices.Sort(archivedIDs)
-	archivedIDs = slices.Compact(archivedIDs)
+	archivedIDs = domain.SortedUniqueIDs(archivedIDs)
 	blockers := make([]string, 0, 2)
 	causes := make([]error, 0, 2)
 	if resolved {
-		blockers = append(blockers, fmt.Sprintf("project %d is resolved", current.ID))
-		causes = append(causes, &ResolvedProjectsError{IDs: []int64{current.ID}})
+		blockers = append(blockers, fmt.Sprintf("project %d is resolved", resolvedGuard.ID))
+		causes = append(causes, &ResolvedProjectsError{IDs: []int64{resolvedGuard.ID}})
 	}
 	if len(archivedIDs) == 1 {
 		blockers = append(blockers, fmt.Sprintf("area %d is archived", archivedIDs[0]))
 		causes = append(causes, &ArchivedAreasError{IDs: archivedIDs})
 	} else if len(archivedIDs) > 1 {
-		blockers = append(blockers, fmt.Sprintf("areas %v are archived", archivedIDs))
+		blockers = append(blockers, fmt.Sprintf("areas %s are archived", domain.FormatIDs(archivedIDs)))
 		causes = append(causes, &ArchivedAreasError{IDs: archivedIDs})
 	}
 	return apperr.New(
@@ -659,16 +652,9 @@ func locationForStage(stage StageReference) *Location {
 	return &Location{BoardTitle: stage.BoardTitle, StageTitle: stage.Title}
 }
 
-func hasUpdateFields(fields UpdateFields) bool {
+func hasEditFields(fields EditFields) bool {
 	return fields.Title != nil || fields.Note != nil || fields.Area.Set != nil || fields.Area.Clear ||
 		fields.Stage.Set != nil || fields.Stage.Clear
-}
-
-func sameOptionalID(left, right *int64) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return *left == *right
 }
 
 func ParseID(value string) (int64, error) {

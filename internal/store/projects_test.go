@@ -25,7 +25,7 @@ func TestProjectStoreRoundTripsEditsAndOrdersLists(t *testing.T) {
 
 	first, err := projects.Add(
 		ctx,
-		project.CreateFields{Title: "first", Note: "first note"},
+		project.AddFields{Title: "first", Note: "first note"},
 		"2026-01-01T00:00:00.000Z",
 	)
 	if err != nil {
@@ -46,7 +46,7 @@ func TestProjectStoreRoundTripsEditsAndOrdersLists(t *testing.T) {
 	}
 	second, err := projects.Add(
 		ctx,
-		project.CreateFields{Title: "second"},
+		project.AddFields{Title: "second"},
 		"2026-01-03T00:00:00.000Z",
 	)
 	if err != nil {
@@ -61,7 +61,7 @@ func TestProjectStoreRoundTripsEditsAndOrdersLists(t *testing.T) {
 	edited, err := projects.Edit(
 		ctx,
 		second.ID,
-		project.UpdateFields{Title: &title, Note: &note},
+		project.EditFields{Title: &title, Note: &note},
 		"2026-01-04T00:00:00.000Z",
 	)
 	if err != nil {
@@ -119,7 +119,7 @@ func TestProjectAddAppendsWithinArea(t *testing.T) {
 	for _, fixture := range fixtures {
 		created, err := projects.Add(
 			ctx,
-			project.CreateFields{AreaID: fixture.areaID, Title: fixture.title},
+			project.AddFields{AreaID: fixture.areaID, Title: fixture.title},
 			"2026-01-02T00:00:00.000Z",
 		)
 		if err != nil {
@@ -147,11 +147,11 @@ func TestProjectListReturnsEmptyForExistingFilteredArea(t *testing.T) {
 
 	requestedArea := addStoredArea(t, areas, area.AddFields{Title: "requested"})
 	otherArea := addStoredArea(t, areas, area.AddFields{Title: "other"})
-	resolved := addStoredProject(t, projects, project.CreateFields{AreaID: &requestedArea.ID, Title: "resolved"})
+	resolved := addStoredProject(t, projects, project.AddFields{AreaID: &requestedArea.ID, Title: "resolved"})
 	if _, err := projects.Resolve(ctx, resolved.ID, project.ExitDone, "2026-01-03T00:00:00.000Z"); err != nil {
 		t.Fatalf("Resolve(project) error = %v", err)
 	}
-	addStoredProject(t, projects, project.CreateFields{AreaID: &otherArea.ID, Title: "other project"})
+	addStoredProject(t, projects, project.AddFields{AreaID: &otherArea.ID, Title: "other project"})
 
 	open, err := projects.List(ctx, project.ListOptions{
 		Status: project.ListStatusOpen,
@@ -174,9 +174,9 @@ func TestProjectEditReparentsAtomicallyAndPreservesNoOpMembership(t *testing.T) 
 
 	sourceArea := addStoredArea(t, areas, area.AddFields{Title: "source"})
 	destinationArea := addStoredArea(t, areas, area.AddFields{Title: "destination"})
-	addStoredProject(t, projects, project.CreateFields{AreaID: &destinationArea.ID, Title: "destination sibling"})
-	addStoredProject(t, projects, project.CreateFields{Title: "standalone sibling"})
-	created := addStoredProject(t, projects, project.CreateFields{AreaID: &sourceArea.ID, Title: "moving"})
+	addStoredProject(t, projects, project.AddFields{AreaID: &destinationArea.ID, Title: "destination sibling"})
+	addStoredProject(t, projects, project.AddFields{Title: "standalone sibling"})
+	created := addStoredProject(t, projects, project.AddFields{AreaID: &sourceArea.ID, Title: "moving"})
 	resolved, err := projects.Resolve(ctx, created.ID, project.ExitDone, "2026-01-03T00:00:00.000Z")
 	if err != nil {
 		t.Fatalf("Resolve(moving project) error = %v", err)
@@ -185,7 +185,7 @@ func TestProjectEditReparentsAtomicallyAndPreservesNoOpMembership(t *testing.T) 
 	unchanged, err := projects.Edit(
 		ctx,
 		resolved.ID,
-		project.UpdateFields{Area: project.AreaChange{Set: &sourceArea.ID}},
+		project.EditFields{Area: project.AreaChange{Set: &sourceArea.ID}},
 		"2026-01-04T00:00:00.000Z",
 	)
 	if err != nil {
@@ -198,7 +198,7 @@ func TestProjectEditReparentsAtomicallyAndPreservesNoOpMembership(t *testing.T) 
 	moved, err := projects.Edit(
 		ctx,
 		resolved.ID,
-		project.UpdateFields{Area: project.AreaChange{Set: &destinationArea.ID}},
+		project.EditFields{Area: project.AreaChange{Set: &destinationArea.ID}},
 		"2026-01-05T00:00:00.000Z",
 	)
 	if err != nil {
@@ -212,7 +212,7 @@ func TestProjectEditReparentsAtomicallyAndPreservesNoOpMembership(t *testing.T) 
 	cleared, err := projects.Edit(
 		ctx,
 		moved.ID,
-		project.UpdateFields{Area: project.AreaChange{Clear: true}},
+		project.EditFields{Area: project.AreaChange{Clear: true}},
 		"2026-01-07T00:00:00.000Z",
 	)
 	if err != nil {
@@ -225,7 +225,7 @@ func TestProjectEditReparentsAtomicallyAndPreservesNoOpMembership(t *testing.T) 
 	redundantClear, err := projects.Edit(
 		ctx,
 		moved.ID,
-		project.UpdateFields{Area: project.AreaChange{Clear: true}},
+		project.EditFields{Area: project.AreaChange{Clear: true}},
 		"2026-01-08T00:00:00.000Z",
 	)
 	if err != nil {
@@ -244,10 +244,10 @@ func TestProjectArchivedAreaGuardsLifecycleButAllowsDelete(t *testing.T) {
 	projects := NewProjects(storage)
 
 	container := addStoredArea(t, areas, area.AddFields{Title: "retired"})
-	completeCandidate := addStoredProject(t, projects, project.CreateFields{AreaID: &container.ID, Title: "complete"})
-	cancelCandidate := addStoredProject(t, projects, project.CreateFields{AreaID: &container.ID, Title: "cancel"})
-	reopenCandidate := addStoredProject(t, projects, project.CreateFields{AreaID: &container.ID, Title: "reopen"})
-	deleteCandidate := addStoredProject(t, projects, project.CreateFields{AreaID: &container.ID, Title: "delete"})
+	completeCandidate := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "complete"})
+	cancelCandidate := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "cancel"})
+	reopenCandidate := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "reopen"})
+	deleteCandidate := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "delete"})
 	if _, err := projects.Resolve(
 		ctx,
 		reopenCandidate.ID,
@@ -313,7 +313,7 @@ func TestProjectLifecycleTransactionSharesTimestampAndOrdersCancelledTasks(t *te
 
 	created, err := projects.Add(
 		ctx,
-		project.CreateFields{Title: "release"},
+		project.AddFields{Title: "release"},
 		"2026-01-01T00:00:00.000Z",
 	)
 	if err != nil {
@@ -335,7 +335,7 @@ WHERE project_id = ?
 	}
 	untouchedProject, err := projects.Add(
 		ctx,
-		project.CreateFields{Title: "untouched"},
+		project.AddFields{Title: "untouched"},
 		"2026-01-02T00:00:00.000Z",
 	)
 	if err != nil {
@@ -437,7 +437,7 @@ func TestProjectResolutionRollsBackWhenCascadeFails(t *testing.T) {
 	projects := NewProjects(storage)
 	tasks := NewTasks(storage)
 
-	created, err := projects.Add(ctx, project.CreateFields{Title: "atomic"}, "2026-01-01T00:00:00.000Z")
+	created, err := projects.Add(ctx, project.AddFields{Title: "atomic"}, "2026-01-01T00:00:00.000Z")
 	if err != nil {
 		t.Fatalf("Add(project) error = %v", err)
 	}
@@ -492,7 +492,7 @@ func TestProjectTransactionRollsBackAfterPanic(t *testing.T) {
 
 	created, err := projects.Add(
 		ctx,
-		project.CreateFields{Title: "panic rollback"},
+		project.AddFields{Title: "panic rollback"},
 		"2026-01-01T00:00:00.000Z",
 	)
 	if err != nil {
@@ -531,7 +531,7 @@ func TestProjectTransactionRollsBackAfterPanic(t *testing.T) {
 	}
 	if _, err := projects.Add(
 		ctx,
-		project.CreateFields{Title: "connection remains usable"},
+		project.AddFields{Title: "connection remains usable"},
 		"2026-01-03T00:00:00.000Z",
 	); err != nil {
 		t.Errorf("Add(after transaction panic) error = %v", err)
@@ -545,7 +545,7 @@ func TestProjectDeleteHonorsRestrictAndRecursiveTransaction(t *testing.T) {
 	projects := NewProjects(storage)
 	tasks := NewTasks(storage)
 
-	created, err := projects.Add(ctx, project.CreateFields{Title: "doomed"}, "2026-01-01T00:00:00.000Z")
+	created, err := projects.Add(ctx, project.AddFields{Title: "doomed"}, "2026-01-01T00:00:00.000Z")
 	if err != nil {
 		t.Fatalf("Add(project) error = %v", err)
 	}
@@ -569,7 +569,7 @@ func TestProjectDeleteHonorsRestrictAndRecursiveTransaction(t *testing.T) {
 	}
 	untouchedProject, err := projects.Add(
 		ctx,
-		project.CreateFields{Title: "untouched"},
+		project.AddFields{Title: "untouched"},
 		"2026-01-03T00:00:00.000Z",
 	)
 	if err != nil {
@@ -589,7 +589,7 @@ func TestProjectDeleteHonorsRestrictAndRecursiveTransaction(t *testing.T) {
 
 	aborted, err := projects.Add(
 		ctx,
-		project.CreateFields{Title: "non-FK failure"},
+		project.AddFields{Title: "non-FK failure"},
 		"2026-01-03T00:00:00.000Z",
 	)
 	if err != nil {
@@ -660,7 +660,7 @@ END
 
 	rollbackProject, err := projects.Add(
 		ctx,
-		project.CreateFields{Title: "rollback"},
+		project.AddFields{Title: "rollback"},
 		"2026-01-04T00:00:00.000Z",
 	)
 	if err != nil {
@@ -790,9 +790,9 @@ func TestProjectStageMembershipAppendsClearsAndSwitches(t *testing.T) {
 	firstStage := addStoredStage(t, boards, pipeline.ID, "first", "2026-01-01T00:00:00.000Z")
 	secondStage := addStoredStage(t, boards, pipeline.ID, "second", "2026-01-01T00:00:00.000Z")
 
-	first := addStoredProject(t, projects, project.CreateFields{StageID: &firstStage.ID, Title: "first"})
-	second := addStoredProject(t, projects, project.CreateFields{StageID: &firstStage.ID, Title: "second"})
-	anchor := addStoredProject(t, projects, project.CreateFields{StageID: &secondStage.ID, Title: "anchor"})
+	first := addStoredProject(t, projects, project.AddFields{StageID: &firstStage.ID, Title: "first"})
+	second := addStoredProject(t, projects, project.AddFields{StageID: &firstStage.ID, Title: "second"})
+	anchor := addStoredProject(t, projects, project.AddFields{StageID: &secondStage.ID, Title: "anchor"})
 	if first.StageID == nil || *first.StageID != firstStage.ID || first.StagePosition == nil || *first.StagePosition != 0 ||
 		second.StagePosition == nil || *second.StagePosition != 1 || anchor.StagePosition == nil || *anchor.StagePosition != 0 {
 		t.Fatalf("stage additions = %#v/%#v/%#v, want independently appended positions 0/1 and 0", first, second, anchor)
@@ -801,7 +801,7 @@ func TestProjectStageMembershipAppendsClearsAndSwitches(t *testing.T) {
 	cleared, err := projects.Edit(
 		ctx,
 		first.ID,
-		project.UpdateFields{Stage: project.StageChange{Clear: true}},
+		project.EditFields{Stage: project.StageChange{Clear: true}},
 		"2026-01-02T00:00:00.000Z",
 	)
 	if err != nil {
@@ -814,7 +814,7 @@ func TestProjectStageMembershipAppendsClearsAndSwitches(t *testing.T) {
 	switched, err := projects.Edit(
 		ctx,
 		second.ID,
-		project.UpdateFields{Stage: project.StageChange{Set: &secondStage.ID}},
+		project.EditFields{Stage: project.StageChange{Set: &secondStage.ID}},
 		"2026-01-03T00:00:00.000Z",
 	)
 	if err != nil {
@@ -829,7 +829,7 @@ func TestProjectStageMembershipAppendsClearsAndSwitches(t *testing.T) {
 	restated, err := projects.Edit(
 		ctx,
 		second.ID,
-		project.UpdateFields{Stage: project.StageChange{Set: &secondStage.ID}},
+		project.EditFields{Stage: project.StageChange{Set: &secondStage.ID}},
 		"2026-01-04T00:00:00.000Z",
 	)
 	if err != nil {
@@ -850,10 +850,13 @@ func TestProjectStageMovesAppendPlaceAndReorderWithMovedTimestampOnly(t *testing
 	source := addStoredStage(t, boards, pipeline.ID, "source", "2026-01-01T00:00:00.000Z")
 	target := addStoredStage(t, boards, pipeline.ID, "target", "2026-01-01T00:00:00.000Z")
 
-	movingFirst := addStoredProject(t, projects, project.CreateFields{StageID: &source.ID, Title: "moving first"})
-	movingSecond := addStoredProject(t, projects, project.CreateFields{StageID: &source.ID, Title: "moving second"})
-	targetFirst := addStoredProject(t, projects, project.CreateFields{StageID: &target.ID, Title: "target first"})
-	targetSecond := addStoredProject(t, projects, project.CreateFields{StageID: &target.ID, Title: "target second"})
+	movingFirst := addStoredProject(t, projects, project.AddFields{StageID: &source.ID, Title: "moving first"})
+	movingSecond := addStoredProject(t, projects, project.AddFields{StageID: &source.ID, Title: "moving second"})
+	targetFirst := addStoredProject(t, projects, project.AddFields{StageID: &target.ID, Title: "target first"})
+	targetSecond := addStoredProject(t, projects, project.AddFields{StageID: &target.ID, Title: "target second"})
+
+	areaAxis := []int64{movingFirst.ID, movingSecond.ID, targetFirst.ID, targetSecond.ID}
+	assertStoredOrder(t, storage, "projects", "area_id IS NULL", nil, areaAxis)
 
 	appended, err := projects.MoveStage(
 		ctx,
@@ -909,6 +912,7 @@ func TestProjectStageMovesAppendPlaceAndReorderWithMovedTimestampOnly(t *testing
 		targetFirst.ID, movingFirst.ID, movingSecond.ID, targetSecond.ID,
 	})
 	assertMovedOnlyTimestamp(t, storage, "projects", before, movingFirst.ID, movedAt)
+	assertStoredOrder(t, storage, "projects", "area_id IS NULL", nil, areaAxis)
 }
 
 func TestProjectStageMovesHonorBoundaryPlacementAndRollBackFailures(t *testing.T) {
@@ -921,12 +925,12 @@ func TestProjectStageMovesHonorBoundaryPlacementAndRollBackFailures(t *testing.T
 	source := addStoredStage(t, boards, pipeline.ID, "source", "2026-01-01T00:00:00.000Z")
 	target := addStoredStage(t, boards, pipeline.ID, "target", "2026-01-01T00:00:00.000Z")
 
-	rollbackMover := addStoredProject(t, projects, project.CreateFields{StageID: &source.ID, Title: "rollback mover"})
-	foreignReference := addStoredProject(t, projects, project.CreateFields{StageID: &source.ID, Title: "foreign reference"})
-	movingFirst := addStoredProject(t, projects, project.CreateFields{StageID: &source.ID, Title: "moving first"})
-	movingLast := addStoredProject(t, projects, project.CreateFields{StageID: &source.ID, Title: "moving last"})
-	targetFirst := addStoredProject(t, projects, project.CreateFields{StageID: &target.ID, Title: "target first"})
-	targetSecond := addStoredProject(t, projects, project.CreateFields{StageID: &target.ID, Title: "target second"})
+	rollbackMover := addStoredProject(t, projects, project.AddFields{StageID: &source.ID, Title: "rollback mover"})
+	foreignReference := addStoredProject(t, projects, project.AddFields{StageID: &source.ID, Title: "foreign reference"})
+	movingFirst := addStoredProject(t, projects, project.AddFields{StageID: &source.ID, Title: "moving first"})
+	movingLast := addStoredProject(t, projects, project.AddFields{StageID: &source.ID, Title: "moving last"})
+	targetFirst := addStoredProject(t, projects, project.AddFields{StageID: &target.ID, Title: "target first"})
+	targetSecond := addStoredProject(t, projects, project.AddFields{StageID: &target.ID, Title: "target second"})
 
 	_, err := projects.MoveStage(
 		ctx,
@@ -1043,7 +1047,7 @@ func TestProjectStoreRejectsInvalidCallsAndReportsMissingProjects(t *testing.T) 
 	if _, err := projects.Edit(
 		ctx,
 		99,
-		project.UpdateFields{Title: &title},
+		project.EditFields{Title: &title},
 		"2026-01-01T00:00:00.000Z",
 	); errorCode(err) != apperr.NotFound {
 		t.Errorf("Edit(missing) error = %v, want not_found", err)
@@ -1051,7 +1055,7 @@ func TestProjectStoreRejectsInvalidCallsAndReportsMissingProjects(t *testing.T) 
 	if _, err := projects.Edit(
 		ctx,
 		1,
-		project.UpdateFields{},
+		project.EditFields{},
 		"2026-01-01T00:00:00.000Z",
 	); err == nil {
 		t.Error("Edit(no fields) error = nil, want caller-contract error")
@@ -1062,7 +1066,7 @@ func TestProjectStoreRejectsInvalidCallsAndReportsMissingProjects(t *testing.T) 
 	if _, err := projects.Edit(
 		ctx,
 		1,
-		project.UpdateFields{Area: project.AreaChange{Set: &areaID, Clear: true}},
+		project.EditFields{Area: project.AreaChange{Set: &areaID, Clear: true}},
 		"2026-01-01T00:00:00.000Z",
 	); err == nil {
 		t.Error("Edit(set and clear area) error = nil, want caller-contract error")

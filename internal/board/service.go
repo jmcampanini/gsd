@@ -116,11 +116,19 @@ func (s *Service) Show(ctx context.Context, title string) (Show, error) {
 		}
 		for _, current := range projects {
 			if current.StageID == nil {
-				return fmt.Errorf("shown project %d has no stage", current.ID)
+				return apperr.New(
+					apperr.Internal,
+					fmt.Sprintf("shown project %d has no stage", current.ID),
+					nil,
+				)
 			}
 			index, exists := stageIndexes[*current.StageID]
 			if !exists {
-				return fmt.Errorf("shown project %d has stage outside board", current.ID)
+				return apperr.New(
+					apperr.Internal,
+					fmt.Sprintf("shown project %d has stage outside board", current.ID),
+					nil,
+				)
 			}
 			result.Stages[index].Projects = append(result.Stages[index].Projects, current)
 		}
@@ -209,14 +217,18 @@ func (s *Service) Delete(ctx context.Context, title string) (Deletion, error) {
 		if err != nil {
 			return err
 		}
-		occupied, err := store.BoardOccupied(ctx, found.ID)
+		occupancy, err := store.BoardOccupancy(ctx, found.ID)
 		if err != nil {
 			return err
 		}
-		if occupied {
+		if occupancy.Any() {
 			return apperr.New(
 				apperr.Conflict,
-				fmt.Sprintf("cannot delete board %s while it contains projects", found.Title),
+				fmt.Sprintf(
+					"cannot delete board %s while it contains %s",
+					found.Title,
+					occupancyPhrase(occupancy),
+				),
 				nil,
 			)
 		}
@@ -241,28 +253,31 @@ func (s *Service) AddStage(
 	ctx context.Context,
 	boardTitle string,
 	stageTitle string,
-	placement Placement,
+	placement *Placement,
 ) (StageResult, error) {
 	if err := validateBoardAndStageTitles(boardTitle, stageTitle); err != nil {
 		return StageResult{}, err
 	}
-	if placement.Anchor == "" && placement.Reference == "" {
-		placement.Anchor = domain.PlacementLast
-	}
-	if err := validatePlacement(placement); err != nil {
-		return StageResult{}, err
+	if placement != nil {
+		if err := validatePlacement(*placement); err != nil {
+			return StageResult{}, err
+		}
 	}
 
 	timestamp := domain.FormatTimestamp(s.now())
+	appendLast := placement == nil || placement.Anchor == domain.PlacementLast
 	var result StageResult
 	err := s.store.WithinTransaction(ctx, func(store Transaction) error {
 		foundBoard, err := store.FindBoard(ctx, boardTitle)
 		if err != nil {
 			return err
 		}
-		numeric, err := resolveStagePlacement(ctx, store, foundBoard, placement)
-		if err != nil {
-			return err
+		var numeric domain.Placement
+		if !appendLast {
+			numeric, err = resolveStagePlacement(ctx, store, foundBoard, *placement)
+			if err != nil {
+				return err
+			}
 		}
 		added, err := store.AddStage(ctx, foundBoard.ID, stageTitle, timestamp)
 		if err != nil {
@@ -270,7 +285,7 @@ func (s *Service) AddStage(
 		}
 
 		result = StageResult{Board: foundBoard, Stage: added}
-		if placement.Anchor == domain.PlacementLast {
+		if appendLast {
 			return nil
 		}
 		result.Stage, err = store.ReorderStage(ctx, foundBoard.ID, added.ID, numeric, timestamp)
@@ -302,7 +317,7 @@ func (s *Service) RenameStage(
 		if err != nil {
 			return err
 		}
-		foundStage, err := findStage(ctx, store, foundBoard, stageTitle)
+		foundStage, err := store.FindStage(ctx, foundBoard.ID, stageTitle)
 		if err != nil {
 			return err
 		}
@@ -349,7 +364,7 @@ func (s *Service) ReorderStage(
 		if err != nil {
 			return err
 		}
-		foundStage, err := findStage(ctx, store, foundBoard, stageTitle)
+		foundStage, err := store.FindStage(ctx, foundBoard.ID, stageTitle)
 		if err != nil {
 			return err
 		}
@@ -359,7 +374,11 @@ func (s *Service) ReorderStage(
 		}
 		if (placement.Anchor == domain.PlacementAfter || placement.Anchor == domain.PlacementBefore) &&
 			numeric.ReferenceID == foundStage.ID {
-			return selfPlacementError("stage")
+			return apperr.New(
+				apperr.InvalidArgument,
+				fmt.Sprintf("cannot reorder stage %s relative to itself", foundStage.Title),
+				nil,
+			)
 		}
 		reordered, err := store.ReorderStage(
 			ctx,
@@ -389,32 +408,34 @@ func (s *Service) DeleteStage(
 		return StageDeletion{}, err
 	}
 
+	timestamp := domain.FormatTimestamp(s.now())
 	var result StageDeletion
 	err := s.store.WithinTransaction(ctx, func(store Transaction) error {
 		foundBoard, err := store.FindBoard(ctx, boardTitle)
 		if err != nil {
 			return err
 		}
-		foundStage, err := findStage(ctx, store, foundBoard, stageTitle)
+		foundStage, err := store.FindStage(ctx, foundBoard.ID, stageTitle)
 		if err != nil {
 			return err
 		}
-		occupied, err := store.StageOccupied(ctx, foundStage.ID)
+		occupancy, err := store.StageOccupancy(ctx, foundStage.ID)
 		if err != nil {
 			return err
 		}
-		if occupied {
+		if occupancy.Any() {
 			return apperr.New(
 				apperr.Conflict,
 				fmt.Sprintf(
-					"cannot delete stage %s on board %s while it contains projects",
+					"cannot delete stage %s on board %s while it contains %s",
 					foundStage.Title,
 					foundBoard.Title,
+					occupancyPhrase(occupancy),
 				),
 				nil,
 			)
 		}
-		cleared, err := store.ClearTaskStageDefers(ctx, foundStage.ID, domain.FormatTimestamp(s.now()))
+		cleared, err := store.ClearTaskStageDefers(ctx, foundStage.ID, timestamp)
 		if err != nil {
 			return err
 		}
@@ -447,7 +468,11 @@ func resolveBoardPlacement(
 		return domain.Placement{}, err
 	}
 	if reference.ID == subject.ID {
-		return domain.Placement{}, selfPlacementError("board")
+		return domain.Placement{}, apperr.New(
+			apperr.InvalidArgument,
+			fmt.Sprintf("cannot reorder board %s relative to itself", subject.Title),
+			nil,
+		)
 	}
 	numeric.ReferenceID = reference.ID
 	return numeric, nil
@@ -464,32 +489,12 @@ func resolveStagePlacement(
 		return numeric, nil
 	}
 
-	reference, err := findStage(ctx, store, currentBoard, placement.Reference)
+	reference, err := store.FindStage(ctx, currentBoard.ID, placement.Reference)
 	if err != nil {
 		return domain.Placement{}, err
 	}
 	numeric.ReferenceID = reference.ID
 	return numeric, nil
-}
-
-func findStage(
-	ctx context.Context,
-	store Transaction,
-	currentBoard Board,
-	title string,
-) (Stage, error) {
-	found, err := store.FindStage(ctx, currentBoard.ID, title)
-	if err == nil {
-		return found, nil
-	}
-	if code, coded := apperr.CodeOf(err); !coded || code != apperr.NotFound {
-		return Stage{}, err
-	}
-	return Stage{}, apperr.New(
-		apperr.NotFound,
-		fmt.Sprintf("no stage %s on board %s", title, currentBoard.Title),
-		err,
-	)
 }
 
 func validateBoardAndStageTitles(boardTitle, stageTitle string) error {
@@ -500,33 +505,16 @@ func validateBoardAndStageTitles(boardTitle, stageTitle string) error {
 }
 
 func validatePlacement(placement Placement) error {
-	switch placement.Anchor {
-	case domain.PlacementFirst, domain.PlacementLast:
-		if placement.Reference != "" {
-			return apperr.New(
-				apperr.InvalidArgument,
-				fmt.Sprintf("%s placement must not include a reference", placement.Anchor),
-				nil,
-			)
-		}
-	case domain.PlacementAfter, domain.PlacementBefore:
-		if err := domain.ValidateTitle(placement.Reference); err != nil {
-			return err
-		}
-	default:
-		return apperr.New(
-			apperr.InvalidArgument,
-			fmt.Sprintf("invalid placement anchor %q", placement.Anchor),
-			nil,
-		)
-	}
-	return nil
+	return domain.ValidateNamedPlacement(placement.Anchor, placement.Reference)
 }
 
-func selfPlacementError(noun string) error {
-	return apperr.New(
-		apperr.InvalidArgument,
-		fmt.Sprintf("%s cannot be placed relative to itself", noun),
-		nil,
-	)
+func occupancyPhrase(occupancy Occupancy) string {
+	switch {
+	case occupancy.Open > 0 && occupancy.Resolved > 0:
+		return fmt.Sprintf("projects (%d open, %d resolved)", occupancy.Open, occupancy.Resolved)
+	case occupancy.Resolved > 0:
+		return fmt.Sprintf("projects (%d resolved)", occupancy.Resolved)
+	default:
+		return "projects"
+	}
 }

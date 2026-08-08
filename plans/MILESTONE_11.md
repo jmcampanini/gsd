@@ -80,8 +80,9 @@ deferred tasks in the same stroke).
   board (`--defer-stage STAGE | --no-defer-stage`); it is hidden from
   `available` until the project's stage is at or past that stage.
   Composes with date defer — both must clear. Moving backward below the
-  deferred stage hides the task again. Renders like deferred tasks today,
-  and `list --deferred` covers both defer axes. On a combined re-parent and
+  deferred stage hides the task again. Listings render it as a
+  `defer→STAGE` token beside the date form's `defer DATE`, and
+  `list --deferred` covers both defer axes. On a combined re-parent and
   explicit defer, validation uses the destination project and board. On
   re-parenting away, `--no-board`, a board switch, or `stage delete`, the
   stage defer clears in the same operation, with narration.
@@ -91,8 +92,8 @@ deferred tasks in the same stroke).
   the existing cascades. Promotion is one-way (reopening never
   demotes), relative (+1 from wherever the project sits), a reported
   no-op at the last stage, and inert when the project is on no board.
-  The marker is opt-in per task and visible in listings as a faint
-  `↑`.
+  The marker is opt-in per task and visible as a faint `↑` beside the
+  title wherever it renders.
 - **`board show`** renders the strategic view: stages in order,
   open projects in position order under each, with derived task
   progress per project (done/total, cancelled excluded from both
@@ -221,7 +222,8 @@ an inert off-board marker.
 
 Human output uses `~ Moved:` and `~ Promoted:` mutation lines. Cleared defers
 are `├`/`└ Cleared stage defer:` children. Promoting tasks carry a faint `↑`
-beside the title and a `promotes` row in `show`; project `show` adds its
+beside the title wherever the title renders — listings and the `show`
+headline alike — and a `promotes` row in `show`; project `show` adds its
 `board/stage`, task `show` adds its defer stage, and board views show empty
 columns without truncation.
 

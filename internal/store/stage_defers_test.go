@@ -24,7 +24,7 @@ func TestAvailableStageGateReactsToForwardAndBackwardProjectMovementIndependentl
 	complete := addStoredStage(t, boards, pipeline.ID, "Complete", "2026-01-01T00:00:00.000Z")
 	otherBoard := addStoredBoard(t, boards, board.AddFields{Title: "other"}, "2026-01-01T00:00:00.000Z")
 	foreign := addStoredStage(t, boards, otherBoard.ID, "Foreign", "2026-01-01T00:00:00.000Z")
-	contained := addStoredProject(t, projects, project.CreateFields{StageID: &backlog.ID, Title: "contained"})
+	contained := addStoredProject(t, projects, project.AddFields{StageID: &backlog.ID, Title: "contained"})
 	future := "9999-12-31"
 	past := "0000-01-01"
 
@@ -105,8 +105,8 @@ func TestStageDeferClearOperationsReturnCompleteDeterministicallySortedTasks(t *
 	tasks := NewTasks(storage)
 	pipeline := addStoredBoard(t, boards, board.AddFields{Title: "pipeline"}, "2026-01-01T00:00:00.000Z")
 	stage := addStoredStage(t, boards, pipeline.ID, "later", "2026-01-01T00:00:00.000Z")
-	firstProject := addStoredProject(t, projects, project.CreateFields{StageID: &stage.ID, Title: "first"})
-	secondProject := addStoredProject(t, projects, project.CreateFields{StageID: &stage.ID, Title: "second"})
+	firstProject := addStoredProject(t, projects, project.AddFields{StageID: &stage.ID, Title: "first"})
+	secondProject := addStoredProject(t, projects, project.AddFields{StageID: &stage.ID, Title: "second"})
 	first := addStoredTask(t, tasks, task.AddFields{ProjectID: &firstProject.ID, Title: "first", DeferStageID: &stage.ID, Promotes: true})
 	second := addStoredTask(t, tasks, task.AddFields{ProjectID: &firstProject.ID, Title: "second", DeferStageID: &stage.ID})
 	untouched := addStoredTask(t, tasks, task.AddFields{ProjectID: &firstProject.ID, Title: "untouched"})
@@ -173,8 +173,8 @@ func TestTaskStageTransactionFindsNextAndMovesProjectByAppending(t *testing.T) {
 	pipeline := addStoredBoard(t, boards, board.AddFields{Title: "pipeline"}, "2026-01-01T00:00:00.000Z")
 	firstStage := addStoredStage(t, boards, pipeline.ID, "first", "2026-01-01T00:00:00.000Z")
 	secondStage := addStoredStage(t, boards, pipeline.ID, "second", "2026-01-01T00:00:00.000Z")
-	anchor := addStoredProject(t, projects, project.CreateFields{StageID: &secondStage.ID, Title: "anchor"})
-	moving := addStoredProject(t, projects, project.CreateFields{StageID: &firstStage.ID, Title: "moving"})
+	anchor := addStoredProject(t, projects, project.AddFields{StageID: &secondStage.ID, Title: "anchor"})
+	moving := addStoredProject(t, projects, project.AddFields{StageID: &firstStage.ID, Title: "moving"})
 
 	foundProject, err := tasks.FindProject(ctx, moving.ID)
 	if err != nil || foundProject.ID != moving.ID {
@@ -205,6 +205,80 @@ func TestTaskStageTransactionFindsNextAndMovesProjectByAppending(t *testing.T) {
 	}
 	if moved.StageID == nil || *moved.StageID != secondStage.ID || moved.StagePosition == nil || *moved.StagePosition != 1 {
 		t.Errorf("MoveProjectStage() = %#v, want append after project %d", moved, anchor.ID)
+	}
+}
+
+func TestStageGateAvailableAndDeferredAreComplements(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	boards := NewBoards(storage)
+	projects := NewProjects(storage)
+	tasks := NewTasks(storage)
+	pipeline := addStoredBoard(t, boards, board.AddFields{Title: "pipeline"}, "2026-01-01T00:00:00.000Z")
+	research := addStoredStage(t, boards, pipeline.ID, "research", "2026-01-01T00:00:00.000Z")
+	planning := addStoredStage(t, boards, pipeline.ID, "planning", "2026-01-01T00:00:00.000Z")
+	doing := addStoredStage(t, boards, pipeline.ID, "doing", "2026-01-01T00:00:00.000Z")
+	otherBoard := addStoredBoard(t, boards, board.AddFields{Title: "other"}, "2026-01-01T00:00:00.000Z")
+	otherStage := addStoredStage(t, boards, otherBoard.ID, "elsewhere", "2026-01-01T00:00:00.000Z")
+	onBoard := addStoredProject(t, projects, project.AddFields{StageID: &planning.ID, Title: "on board"})
+	strandedProject := addStoredProject(t, projects, project.AddFields{StageID: &planning.ID, Title: "stranded"})
+
+	behind := addStoredTask(t, tasks, task.AddFields{ProjectID: &onBoard.ID, Title: "behind", DeferStageID: &research.ID})
+	atBoundary := addStoredTask(t, tasks, task.AddFields{ProjectID: &onBoard.ID, Title: "boundary", DeferStageID: &planning.ID})
+	ahead := addStoredTask(t, tasks, task.AddFields{ProjectID: &onBoard.ID, Title: "ahead", DeferStageID: &doing.ID})
+	ungated := addStoredTask(t, tasks, task.AddFields{ProjectID: &onBoard.ID, Title: "ungated"})
+	stranded := addStoredTask(t, tasks, task.AddFields{ProjectID: &strandedProject.ID, Title: "stranded", DeferStageID: &doing.ID})
+	foreign := addStoredTask(t, tasks, task.AddFields{ProjectID: &onBoard.ID, Title: "foreign"})
+
+	if _, err := storage.database.ExecContext(ctx, "UPDATE projects SET stage_id = NULL, stage_position = NULL WHERE id = ?", strandedProject.ID); err != nil {
+		t.Fatalf("force project off every board: %v", err)
+	}
+	if _, err := storage.database.ExecContext(ctx, "UPDATE tasks SET defer_stage_id = ? WHERE id = ?", otherStage.ID, foreign.ID); err != nil {
+		t.Fatalf("force defer stage onto a foreign board: %v", err)
+	}
+	var dated int
+	if err := storage.database.QueryRowContext(ctx, "SELECT count(*) FROM tasks WHERE defer_until IS NOT NULL OR status <> 'open'").Scan(&dated); err != nil {
+		t.Fatalf("inspect fixture gates: %v", err)
+	}
+	if dated != 0 {
+		t.Fatalf("fixture has %d dated or non-open tasks, want the stage axis alone in play", dated)
+	}
+
+	available := map[int64]bool{}
+	for _, id := range availableTaskIDs(t, tasks) {
+		available[id] = true
+	}
+	listed, err := tasks.List(ctx, task.ListFilter{Status: task.ListStatusOpen, Date: task.DateSelectorDeferred})
+	if err != nil {
+		t.Fatalf("List(deferred) error = %v", err)
+	}
+	deferred := map[int64]bool{}
+	for _, id := range taskIDs(listed) {
+		deferred[id] = true
+	}
+
+	for _, testCase := range []struct {
+		state         string
+		id            int64
+		wantAvailable bool
+	}{
+		{"defer stage behind the project stage", behind.ID, true},
+		{"defer stage equal to the project stage", atBoundary.ID, true},
+		{"defer stage ahead of the project stage", ahead.ID, false},
+		{"no stage defer", ungated.ID, true},
+		{"project off every board", stranded.ID, false},
+		{"defer stage on another board", foreign.ID, false},
+	} {
+		inAvailable, inDeferred := available[testCase.id], deferred[testCase.id]
+		if inAvailable == inDeferred {
+			t.Errorf("task %d (%s): available=%t, deferred=%t; want membership in exactly one",
+				testCase.id, testCase.state, inAvailable, inDeferred)
+		}
+		if inAvailable != testCase.wantAvailable {
+			t.Errorf("task %d (%s): available=%t, deferred=%t; want available=%t, deferred=%t",
+				testCase.id, testCase.state, inAvailable, inDeferred, testCase.wantAvailable, !testCase.wantAvailable)
+		}
 	}
 }
 

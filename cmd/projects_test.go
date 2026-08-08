@@ -36,11 +36,11 @@ type fakeProjectApplication struct {
 	untagError       error
 	deleteResult     project.Deletion
 	deleteError      error
-	addFields        project.AddFields
+	addFields        project.AddRequest
 	listOptions      project.ListOptions
 	showID           int64
 	editID           int64
-	editFields       project.EditFields
+	editFields       project.EditRequest
 	moveID           int64
 	moveStage        string
 	movePlacement    *domain.Placement
@@ -59,7 +59,7 @@ type fakeProjectApplication struct {
 
 func (f *fakeProjectApplication) Add(
 	_ context.Context,
-	fields project.AddFields,
+	fields project.AddRequest,
 ) (project.Project, error) {
 	f.addFields = fields
 	return f.addResult, f.addError
@@ -84,7 +84,7 @@ func (f *fakeProjectApplication) Show(
 func (f *fakeProjectApplication) Edit(
 	_ context.Context,
 	id int64,
-	fields project.EditFields,
+	fields project.EditRequest,
 ) (project.Edition, error) {
 	f.editID = id
 	f.editFields = fields
@@ -403,7 +403,7 @@ func TestProjectAddAndEditAdaptFieldsAndOutput(t *testing.T) {
 		"--json",
 	)
 	requireProjectCommandJSON(t, addResult, created)
-	if !reflect.DeepEqual(addApplication.addFields, project.AddFields{Title: "Kitchen reno", Note: note}) {
+	if !reflect.DeepEqual(addApplication.addFields, project.AddRequest{Title: "Kitchen reno", Note: note}) {
 		t.Errorf("Add() fields = %#v, want exact title and stdin note", addApplication.addFields)
 	}
 	var fields map[string]json.RawMessage
@@ -494,7 +494,7 @@ func TestProjectsAddAccumulatesTagFlagsWithoutSplittingCommas(t *testing.T) {
 		"--json",
 	)
 	requireProjectCommandJSON(t, result, created)
-	want := project.AddFields{Title: "Kitchen", Tags: []string{"Errands", "home,soon"}}
+	want := project.AddRequest{Title: "Kitchen", Tags: []string{"Errands", "home,soon"}}
 	if !reflect.DeepEqual(application.addFields, want) {
 		t.Errorf("Add() fields = %#v, want %#v", application.addFields, want)
 	}

@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	boardColumns = `id, title, note, position, created_at, updated_at`
-	stageColumns = `id, board_id, title, position, created_at, updated_at`
+	boardColumns          = `id, title, note, position, created_at, updated_at`
+	stageColumns          = `id, board_id, title, position, created_at, updated_at`
+	stageWithBoardColumns = `s.id, s.board_id, s.title, s.position, s.created_at, s.updated_at, b.title`
 )
 
 type Boards struct {
@@ -107,12 +108,12 @@ func (s *Boards) ListShownProjects(
 	return s.poolCore().ListShownProjects(ctx, boardID)
 }
 
-func (s *Boards) BoardOccupied(ctx context.Context, boardID int64) (bool, error) {
-	return s.poolCore().BoardOccupied(ctx, boardID)
+func (s *Boards) BoardOccupancy(ctx context.Context, boardID int64) (board.Occupancy, error) {
+	return s.poolCore().BoardOccupancy(ctx, boardID)
 }
 
-func (s *Boards) StageOccupied(ctx context.Context, stageID int64) (bool, error) {
-	return s.poolCore().StageOccupied(ctx, stageID)
+func (s *Boards) StageOccupancy(ctx context.Context, stageID int64) (board.Occupancy, error) {
+	return s.poolCore().StageOccupancy(ctx, stageID)
 }
 
 func (s *Boards) ClearTaskStageDefers(
@@ -250,24 +251,9 @@ func (s *boardsCore) EditBoard(
 	if fields.Title == nil && fields.Note == nil {
 		return board.Board{}, errors.New("board edit requires at least one field")
 	}
-	if fields.Title != nil {
-		existing, findErr := s.FindBoard(ctx, *fields.Title)
-		switch code, coded := apperr.CodeOf(findErr); {
-		case findErr == nil && existing.ID != id:
-			return board.Board{}, apperr.New(
-				apperr.Conflict,
-				fmt.Sprintf("board already exists: %s", existing.Title),
-				nil,
-			)
-		case findErr == nil:
-		case coded && code == apperr.NotFound:
-		default:
-			return board.Board{}, fmt.Errorf("check board edit title: %w", findErr)
-		}
-	}
 
 	assignments := make([]string, 0, 3)
-	arguments := make([]any, 0, 4)
+	arguments := make([]any, 0, 5)
 	if fields.Title != nil {
 		assignments = append(assignments, "title = ?")
 		arguments = append(arguments, *fields.Title)
@@ -279,18 +265,39 @@ func (s *boardsCore) EditBoard(
 	assignments = append(assignments, "updated_at = ?")
 	arguments = append(arguments, timestamp, id)
 
-	edited, err := scanBoard(s.executor.QueryRowContext(
-		ctx,
-		"UPDATE boards SET "+strings.Join(assignments, ", ")+" WHERE id = ? RETURNING "+boardColumns,
-		arguments...,
-	))
-	if errors.Is(err, sql.ErrNoRows) {
-		return board.Board{}, apperr.New(apperr.NotFound, fmt.Sprintf("no board %d", id), err)
+	query := "UPDATE boards SET " + strings.Join(assignments, ", ") + " WHERE id = ?"
+	if fields.Title != nil {
+		query += `
+  AND NOT EXISTS (
+      SELECT 1 FROM boards AS existing
+      WHERE existing.title = ? COLLATE NOCASE AND existing.id != boards.id
+  )`
+		arguments = append(arguments, *fields.Title)
 	}
-	if err != nil {
+
+	edited, err := scanBoard(s.executor.QueryRowContext(ctx, query+" RETURNING "+boardColumns, arguments...))
+	if err == nil {
+		return edited, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
 		return board.Board{}, fmt.Errorf("edit board: %w", err)
 	}
-	return edited, nil
+
+	if _, findErr := s.findBoardByID(ctx, id); findErr != nil {
+		return board.Board{}, findErr
+	}
+	if fields.Title == nil {
+		return board.Board{}, fmt.Errorf("edit board: %w", err)
+	}
+	existing, findErr := s.FindBoard(ctx, *fields.Title)
+	if findErr != nil {
+		return board.Board{}, fmt.Errorf("classify board edit: %w", errors.Join(err, findErr))
+	}
+	return board.Board{}, apperr.New(
+		apperr.Conflict,
+		fmt.Sprintf("board already exists: %s", existing.Title),
+		err,
+	)
 }
 
 func (s *boardsCore) ReorderBoard(
@@ -379,23 +386,77 @@ RETURNING `+stageColumns, boardID, title, boardID, timestamp, timestamp, boardID
 }
 
 func (s *boardsCore) FindStage(ctx context.Context, boardID int64, name string) (board.Stage, error) {
-	found, err := scanStage(s.executor.QueryRowContext(
-		ctx,
-		"SELECT "+stageColumns+" FROM stages WHERE board_id = ? AND title = ? COLLATE NOCASE",
-		boardID,
-		name,
-	))
+	found, _, err := s.findStageWithBoard(ctx, boardID, name)
+	return found, err
+}
+
+func (s *boardsCore) findStageWithBoard(
+	ctx context.Context,
+	boardID int64,
+	name string,
+) (board.Stage, string, error) {
+	found, boardTitle, err := scanStageWithBoard(s.executor.QueryRowContext(ctx, `
+SELECT `+stageWithBoardColumns+`
+FROM stages s
+JOIN boards b ON b.id = s.board_id
+WHERE s.board_id = ? AND s.title = ? COLLATE NOCASE`, boardID, name))
 	if errors.Is(err, sql.ErrNoRows) {
-		return board.Stage{}, apperr.New(
+		owner, findErr := s.findBoardByID(ctx, boardID)
+		if findErr != nil {
+			return board.Stage{}, "", findErr
+		}
+		return board.Stage{}, "", apperr.New(
 			apperr.NotFound,
-			fmt.Sprintf("no stage %s", name),
+			fmt.Sprintf("no stage %s on board %s", name, owner.Title),
 			err,
 		)
 	}
 	if err != nil {
-		return board.Stage{}, fmt.Errorf("find stage: %w", err)
+		return board.Stage{}, "", fmt.Errorf("find stage: %w", err)
 	}
-	return found, nil
+	return found, boardTitle, nil
+}
+
+func (s *boardsCore) findStageByIDWithBoard(
+	ctx context.Context,
+	id int64,
+) (board.Stage, string, error) {
+	found, boardTitle, err := scanStageWithBoard(s.executor.QueryRowContext(ctx, `
+SELECT `+stageWithBoardColumns+`
+FROM stages s
+JOIN boards b ON b.id = s.board_id
+WHERE s.id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return board.Stage{}, "", apperr.New(
+			apperr.NotFound,
+			fmt.Sprintf("no stage %d", id),
+			err,
+		)
+	}
+	if err != nil {
+		return board.Stage{}, "", fmt.Errorf("find stage by ID: %w", err)
+	}
+	return found, boardTitle, nil
+}
+
+func (s *boardsCore) findFirstStageWithBoard(
+	ctx context.Context,
+	boardID int64,
+) (*board.Stage, string, error) {
+	found, boardTitle, err := scanStageWithBoard(s.executor.QueryRowContext(ctx, `
+SELECT `+stageWithBoardColumns+`
+FROM stages s
+JOIN boards b ON b.id = s.board_id
+WHERE s.board_id = ?
+ORDER BY s.position, s.id
+LIMIT 1`, boardID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("find first stage: %w", err)
+	}
+	return &found, boardTitle, nil
 }
 
 func (s *boardsCore) findStageByID(ctx context.Context, boardID, id int64) (board.Stage, error) {
@@ -458,30 +519,29 @@ ORDER BY s.position, s.id, p.stage_position, p.id`, boardID)
 	)
 }
 
-func (s *boardsCore) BoardOccupied(ctx context.Context, boardID int64) (bool, error) {
-	var occupied bool
+func (s *boardsCore) BoardOccupancy(ctx context.Context, boardID int64) (board.Occupancy, error) {
+	var occupancy board.Occupancy
 	if err := s.executor.QueryRowContext(ctx, `
-SELECT EXISTS (
-    SELECT 1
-    FROM projects p
-    JOIN stages s ON s.id = p.stage_id
-    WHERE s.board_id = ?
-)`, boardID).Scan(&occupied); err != nil {
-		return false, fmt.Errorf("check board occupancy: %w", err)
+SELECT COUNT(*) FILTER (WHERE p.status = 'open'),
+       COUNT(*) FILTER (WHERE p.status != 'open')
+FROM projects p
+JOIN stages s ON s.id = p.stage_id
+WHERE s.board_id = ?`, boardID).Scan(&occupancy.Open, &occupancy.Resolved); err != nil {
+		return board.Occupancy{}, fmt.Errorf("check board occupancy: %w", err)
 	}
-	return occupied, nil
+	return occupancy, nil
 }
 
-func (s *boardsCore) StageOccupied(ctx context.Context, stageID int64) (bool, error) {
-	var occupied bool
-	if err := s.executor.QueryRowContext(
-		ctx,
-		"SELECT EXISTS (SELECT 1 FROM projects WHERE stage_id = ?)",
-		stageID,
-	).Scan(&occupied); err != nil {
-		return false, fmt.Errorf("check stage occupancy: %w", err)
+func (s *boardsCore) StageOccupancy(ctx context.Context, stageID int64) (board.Occupancy, error) {
+	var occupancy board.Occupancy
+	if err := s.executor.QueryRowContext(ctx, `
+SELECT COUNT(*) FILTER (WHERE status = 'open'),
+       COUNT(*) FILTER (WHERE status != 'open')
+FROM projects
+WHERE stage_id = ?`, stageID).Scan(&occupancy.Open, &occupancy.Resolved); err != nil {
+		return board.Occupancy{}, fmt.Errorf("check stage occupancy: %w", err)
 	}
-	return occupied, nil
+	return occupancy, nil
 }
 
 func (s *boardsCore) ClearTaskStageDefers(
@@ -511,36 +571,36 @@ func (s *boardsCore) RenameStage(
 	boardID, id int64,
 	newName, timestamp string,
 ) (board.Stage, error) {
-	existing, findErr := s.FindStage(ctx, boardID, newName)
-	switch code, coded := apperr.CodeOf(findErr); {
-	case findErr == nil && existing.ID != id:
-		return board.Stage{}, apperr.New(
-			apperr.Conflict,
-			fmt.Sprintf("stage already exists: %s", existing.Title),
-			nil,
-		)
-	case findErr == nil:
-	case coded && code == apperr.NotFound:
-	default:
-		return board.Stage{}, fmt.Errorf("check stage rename title: %w", findErr)
-	}
-
 	renamed, err := scanStage(s.executor.QueryRowContext(ctx, `
 UPDATE stages
 SET title = ?, updated_at = ?
 WHERE board_id = ? AND id = ?
-RETURNING `+stageColumns, newName, timestamp, boardID, id))
-	if errors.Is(err, sql.ErrNoRows) {
-		return board.Stage{}, apperr.New(
-			apperr.NotFound,
-			fmt.Sprintf("no stage %d on board %d", id, boardID),
-			err,
-		)
+  AND NOT EXISTS (
+      SELECT 1 FROM stages AS existing
+      WHERE existing.board_id = stages.board_id
+        AND existing.title = ? COLLATE NOCASE
+        AND existing.id != stages.id
+  )
+RETURNING `+stageColumns, newName, timestamp, boardID, id, newName))
+	if err == nil {
+		return renamed, nil
 	}
-	if err != nil {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return board.Stage{}, fmt.Errorf("rename stage: %w", err)
 	}
-	return renamed, nil
+
+	if _, findErr := s.findStageByID(ctx, boardID, id); findErr != nil {
+		return board.Stage{}, findErr
+	}
+	existing, findErr := s.FindStage(ctx, boardID, newName)
+	if findErr != nil {
+		return board.Stage{}, fmt.Errorf("classify stage rename: %w", errors.Join(err, findErr))
+	}
+	return board.Stage{}, apperr.New(
+		apperr.Conflict,
+		fmt.Sprintf("stage already exists: %s", existing.Title),
+		err,
+	)
 }
 
 func (s *boardsCore) ReorderStage(
@@ -632,6 +692,21 @@ func scanStage(scanner rowScanner) (board.Stage, error) {
 		&value.UpdatedAt,
 	)
 	return value, err
+}
+
+func scanStageWithBoard(scanner rowScanner) (board.Stage, string, error) {
+	var value board.Stage
+	var boardTitle string
+	err := scanner.Scan(
+		&value.ID,
+		&value.BoardID,
+		&value.Title,
+		&value.Position,
+		&value.CreatedAt,
+		&value.UpdatedAt,
+		&boardTitle,
+	)
+	return value, boardTitle, err
 }
 
 func scanShownProject(scanner rowScanner) (board.ShownProject, error) {

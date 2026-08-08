@@ -25,17 +25,21 @@ type fakeStore struct {
 	listBoardsResult          []Board
 	listBoardsError           error
 	editBoardResult           Board
+	editBoardError            error
 	editBoardID               int64
 	editBoardFields           EditFields
 	editBoardTimestamp        string
 	reorderBoardResult        Board
+	reorderBoardError         error
 	reorderBoardID            int64
 	reorderBoardPlacement     domain.Placement
 	reorderBoardTimestamp     string
 	deleteBoardResult         Board
+	deleteBoardError          error
 	deleteBoardID             int64
 	addStageResults           []Stage
 	addStageErrorAt           int
+	addStageError             error
 	addStageCalls             int
 	addStageBoardIDs          []int64
 	addStageTitles            []string
@@ -48,28 +52,31 @@ type fakeStore struct {
 	listShownProjectsResult   []ShownProject
 	listShownProjectsError    error
 	listShownProjectsBoardIDs []int64
-	boardOccupied             bool
-	boardOccupiedError        error
-	boardOccupiedIDs          []int64
-	stageOccupied             bool
-	stageOccupiedError        error
-	stageOccupiedIDs          []int64
+	boardOccupancy            Occupancy
+	boardOccupancyError       error
+	boardOccupancyIDs         []int64
+	stageOccupancy            Occupancy
+	stageOccupancyError       error
+	stageOccupancyIDs         []int64
 	clearDefersResult         []task.Task
 	clearDefersError          error
 	clearDefersCalls          int
 	clearDefersStageID        int64
 	clearDefersTimestamp      string
 	renameStageResult         Stage
+	renameStageError          error
 	renameStageBoardID        int64
 	renameStageID             int64
 	renameStageTitle          string
 	renameStageTimestamp      string
 	reorderStageResult        Stage
+	reorderStageError         error
 	reorderStageBoardID       int64
 	reorderStageID            int64
 	reorderStagePlacement     domain.Placement
 	reorderStageTimestamp     string
 	deleteStageResult         Stage
+	deleteStageError          error
 	deleteStageBoardID        int64
 	deleteStageID             int64
 	transactionStore          Transaction
@@ -109,7 +116,7 @@ func (f *fakeStore) EditBoard(_ context.Context, id int64, fields EditFields, ti
 	f.editBoardID = id
 	f.editBoardFields = fields
 	f.editBoardTimestamp = timestamp
-	return f.editBoardResult, nil
+	return f.editBoardResult, f.editBoardError
 }
 
 func (f *fakeStore) ReorderBoard(_ context.Context, id int64, placement domain.Placement, timestamp string) (Board, error) {
@@ -117,13 +124,13 @@ func (f *fakeStore) ReorderBoard(_ context.Context, id int64, placement domain.P
 	f.reorderBoardID = id
 	f.reorderBoardPlacement = placement
 	f.reorderBoardTimestamp = timestamp
-	return f.reorderBoardResult, nil
+	return f.reorderBoardResult, f.reorderBoardError
 }
 
 func (f *fakeStore) DeleteBoard(_ context.Context, id int64) (Board, error) {
 	f.calls = append(f.calls, "delete board")
 	f.deleteBoardID = id
-	return f.deleteBoardResult, nil
+	return f.deleteBoardResult, f.deleteBoardError
 }
 
 func (f *fakeStore) AddStage(_ context.Context, boardID int64, title, timestamp string) (Stage, error) {
@@ -133,6 +140,9 @@ func (f *fakeStore) AddStage(_ context.Context, boardID int64, title, timestamp 
 	f.addStageTitles = append(f.addStageTitles, title)
 	f.addStageTimestamps = append(f.addStageTimestamps, timestamp)
 	if f.addStageErrorAt == f.addStageCalls {
+		if f.addStageError != nil {
+			return Stage{}, f.addStageError
+		}
 		return Stage{}, errors.New("add stage failed")
 	}
 	if f.addStageCalls <= len(f.addStageResults) {
@@ -165,16 +175,16 @@ func (f *fakeStore) ListShownProjects(_ context.Context, boardID int64) ([]Shown
 	return f.listShownProjectsResult, f.listShownProjectsError
 }
 
-func (f *fakeStore) BoardOccupied(_ context.Context, boardID int64) (bool, error) {
+func (f *fakeStore) BoardOccupancy(_ context.Context, boardID int64) (Occupancy, error) {
 	f.calls = append(f.calls, "board occupied")
-	f.boardOccupiedIDs = append(f.boardOccupiedIDs, boardID)
-	return f.boardOccupied, f.boardOccupiedError
+	f.boardOccupancyIDs = append(f.boardOccupancyIDs, boardID)
+	return f.boardOccupancy, f.boardOccupancyError
 }
 
-func (f *fakeStore) StageOccupied(_ context.Context, stageID int64) (bool, error) {
+func (f *fakeStore) StageOccupancy(_ context.Context, stageID int64) (Occupancy, error) {
 	f.calls = append(f.calls, "stage occupied")
-	f.stageOccupiedIDs = append(f.stageOccupiedIDs, stageID)
-	return f.stageOccupied, f.stageOccupiedError
+	f.stageOccupancyIDs = append(f.stageOccupancyIDs, stageID)
+	return f.stageOccupancy, f.stageOccupancyError
 }
 
 func (f *fakeStore) ClearTaskStageDefers(
@@ -195,7 +205,7 @@ func (f *fakeStore) RenameStage(_ context.Context, boardID, id int64, title, tim
 	f.renameStageID = id
 	f.renameStageTitle = title
 	f.renameStageTimestamp = timestamp
-	return f.renameStageResult, nil
+	return f.renameStageResult, f.renameStageError
 }
 
 func (f *fakeStore) ReorderStage(_ context.Context, boardID, id int64, placement domain.Placement, timestamp string) (Stage, error) {
@@ -204,14 +214,14 @@ func (f *fakeStore) ReorderStage(_ context.Context, boardID, id int64, placement
 	f.reorderStageID = id
 	f.reorderStagePlacement = placement
 	f.reorderStageTimestamp = timestamp
-	return f.reorderStageResult, nil
+	return f.reorderStageResult, f.reorderStageError
 }
 
 func (f *fakeStore) DeleteStage(_ context.Context, boardID, id int64) (Stage, error) {
 	f.calls = append(f.calls, "delete stage")
 	f.deleteStageBoardID = boardID
 	f.deleteStageID = id
-	return f.deleteStageResult, nil
+	return f.deleteStageResult, f.deleteStageError
 }
 
 func (f *fakeStore) WithinTransaction(ctx context.Context, operation func(Transaction) error) error {
@@ -244,9 +254,13 @@ func callPrecedes(calls []string, before, after string) bool {
 	for index, call := range calls {
 		switch call {
 		case before:
-			beforeIndex = index
+			if beforeIndex < 0 {
+				beforeIndex = index
+			}
 		case after:
-			afterIndex = index
+			if afterIndex < 0 {
+				afterIndex = index
+			}
 		}
 	}
 	return beforeIndex >= 0 && afterIndex >= 0 && beforeIndex < afterIndex
@@ -291,11 +305,11 @@ func TestInvalidInputsAreRejectedBeforeStoreOrClock(t *testing.T) {
 		}},
 		{name: "delete board title", apply: func(s *Service) error { _, err := s.Delete(context.Background(), blank); return err }},
 		{name: "add stage board", apply: func(s *Service) error {
-			_, err := s.AddStage(context.Background(), blank, valid, Placement{})
+			_, err := s.AddStage(context.Background(), blank, valid, nil)
 			return err
 		}},
 		{name: "add stage", apply: func(s *Service) error {
-			_, err := s.AddStage(context.Background(), valid, blank, Placement{})
+			_, err := s.AddStage(context.Background(), valid, blank, nil)
 			return err
 		}},
 		{name: "rename old stage", apply: func(s *Service) error { _, err := s.RenameStage(context.Background(), valid, blank, valid); return err }},
@@ -440,7 +454,7 @@ func TestAddStageDefaultsToAppendWithoutSecondMutation(t *testing.T) {
 	store := &fakeStore{transactionStore: transaction}
 	service := NewService(store)
 	service.now = func() time.Time { return time.Date(2026, time.August, 8, 1, 2, 3, 0, time.UTC) }
-	got, err := service.AddStage(context.Background(), "work", "Review", Placement{})
+	got, err := service.AddStage(context.Background(), "work", "Review", nil)
 	if err != nil {
 		t.Fatalf("AddStage() error = %v", err)
 	}
@@ -471,7 +485,7 @@ func TestAddStageRelativePlacementResolvesThenAppendsAndReordersInSameTransactio
 		context.Background(),
 		"work",
 		"Review",
-		Placement{Anchor: domain.PlacementBefore, Reference: "Doing"},
+		&Placement{Anchor: domain.PlacementBefore, Reference: "Doing"},
 	)
 	if err != nil {
 		t.Fatalf("AddStage() error = %v", err)
@@ -492,14 +506,14 @@ func TestAddStageResolvesUnknownRelativePlacementBeforeInsert(t *testing.T) {
 
 	transaction := &fakeStore{
 		findBoards:     map[string]Board{"work": {ID: 7, Title: "Work"}},
-		findStageError: apperr.New(apperr.NotFound, "no stage Review", nil),
+		findStageError: apperr.New(apperr.NotFound, "no stage Review on board Work", nil),
 	}
 	store := &fakeStore{transactionStore: transaction}
 	_, err := NewService(store).AddStage(
 		context.Background(),
 		"work",
 		"Review",
-		Placement{Anchor: domain.PlacementAfter, Reference: "Review"},
+		&Placement{Anchor: domain.PlacementAfter, Reference: "Review"},
 	)
 	if code, _ := apperr.CodeOf(err); code != apperr.NotFound ||
 		!strings.Contains(err.Error(), "Review") || !strings.Contains(err.Error(), "Work") {
@@ -614,7 +628,7 @@ func TestOccupiedBoardAndStageDeletesConflictBeforeDelete(t *testing.T) {
 
 		transaction := &fakeStore{
 			findBoards:        map[string]Board{"work": {ID: 7, Title: "Work"}},
-			boardOccupied:     true,
+			boardOccupancy:    Occupancy{Open: 1},
 			deleteBoardResult: Board{ID: 7, Title: "Work"},
 		}
 		store := &fakeStore{transactionStore: transaction}
@@ -623,7 +637,7 @@ func TestOccupiedBoardAndStageDeletesConflictBeforeDelete(t *testing.T) {
 			t.Fatalf("Delete() error = %v, want conflict", err)
 		}
 		if !reflect.DeepEqual(got, Deletion{}) || store.transactionCalls != 1 ||
-			!reflect.DeepEqual(transaction.boardOccupiedIDs, []int64{7}) || transaction.deleteBoardID != 0 {
+			!reflect.DeepEqual(transaction.boardOccupancyIDs, []int64{7}) || transaction.deleteBoardID != 0 {
 			t.Errorf("Delete() result/delegation = %#v/%#v, want conflict before delete", got, transaction)
 		}
 	})
@@ -634,7 +648,7 @@ func TestOccupiedBoardAndStageDeletesConflictBeforeDelete(t *testing.T) {
 		transaction := &fakeStore{
 			findBoards:        map[string]Board{"work": {ID: 7, Title: "Work"}},
 			findStages:        map[string]Stage{"doing": {ID: 11, BoardID: 7, Title: "Doing"}},
-			stageOccupied:     true,
+			stageOccupancy:    Occupancy{Open: 1},
 			deleteStageResult: Stage{ID: 11, BoardID: 7, Title: "Doing"},
 		}
 		store := &fakeStore{transactionStore: transaction}
@@ -643,7 +657,7 @@ func TestOccupiedBoardAndStageDeletesConflictBeforeDelete(t *testing.T) {
 			t.Fatalf("DeleteStage() error = %v, want conflict", err)
 		}
 		if !reflect.DeepEqual(got, StageDeletion{}) || store.transactionCalls != 1 ||
-			!reflect.DeepEqual(transaction.stageOccupiedIDs, []int64{11}) ||
+			!reflect.DeepEqual(transaction.stageOccupancyIDs, []int64{11}) ||
 			transaction.clearDefersCalls != 0 || transaction.deleteStageID != 0 {
 			t.Errorf("DeleteStage() result/delegation = %#v/%#v, want conflict before clear and delete", got, transaction)
 		}
@@ -720,9 +734,8 @@ func TestDeleteSnapshotsOrderedStagesBeforeBoardDeletion(t *testing.T) {
 	}
 	want := Deletion{Board: transaction.deleteBoardResult, Stages: stages}
 	if !reflect.DeepEqual(got, want) || store.transactionCalls != 1 || transaction.deleteBoardID != 7 ||
-		!reflect.DeepEqual(transaction.boardOccupiedIDs, []int64{7}) ||
-		!callPrecedes(transaction.calls, "board occupied", "delete board") ||
-		!callPrecedes(transaction.calls, "list stages", "delete board") {
+		!reflect.DeepEqual(transaction.boardOccupancyIDs, []int64{7}) ||
+		!callPrecedes(transaction.calls, "board occupied", "delete board") {
 		t.Errorf("Delete() result/delegation = %#v/%#v, want occupancy check and snapshot before deletion", got, transaction)
 	}
 }
@@ -743,5 +756,156 @@ func TestRenameStageReturnsStoredBoardAndPreviousSpelling(t *testing.T) {
 	want := StageRenameResult{Board: transaction.findBoards["WORK"], Stage: transaction.renameStageResult, PreviousTitle: "Doing"}
 	if !reflect.DeepEqual(got, want) || transaction.renameStageBoardID != 7 || transaction.renameStageID != 12 || transaction.renameStageTitle != "In Progress" {
 		t.Errorf("RenameStage() = %#v/%#v, want stored context and old spelling", got, transaction)
+	}
+}
+
+func TestEditResolvesNameToIDInsideWriteTransaction(t *testing.T) {
+	t.Parallel()
+
+	transaction := &fakeStore{
+		findBoards:      map[string]Board{"WORK": {ID: 7, Title: "Work"}},
+		editBoardResult: Board{ID: 7, Title: "Work", Note: "updated"},
+	}
+	store := &fakeStore{transactionStore: transaction}
+	service := NewService(store)
+	clockCalls := 0
+	service.now = func() time.Time {
+		clockCalls++
+		return time.Date(2026, time.August, 8, 1, 2, 3, 456000000, time.UTC)
+	}
+
+	note := "updated"
+	got, err := service.Edit(context.Background(), "WORK", EditFields{Note: &note})
+	if err != nil {
+		t.Fatalf("Edit() error = %v", err)
+	}
+	if got != transaction.editBoardResult || store.transactionCalls != 1 ||
+		transaction.editBoardID != 7 ||
+		!reflect.DeepEqual(transaction.editBoardFields, EditFields{Note: &note}) ||
+		transaction.editBoardTimestamp != "2026-08-08T01:02:03.456Z" || clockCalls != 1 {
+		t.Errorf(
+			"Edit() result/delegation = %#v/%#v, want name resolved to ID 7 with one normalized timestamp",
+			got,
+			transaction,
+		)
+	}
+}
+
+func TestStoreErrorsPassThroughUnchanged(t *testing.T) {
+	t.Parallel()
+
+	storeError := errors.New("store failure")
+	title := "Work"
+	boards := func() map[string]Board { return map[string]Board{"Work": {ID: 7, Title: "Work"}} }
+	stages := func() map[string]Stage {
+		return map[string]Stage{"Doing": {ID: 12, BoardID: 7, Title: "Doing"}}
+	}
+	for _, test := range []struct {
+		name      string
+		configure func(*fakeStore)
+		apply     func(*Service) error
+	}{
+		{name: "add board", configure: func(f *fakeStore) { f.addBoardError = storeError }, apply: func(s *Service) error {
+			_, err := s.Add(context.Background(), AddFields{Title: title, Stages: []string{"One"}})
+			return err
+		}},
+		{name: "list boards", configure: func(f *fakeStore) { f.listBoardsError = storeError }, apply: func(s *Service) error {
+			_, err := s.List(context.Background())
+			return err
+		}},
+		{name: "show board", configure: func(f *fakeStore) {
+			f.findBoards = boards()
+			f.listShownProjectsError = storeError
+		}, apply: func(s *Service) error {
+			_, err := s.Show(context.Background(), title)
+			return err
+		}},
+		{name: "edit board", configure: func(f *fakeStore) {
+			f.findBoards = boards()
+			f.editBoardError = storeError
+		}, apply: func(s *Service) error {
+			note := "note"
+			_, err := s.Edit(context.Background(), title, EditFields{Note: &note})
+			return err
+		}},
+		{name: "reorder board", configure: func(f *fakeStore) {
+			f.findBoards = boards()
+			f.reorderBoardError = storeError
+		}, apply: func(s *Service) error {
+			_, err := s.Reorder(context.Background(), title, Placement{Anchor: domain.PlacementFirst})
+			return err
+		}},
+		{name: "delete board", configure: func(f *fakeStore) {
+			f.findBoards = boards()
+			f.deleteBoardError = storeError
+		}, apply: func(s *Service) error {
+			_, err := s.Delete(context.Background(), title)
+			return err
+		}},
+		{name: "add stage", configure: func(f *fakeStore) {
+			f.findBoards = boards()
+			f.addStageErrorAt = 1
+			f.addStageError = storeError
+		}, apply: func(s *Service) error {
+			_, err := s.AddStage(context.Background(), title, "Doing", nil)
+			return err
+		}},
+		{name: "rename stage", configure: func(f *fakeStore) {
+			f.findBoards = boards()
+			f.findStages = stages()
+			f.renameStageError = storeError
+		}, apply: func(s *Service) error {
+			_, err := s.RenameStage(context.Background(), title, "Doing", "Done")
+			return err
+		}},
+		{name: "reorder stage", configure: func(f *fakeStore) {
+			f.findBoards = boards()
+			f.findStages = stages()
+			f.reorderStageError = storeError
+		}, apply: func(s *Service) error {
+			_, err := s.ReorderStage(context.Background(), title, "Doing", Placement{Anchor: domain.PlacementFirst})
+			return err
+		}},
+		{name: "delete stage", configure: func(f *fakeStore) {
+			f.findBoards = boards()
+			f.findStages = stages()
+			f.deleteStageError = storeError
+		}, apply: func(s *Service) error {
+			_, err := s.DeleteStage(context.Background(), title, "Doing")
+			return err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			transaction := &fakeStore{}
+			test.configure(transaction)
+			store := &fakeStore{transactionStore: transaction, readTransactionStore: transaction}
+			if err := test.apply(NewService(store)); !errors.Is(err, storeError) {
+				t.Errorf("%s error = %v, want the store error unchanged", test.name, err)
+			}
+		})
+	}
+}
+
+func TestAddRefusesDuplicateStageTitlesViaStoreConflictWithoutPartialResult(t *testing.T) {
+	t.Parallel()
+
+	transaction := &fakeStore{
+		addBoardResult:  Board{ID: 4, Title: "Board"},
+		addStageErrorAt: 2,
+		addStageError:   apperr.New(apperr.Conflict, "stage already exists: Doing", nil),
+	}
+	store := &fakeStore{transactionStore: transaction}
+	got, err := NewService(store).Add(
+		context.Background(),
+		AddFields{Title: "Board", Stages: []string{"Doing", "doing"}},
+	)
+	if code, _ := apperr.CodeOf(err); code != apperr.Conflict {
+		t.Fatalf("Add() error = %v, want the store conflict", err)
+	}
+	if !reflect.DeepEqual(got, Addition{}) || store.transactionCalls != 1 ||
+		!reflect.DeepEqual(transaction.addStageTitles, []string{"Doing", "doing"}) {
+		t.Errorf("Add() result/delegation = %#v/%#v, want zero result after duplicate stage", got, transaction)
 	}
 }

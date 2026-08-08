@@ -2,7 +2,6 @@ package project
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/tag"
@@ -27,7 +26,7 @@ const (
 
 type Project = domain.Project
 
-type AddFields struct {
+type AddRequest struct {
 	AreaID *int64
 	Board  *string
 	Title  string
@@ -35,7 +34,7 @@ type AddFields struct {
 	Tags   []string
 }
 
-type CreateFields struct {
+type AddFields struct {
 	AreaID  *int64
 	StageID *int64
 	Title   string
@@ -57,14 +56,14 @@ type StageChange struct {
 	Clear bool
 }
 
-type EditFields struct {
+type EditRequest struct {
 	Area  AreaChange
 	Board BoardChange
 	Title *string
 	Note  *string
 }
 
-type UpdateFields struct {
+type EditFields struct {
 	Area  AreaChange
 	Stage StageChange
 	Title *string
@@ -130,25 +129,13 @@ type Tagging struct {
 	TagTitles []string
 }
 
-type ResolvedProjectsError struct {
-	IDs []int64
-}
+type ResolvedProjectsError = domain.ResolvedProjectsError
 
-func (e ResolvedProjectsError) Error() string {
-	return fmt.Sprintf("resolved projects block this operation: %v", e.IDs)
-}
-
-type ArchivedAreasError struct {
-	IDs []int64
-}
-
-func (e ArchivedAreasError) Error() string {
-	return fmt.Sprintf("archived areas block this operation: %v", e.IDs)
-}
+type ArchivedAreasError = domain.ArchivedAreasError
 
 // Transaction methods return projects and tasks with non-nil Tags slices.
 type Transaction interface {
-	Add(context.Context, CreateFields, string) (Project, error)
+	Add(context.Context, AddFields, string) (Project, error)
 	Find(context.Context, int64) (Project, error)
 	List(context.Context, ListOptions) ([]Project, error)
 	AreaExists(context.Context, int64) error
@@ -157,7 +144,7 @@ type Transaction interface {
 	FindFirstStage(context.Context, int64) (*StageReference, error)
 	FindStage(context.Context, int64, string) (StageReference, error)
 	FindStageByID(context.Context, int64) (StageReference, error)
-	Edit(context.Context, int64, UpdateFields, string) (Project, error)
+	Edit(context.Context, int64, EditFields, string) (Project, error)
 	MoveStage(context.Context, int64, int64, domain.Placement, string) (Project, error)
 	Reorder(context.Context, int64, domain.Placement, string) (Project, error)
 	Resolve(context.Context, int64, Exit, string) (Project, error)
@@ -178,10 +165,10 @@ type Store interface {
 }
 
 type Application interface {
-	Add(context.Context, AddFields) (Project, error)
+	Add(context.Context, AddRequest) (Project, error)
 	List(context.Context, ListOptions) ([]Project, error)
 	Show(context.Context, int64) (Detail, error)
-	Edit(context.Context, int64, EditFields) (Edition, error)
+	Edit(context.Context, int64, EditRequest) (Edition, error)
 	Move(context.Context, int64, string, *domain.Placement) (Movement, error)
 	Reorder(context.Context, int64, domain.Placement) (Project, error)
 	Resolve(context.Context, int64, Exit) (Resolution, error)

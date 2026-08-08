@@ -25,8 +25,8 @@ func TestTaskAddScopesPositionsByFullContainerAndFiltersByContainer(t *testing.T
 
 	firstArea := addStoredArea(t, areas, area.AddFields{Title: "first area"})
 	secondArea := addStoredArea(t, areas, area.AddFields{Title: "second area"})
-	firstProject := addStoredProject(t, projects, project.CreateFields{Title: "first project"})
-	secondProject := addStoredProject(t, projects, project.CreateFields{Title: "second project"})
+	firstProject := addStoredProject(t, projects, project.AddFields{Title: "first project"})
+	secondProject := addStoredProject(t, projects, project.AddFields{Title: "second project"})
 
 	looseFirst := addStoredTask(t, tasks, task.AddFields{Title: "loose first"})
 	projectFirst := addStoredTask(t, tasks, task.AddFields{ProjectID: &firstProject.ID, Title: "project first"})
@@ -114,7 +114,7 @@ func TestTaskAddClassifiesMissingAndResolvedProjects(t *testing.T) {
 
 	resolved, err := projects.Add(
 		ctx,
-		project.CreateFields{Title: "resolved"},
+		project.AddFields{Title: "resolved"},
 		"2026-01-01T00:00:00.000Z",
 	)
 	if err != nil {
@@ -159,12 +159,12 @@ func TestTaskAddRejectsArchivedGoverningAreasAtomically(t *testing.T) {
 	openProject := addStoredProject(
 		t,
 		projects,
-		project.CreateFields{AreaID: &inheritedArea.ID, Title: "open project"},
+		project.AddFields{AreaID: &inheritedArea.ID, Title: "open project"},
 	)
 	resolvedProject := addStoredProject(
 		t,
 		projects,
-		project.CreateFields{AreaID: &inheritedArea.ID, Title: "resolved project"},
+		project.AddFields{AreaID: &inheritedArea.ID, Title: "resolved project"},
 	)
 	if _, err := projects.Resolve(
 		ctx,
@@ -233,7 +233,7 @@ func TestTaskEditReparentsBetweenProjectAreaAndInbox(t *testing.T) {
 	tasks := NewTasks(storage)
 
 	containerArea := addStoredArea(t, areas, area.AddFields{Title: "Home"})
-	containerProject := addStoredProject(t, projects, project.CreateFields{Title: "Kitchen"})
+	containerProject := addStoredProject(t, projects, project.AddFields{Title: "Kitchen"})
 
 	inboxAnchor := addStoredTask(t, tasks, task.AddFields{Title: "inbox anchor"})
 	areaAnchor := addStoredTask(t, tasks, task.AddFields{AreaID: &containerArea.ID, Title: "area anchor"})
@@ -392,12 +392,12 @@ func TestTaskEditArchivedAreaGuardsAllowNoOpsAndGatherMoveBlockers(t *testing.T)
 	sharedProject := addStoredProject(
 		t,
 		projects,
-		project.CreateFields{AreaID: &sharedArea.ID, Title: "shared project"},
+		project.AddFields{AreaID: &sharedArea.ID, Title: "shared project"},
 	)
 	blockedProject := addStoredProject(
 		t,
 		projects,
-		project.CreateFields{AreaID: &otherArea.ID, Title: "blocked project"},
+		project.AddFields{AreaID: &otherArea.ID, Title: "blocked project"},
 	)
 	direct := addStoredTask(t, tasks, task.AddFields{AreaID: &sharedArea.ID, Title: "direct"})
 	inherited := addStoredTask(
@@ -535,8 +535,8 @@ func TestTaskEditEnforcesResolvedProjectMembershipGuards(t *testing.T) {
 	projects := NewProjects(storage)
 	tasks := NewTasks(storage)
 
-	source := addStoredProject(t, projects, project.CreateFields{Title: "source"})
-	target := addStoredProject(t, projects, project.CreateFields{Title: "target"})
+	source := addStoredProject(t, projects, project.AddFields{Title: "source"})
+	target := addStoredProject(t, projects, project.AddFields{Title: "target"})
 	contained := addStoredTask(t, tasks, task.AddFields{ProjectID: &source.ID, Title: "contained"})
 	loose := addStoredTask(t, tasks, task.AddFields{Title: "loose"})
 
@@ -643,8 +643,8 @@ func TestTaskMoveReportsBothResolvedProjectsTogether(t *testing.T) {
 	projects := NewProjects(storage)
 	tasks := NewTasks(storage)
 
-	source := addStoredProject(t, projects, project.CreateFields{Title: "source"})
-	destination := addStoredProject(t, projects, project.CreateFields{Title: "destination"})
+	source := addStoredProject(t, projects, project.AddFields{Title: "source"})
+	destination := addStoredProject(t, projects, project.AddFields{Title: "destination"})
 	moving := addStoredTask(t, tasks, task.AddFields{ProjectID: &source.ID, Title: "moving"})
 	destinationAnchor := addStoredTask(t, tasks, task.AddFields{ProjectID: &destination.ID, Title: "anchor"})
 	if _, err := projects.Resolve(
@@ -739,7 +739,7 @@ func openTestStorage(t *testing.T) (context.Context, *DB) {
 	return ctx, storage
 }
 
-func addStoredProject(t *testing.T, projects *Projects, fields project.CreateFields) project.Project {
+func addStoredProject(t *testing.T, projects *Projects, fields project.AddFields) project.Project {
 	t.Helper()
 
 	created, err := projects.Add(context.Background(), fields, "2026-01-01T00:00:00.000Z")
