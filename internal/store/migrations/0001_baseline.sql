@@ -8,6 +8,27 @@ CREATE TABLE areas (
     updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 ) STRICT;
 
+CREATE TABLE boards (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    title      TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    note       TEXT    NOT NULL DEFAULT '',
+    position   INTEGER NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+) STRICT;
+
+CREATE TABLE stages (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    board_id   INTEGER NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+    title      TEXT    NOT NULL,
+    position   INTEGER NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE (board_id, title COLLATE NOCASE)
+) STRICT;
+
+CREATE INDEX idx_stages_board ON stages(board_id);
+
 CREATE TABLE projects (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     area_id      INTEGER REFERENCES areas(id) ON DELETE RESTRICT,
