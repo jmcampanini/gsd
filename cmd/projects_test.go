@@ -884,20 +884,23 @@ func TestProjectMoveGrammarFailuresDoNotOpenApplication(t *testing.T) {
 		t.Errorf("move help = %#v, want stdout help without application lifecycle", help)
 	}
 
-	for _, args := range [][]string{
-		{"project", "move", "7"},
-		{"project", "move", "7", "doing", "extra"},
-		{"project", "move", "7", "doing", "--first", "--last"},
-		{"project", "move", "7", "doing", "--first=false"},
-		{"project", "move", "nope", "doing"},
-		{"project", "move", "7", "doing", "--before", "nope"},
+	for _, test := range []struct {
+		args     []string
+		wantExit int
+	}{
+		{args: []string{"project", "move", "7"}, wantExit: 2},
+		{args: []string{"project", "move", "7", "doing", "extra"}, wantExit: 2},
+		{args: []string{"project", "move", "7", "doing", "--first", "--last"}, wantExit: 2},
+		{args: []string{"project", "move", "7", "doing", "--first=false"}, wantExit: 2},
+		{args: []string{"project", "move", "nope", "doing"}, wantExit: 1},
+		{args: []string{"project", "move", "7", "doing", "--before", "nope"}, wantExit: 1},
 	} {
-		result := runProjectCommand(t, &fakeProjectApplication{}, args...)
+		result := runProjectCommand(t, &fakeProjectApplication{}, test.args...)
 		if result.opens != 0 || result.closes != 0 || result.stdout != "" || result.stderr == "" {
-			t.Errorf("move %v = %#v, want pre-open grammar/argument failure", args, result)
+			t.Errorf("move %v = %#v, want pre-open grammar/argument failure", test.args, result)
 		}
-		if result.exitCode != 1 && result.exitCode != 2 {
-			t.Errorf("move %v exit = %d, want application-argument 1 or grammar 2", args, result.exitCode)
+		if result.exitCode != test.wantExit {
+			t.Errorf("move %v exit = %d, want %d", test.args, result.exitCode, test.wantExit)
 		}
 	}
 }

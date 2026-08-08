@@ -217,8 +217,10 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Editio
 
 	timestamp := domain.FormatTimestamp(s.now())
 	result := Edition{ClearedDefers: []task.Task{}}
-	if fields.Board.Set == nil && !fields.Board.Clear {
-		updated := UpdateFields{Area: fields.Area, Title: fields.Title, Note: fields.Note}
+	membershipRequested := fields.Area.Set != nil || fields.Area.Clear ||
+		fields.Board.Set != nil || fields.Board.Clear
+	if !membershipRequested {
+		updated := UpdateFields{Title: fields.Title, Note: fields.Note}
 		edited, err := s.store.Edit(ctx, id, updated, timestamp)
 		if err != nil {
 			return Edition{}, err
@@ -235,7 +237,8 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Editio
 		updated := UpdateFields{Area: fields.Area, Title: fields.Title, Note: fields.Note}
 
 		var currentStage *StageReference
-		if current.StageID != nil {
+		boardRequested := fields.Board.Set != nil || fields.Board.Clear
+		if boardRequested && current.StageID != nil {
 			stage, err := store.FindStageByID(ctx, *current.StageID)
 			if err != nil {
 				return err

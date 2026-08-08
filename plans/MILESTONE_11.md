@@ -63,7 +63,8 @@ deferred tasks in the same stroke).
   no sequence enforcement, never gated on tasks. Bare cross-stage
   moves append; an explicit placement positions the project in the
   destination; a same-stage move with a placement is the within-column
-  reorder; `reorder` stays area-axis only.
+  reorder. Resolved projects retain their hidden stage positions and
+  remain valid placement references; `reorder` stays area-axis only.
 - **Stage is orthogonal to status.** The board shows open projects
   only; resolving a project removes it from the board and the logbook
   keeps owning finished work. The last stage means "in final phase",

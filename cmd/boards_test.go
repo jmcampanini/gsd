@@ -336,7 +336,7 @@ func TestBoardShowWritesPopulatedProgressEnvelopeAndHumanColumns(t *testing.T) {
 			}},
 			{Stage: board.Stage{ID: 4, BoardID: 1, Title: "doing"}, Projects: []board.ShownProject{
 				{Project: project.Project{ID: 12, Title: "gsd boards milestone", Tags: domain.TagNames{}}, Progress: board.ProjectProgress{Done: 5, Total: 8}},
-				{Project: project.Project{ID: 9, Title: "blog rewrite", Tags: domain.TagNames{}}, Progress: board.ProjectProgress{Done: 1, Total: 3}},
+				{Project: project.Project{ID: 9, Title: "東京 rewrite", Tags: domain.TagNames{}}, Progress: board.ProjectProgress{Done: 1, Total: 3}},
 			}},
 			{Stage: board.Stage{ID: 5, BoardID: 1, Title: "review"}, Projects: []board.ShownProject{}},
 		},
@@ -352,22 +352,14 @@ func TestBoardShowWritesPopulatedProgressEnvelopeAndHumanColumns(t *testing.T) {
 	}
 
 	human := runBoardCommand(t, &fakeBoardApplication{showResult: shown}, "board", "show", "software")
-	wantRows := []string{
-		"software research → planning → doing → review",
-		"research (empty)",
-		"planning ◆ 14 homelab backups 2/6",
-		"doing ◆ 12 gsd boards milestone 5/8",
-		"◆ 9 blog rewrite 1/3",
-		"review (empty)",
-	}
-	lines := strings.Split(strings.TrimSuffix(human.stdout, "\n"), "\n")
-	if human.exitCode != 0 || human.stderr != "" || len(lines) != len(wantRows) {
-		t.Fatalf("human result = %#v, want %d board rows", human, len(wantRows))
-	}
-	for index, want := range wantRows {
-		if got := humanFields(lines[index]); got != want {
-			t.Errorf("human row %d = %q, want %q", index, got, want)
-		}
+	wantHuman := "software  research → planning → doing → review\n" +
+		"  research  (empty)\n" +
+		"  planning  ◆ 14  homelab backups       2/6\n" +
+		"  doing     ◆ 12  gsd boards milestone  5/8\n" +
+		"            ◆ 9   東京 rewrite          1/3\n" +
+		"  review    (empty)\n"
+	if human.exitCode != 0 || human.stderr != "" || human.stdout != wantHuman {
+		t.Errorf("human result = %#v, want exact aligned output %q", human, wantHuman)
 	}
 }
 

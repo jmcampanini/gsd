@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +36,7 @@ type recordingStore struct {
 	findAreaCalls        int
 	findAreaID           int64
 	findAreaResult       AreaReference
+	findAreaResults      map[int64]AreaReference
 	findAreaError        error
 	findBoardCalls       int
 	findBoardTitle       string
@@ -171,6 +173,9 @@ func (r *recordingStore) AreaExists(_ context.Context, id int64) error {
 func (r *recordingStore) FindArea(_ context.Context, id int64) (AreaReference, error) {
 	r.findAreaCalls++
 	r.findAreaID = id
+	if result, exists := r.findAreaResults[id]; exists {
+		return result, nil
+	}
 	if r.findAreaResult.ID != 0 {
 		return r.findAreaResult, r.findAreaError
 	}
@@ -457,19 +462,34 @@ func TestAddPreservesTextAndDelegatesOneNormalizedTimestamp(t *testing.T) {
 	}
 }
 
-func TestAddValidatesAndDelegatesArea(t *testing.T) {
+func TestAddValidatesAreaWithinTransaction(t *testing.T) {
 	t.Parallel()
 
 	areaID := int64(3)
 	fields := AddFields{AreaID: &areaID, Title: "area project"}
-	store := &recordingStore{}
+	transaction := &recordingStore{}
+	store := &recordingStore{transactionStore: transaction}
 	created, err := NewService(store).Add(context.Background(), fields)
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	if store.addCalls != 1 || !equalCreateFields(store.addFields, fields) ||
+	if store.transactionCalls != 1 || store.addCalls != 0 {
+		t.Errorf("outer transaction/Add() calls = %d/%d, want 1/0", store.transactionCalls, store.addCalls)
+	}
+	if transaction.findAreaCalls != 1 || transaction.findAreaID != areaID ||
+		transaction.addCalls != 1 || !equalCreateFields(transaction.addFields, fields) ||
 		created.AreaID == nil || *created.AreaID != areaID {
-		t.Errorf("store Add() calls/fields/result = %d/%#v/%#v, want 1/%#v/area %d", store.addCalls, store.addFields, created, fields, areaID)
+		t.Errorf(
+			"transaction area/Add()/fields/result = %d/%d/%d/%#v/%#v, want 1/%d/1/%#v/area %d",
+			transaction.findAreaCalls,
+			transaction.findAreaID,
+			transaction.addCalls,
+			transaction.addFields,
+			created,
+			areaID,
+			fields,
+			areaID,
+		)
 	}
 
 	invalidAreaID := int64(0)
@@ -478,8 +498,49 @@ func TestAddValidatesAndDelegatesArea(t *testing.T) {
 	if errorCode(err) != apperr.InvalidArgument {
 		t.Errorf("Add() error = %v, want invalid_argument", err)
 	}
-	if store.addCalls != 0 {
-		t.Errorf("store Add() calls = %d, want 0", store.addCalls)
+	if store.transactionCalls != 0 || store.addCalls != 0 {
+		t.Errorf("store transaction/Add() calls = %d/%d, want 0/0", store.transactionCalls, store.addCalls)
+	}
+}
+
+func TestAddRejectsArchivedAreaBeforePersistence(t *testing.T) {
+	t.Parallel()
+
+	areaID := int64(3)
+	archivedAt := "2026-01-01T00:00:00.000Z"
+	transaction := &recordingStore{
+		findAreaResult: AreaReference{ID: areaID, ArchivedAt: &archivedAt},
+	}
+	store := &recordingStore{transactionStore: transaction}
+
+	_, err := NewService(store).Add(context.Background(), AddFields{AreaID: &areaID, Title: "project"})
+	if errorCode(err) != apperr.Conflict {
+		t.Fatalf("Add() error = %v, want conflict", err)
+	}
+	var marker *ArchivedAreasError
+	if !errors.As(err, &marker) || !reflect.DeepEqual(marker.IDs, []int64{areaID}) {
+		t.Errorf("Add() error = %v, want archived area marker for %d", err, areaID)
+	}
+	if transaction.addCalls != 0 {
+		t.Errorf("transaction Add() calls = %d, want 0", transaction.addCalls)
+	}
+}
+
+func TestAddRejectsUnknownAreaBeforePersistence(t *testing.T) {
+	t.Parallel()
+
+	areaID := int64(999)
+	transaction := &recordingStore{
+		findAreaError: apperr.New(apperr.NotFound, "no area 999", nil),
+	}
+	store := &recordingStore{transactionStore: transaction}
+
+	_, err := NewService(store).Add(context.Background(), AddFields{AreaID: &areaID, Title: "project"})
+	if errorCode(err) != apperr.NotFound {
+		t.Fatalf("Add() error = %v, want not_found", err)
+	}
+	if transaction.addCalls != 0 {
+		t.Errorf("transaction Add() calls = %d, want 0", transaction.addCalls)
 	}
 }
 
@@ -659,6 +720,64 @@ func TestParseIDAndShowValidateProjectIDs(t *testing.T) {
 	}
 }
 
+func TestShowBuildsBoardLocationOnlyForBoardedProject(t *testing.T) {
+	t.Parallel()
+
+	t.Run("boarded", func(t *testing.T) {
+		t.Parallel()
+
+		stageID := int64(12)
+		found := Project{ID: 7, StageID: &stageID, Status: string(ListStatusDone)}
+		stage := StageReference{
+			ID:         stageID,
+			BoardID:    4,
+			BoardTitle: "Software",
+			Title:      "Doing",
+		}
+		transaction := &recordingStore{findResult: found, findStageByIDResult: stage}
+		store := &recordingStore{readTransactionStore: transaction}
+
+		shown, err := NewService(store).Show(context.Background(), found.ID)
+		if err != nil {
+			t.Fatalf("Show() error = %v", err)
+		}
+		if store.readTransactionCalls != 1 || transaction.findCalls != 1 ||
+			transaction.findStageByIDCalls != 1 || transaction.findStageByID != stageID {
+			t.Errorf(
+				"read/find/stage lookup = %d/%d/%d/%d, want 1/1/1/%d",
+				store.readTransactionCalls,
+				transaction.findCalls,
+				transaction.findStageByIDCalls,
+				transaction.findStageByID,
+				stageID,
+			)
+		}
+		wantLocation := &Location{BoardTitle: stage.BoardTitle, StageTitle: stage.Title}
+		if !reflect.DeepEqual(shown.Project, found) || !reflect.DeepEqual(shown.Location, wantLocation) {
+			t.Errorf("Show() = %#v, want project %#v at %#v", shown, found, wantLocation)
+		}
+	})
+
+	t.Run("unboarded", func(t *testing.T) {
+		t.Parallel()
+
+		found := Project{ID: 7, Status: string(ListStatusOpen)}
+		transaction := &recordingStore{findResult: found}
+		store := &recordingStore{readTransactionStore: transaction}
+
+		shown, err := NewService(store).Show(context.Background(), found.ID)
+		if err != nil {
+			t.Fatalf("Show() error = %v", err)
+		}
+		if transaction.findStageByIDCalls != 0 {
+			t.Errorf("FindStageByID() calls = %d, want 0", transaction.findStageByIDCalls)
+		}
+		if !reflect.DeepEqual(shown.Project, found) || shown.Location != nil {
+			t.Errorf("Show() = %#v, want unboarded project %#v", shown, found)
+		}
+	})
+}
+
 func TestParseListStatusAcceptsOnlySupportedStatuses(t *testing.T) {
 	t.Parallel()
 
@@ -800,10 +919,12 @@ func TestEditValidatesAndDelegatesOneNormalizedTimestamp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Edit() error = %v", err)
 	}
-	if store.editCalls != 1 || store.editID != 7 || store.editFields.Title == nil ||
-		*store.editFields.Title != title || store.editFields.Note == nil || *store.editFields.Note != note {
+	if store.transactionCalls != 0 || store.editCalls != 1 || store.editID != 7 ||
+		store.editFields.Title == nil || *store.editFields.Title != title ||
+		store.editFields.Note == nil || *store.editFields.Note != note {
 		t.Errorf(
-			"store Edit() calls/ID/fields = %d/%d/%#v, want 1/7/%#v",
+			"store transaction/Edit() calls/ID/fields = %d/%d/%d/%#v, want 0/1/7/%#v",
+			store.transactionCalls,
 			store.editCalls,
 			store.editID,
 			store.editFields,
@@ -820,22 +941,57 @@ func TestEditValidatesAndDelegatesOneNormalizedTimestamp(t *testing.T) {
 	}
 }
 
-func TestEditValidatesAndDelegatesAreaIntent(t *testing.T) {
+func TestEditValidatesAreaIntentWithinTransaction(t *testing.T) {
 	t.Parallel()
 
 	areaID := int64(3)
-	accepted := []EditFields{
-		{Area: AreaChange{Set: &areaID}},
-		{Area: AreaChange{Clear: true}},
+	stageID := int64(10)
+	tests := []struct {
+		name    string
+		current Project
+		fields  EditFields
+	}{
+		{
+			name:    "set",
+			current: Project{ID: 7, Status: string(ListStatusOpen)},
+			fields:  EditFields{Area: AreaChange{Set: &areaID}},
+		},
+		{
+			name: "clear",
+			current: Project{
+				ID: 7, AreaID: &areaID, StageID: &stageID, Status: string(ListStatusOpen),
+			},
+			fields: EditFields{Area: AreaChange{Clear: true}},
+		},
 	}
-	for _, fields := range accepted {
-		store := &recordingStore{}
-		if _, err := NewService(store).Edit(context.Background(), 7, fields); err != nil {
-			t.Fatalf("Edit(%#v) error = %v", fields, err)
-		}
-		if store.editCalls != 1 || store.editFields.Area != fields.Area {
-			t.Errorf("store Edit() calls/area = %d/%#v, want 1/%#v", store.editCalls, store.editFields.Area, fields.Area)
-		}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			transaction := &recordingStore{findResult: test.current}
+			store := &recordingStore{transactionStore: transaction}
+			if _, err := NewService(store).Edit(context.Background(), test.current.ID, test.fields); err != nil {
+				t.Fatalf("Edit() error = %v", err)
+			}
+			if store.transactionCalls != 1 || store.editCalls != 0 {
+				t.Errorf("outer transaction/Edit() calls = %d/%d, want 1/0", store.transactionCalls, store.editCalls)
+			}
+			if transaction.findCalls != 1 || transaction.findAreaCalls != 1 ||
+				transaction.findAreaID != areaID || transaction.findStageByIDCalls != 0 ||
+				transaction.editCalls != 1 || transaction.editFields.Area != test.fields.Area {
+				t.Errorf(
+					"transaction find/area/area ID/stage/Edit()/intent = %d/%d/%d/%d/%d/%#v, want 1/1/%d/0/1/%#v",
+					transaction.findCalls,
+					transaction.findAreaCalls,
+					transaction.findAreaID,
+					transaction.findStageByIDCalls,
+					transaction.editCalls,
+					transaction.editFields.Area,
+					areaID,
+					test.fields.Area,
+				)
+			}
+		})
 	}
 
 	invalidAreaID := int64(0)
@@ -851,9 +1007,150 @@ func TestEditValidatesAndDelegatesAreaIntent(t *testing.T) {
 		if errorCode(err) != apperr.InvalidArgument {
 			t.Errorf("Edit(%#v) error = %v, want invalid_argument", fields, err)
 		}
-		if store.editCalls != 0 {
-			t.Errorf("store Edit() calls = %d, want 0", store.editCalls)
+		if store.transactionCalls != 0 || store.editCalls != 0 {
+			t.Errorf("store transaction/Edit() calls = %d/%d, want 0/0", store.transactionCalls, store.editCalls)
 		}
+	}
+}
+
+func TestEditRejectsArchivedSourceAndDestinationAreasBeforePersistence(t *testing.T) {
+	t.Parallel()
+
+	archivedAt := "2026-01-01T00:00:00.000Z"
+	sourceID := int64(2)
+	destinationID := int64(3)
+	tests := []struct {
+		name        string
+		current     Project
+		fields      EditFields
+		areas       map[int64]AreaReference
+		wantAreaIDs []int64
+	}{
+		{
+			name: "archived source",
+			current: Project{
+				ID: 7, AreaID: &sourceID, Status: string(ListStatusOpen),
+			},
+			fields: EditFields{Area: AreaChange{Set: &destinationID}},
+			areas: map[int64]AreaReference{
+				sourceID:      {ID: sourceID, ArchivedAt: &archivedAt},
+				destinationID: {ID: destinationID},
+			},
+			wantAreaIDs: []int64{sourceID},
+		},
+		{
+			name:    "archived destination",
+			current: Project{ID: 7, Status: string(ListStatusOpen)},
+			fields:  EditFields{Area: AreaChange{Set: &destinationID}},
+			areas: map[int64]AreaReference{
+				destinationID: {ID: destinationID, ArchivedAt: &archivedAt},
+			},
+			wantAreaIDs: []int64{destinationID},
+		},
+		{
+			name: "archived source and destination",
+			current: Project{
+				ID: 7, AreaID: &sourceID, Status: string(ListStatusOpen),
+			},
+			fields: EditFields{Area: AreaChange{Set: &destinationID}},
+			areas: map[int64]AreaReference{
+				sourceID:      {ID: sourceID, ArchivedAt: &archivedAt},
+				destinationID: {ID: destinationID, ArchivedAt: &archivedAt},
+			},
+			wantAreaIDs: []int64{sourceID, destinationID},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			transaction := &recordingStore{findResult: test.current, findAreaResults: test.areas}
+			store := &recordingStore{transactionStore: transaction}
+			_, err := NewService(store).Edit(context.Background(), test.current.ID, test.fields)
+			if errorCode(err) != apperr.Conflict {
+				t.Fatalf("Edit() error = %v, want conflict", err)
+			}
+			var marker *ArchivedAreasError
+			if !errors.As(err, &marker) || !reflect.DeepEqual(marker.IDs, test.wantAreaIDs) {
+				t.Errorf("Edit() error = %v, want archived area marker containing %v", err, test.wantAreaIDs)
+			}
+			if transaction.editCalls != 0 {
+				t.Errorf("transaction Edit() calls = %d, want 0", transaction.editCalls)
+			}
+		})
+	}
+}
+
+func TestEditAllowsContentWithRestatedArchivedArea(t *testing.T) {
+	t.Parallel()
+
+	areaID := int64(3)
+	archivedAt := "2026-01-01T00:00:00.000Z"
+	title := "revised"
+	current := Project{
+		ID: 7, AreaID: &areaID, Title: "original", Status: string(ListStatusOpen), Position: 2,
+	}
+	want := current
+	want.Title = title
+	transaction := &recordingStore{
+		findResult: current,
+		findAreaResults: map[int64]AreaReference{
+			areaID: {ID: areaID, ArchivedAt: &archivedAt},
+		},
+		editResult: want,
+	}
+	store := &recordingStore{transactionStore: transaction}
+
+	got, err := NewService(store).Edit(context.Background(), current.ID, EditFields{
+		Area:  AreaChange{Set: &areaID},
+		Title: &title,
+	})
+	if err != nil {
+		t.Fatalf("Edit() error = %v, want allowed content edit", err)
+	}
+	if transaction.findAreaCalls != 1 || transaction.editCalls != 1 ||
+		transaction.editFields.Area.Set == nil || *transaction.editFields.Area.Set != areaID ||
+		transaction.editFields.Title == nil || *transaction.editFields.Title != title {
+		t.Errorf("transaction area/Edit() delegation = %#v, want restated area %d and revised title", transaction, areaID)
+	}
+	if !reflect.DeepEqual(got.Project, want) {
+		t.Errorf("Edit() = %#v, want %#v", got.Project, want)
+	}
+}
+
+func TestEditRejectsUnknownDestinationBeforeArchivedSource(t *testing.T) {
+	t.Parallel()
+
+	areaID := int64(999)
+	sourceID := int64(2)
+	archivedAt := "2026-01-01T00:00:00.000Z"
+	transaction := &recordingStore{
+		findResult: Project{
+			ID: 7, AreaID: &sourceID, Status: string(ListStatusOpen),
+		},
+		findAreaResults: map[int64]AreaReference{
+			sourceID: {ID: sourceID, ArchivedAt: &archivedAt},
+		},
+		findAreaError: apperr.New(apperr.NotFound, "no area 999", nil),
+	}
+	store := &recordingStore{transactionStore: transaction}
+
+	_, err := NewService(store).Edit(
+		context.Background(),
+		7,
+		EditFields{Area: AreaChange{Set: &areaID}},
+	)
+	if errorCode(err) != apperr.NotFound {
+		t.Fatalf("Edit() error = %v, want not_found", err)
+	}
+	if transaction.findAreaCalls != 1 || transaction.findAreaID != areaID || transaction.editCalls != 0 {
+		t.Errorf(
+			"transaction FindArea()/area ID/Edit() calls = %d/%d/%d, want 1/%d/0",
+			transaction.findAreaCalls,
+			transaction.findAreaID,
+			transaction.editCalls,
+			areaID,
+		)
 	}
 }
 
@@ -950,6 +1247,71 @@ func TestEditBoardMembershipSwitchesRestatesAndClears(t *testing.T) {
 		}
 		if !reflect.DeepEqual(got.Project, current) || got.Location == nil || got.Location.StageTitle != stage.Title {
 			t.Errorf("Edit() = %#v, want unchanged project and current location", got)
+		}
+	})
+
+	t.Run("resolved restatement preserves membership", func(t *testing.T) {
+		t.Parallel()
+
+		stageID := int64(10)
+		position := int64(3)
+		current := Project{
+			ID:            7,
+			StageID:       &stageID,
+			StagePosition: &position,
+			Status:        string(ListStatusDone),
+		}
+		stage := StageReference{ID: stageID, BoardID: 2, BoardTitle: "Software", Title: "Doing"}
+		transaction := &recordingStore{
+			findResult:          current,
+			findStageByIDResult: stage,
+			findBoardResult:     BoardReference{ID: 2, Title: "Software"},
+		}
+		store := &recordingStore{transactionStore: transaction}
+		boardTitle := "software"
+
+		got, err := NewService(store).Edit(context.Background(), current.ID, EditFields{
+			Board: BoardChange{Set: &boardTitle},
+		})
+		if err != nil {
+			t.Fatalf("Edit() error = %v", err)
+		}
+		if transaction.findFirstStageCalls != 0 || transaction.editCalls != 0 {
+			t.Errorf(
+				"first-stage/Edit() calls = %d/%d, want 0/0 for resolved restatement",
+				transaction.findFirstStageCalls,
+				transaction.editCalls,
+			)
+		}
+		wantLocation := &Location{BoardTitle: stage.BoardTitle, StageTitle: stage.Title}
+		if !reflect.DeepEqual(got.Project, current) || !reflect.DeepEqual(got.Location, wantLocation) {
+			t.Errorf("Edit() = %#v, want unchanged resolved project at %#v", got, wantLocation)
+		}
+	})
+
+	t.Run("unknown board returns not found", func(t *testing.T) {
+		t.Parallel()
+
+		missing := apperr.New(apperr.NotFound, "no board missing", nil)
+		transaction := &recordingStore{
+			findResult:     Project{ID: 7, Status: string(ListStatusOpen)},
+			findBoardError: missing,
+		}
+		store := &recordingStore{transactionStore: transaction}
+		boardTitle := "missing"
+
+		_, err := NewService(store).Edit(context.Background(), 7, EditFields{
+			Board: BoardChange{Set: &boardTitle},
+		})
+		if errorCode(err) != apperr.NotFound || !errors.Is(err, missing) {
+			t.Errorf("Edit() error = %v, want preserved not_found", err)
+		}
+		if transaction.findFirstStageCalls != 0 || transaction.editCalls != 0 {
+			t.Errorf(
+				"first-stage/Edit() calls = %d/%d, want 0/0",
+				transaction.findFirstStageCalls,
+				transaction.editCalls,
+			)
 		}
 	})
 
@@ -1063,6 +1425,29 @@ func TestBoardMembershipRejectsResolvedAndArchivedProjects(t *testing.T) {
 	}
 }
 
+func TestMoveRejectsUnboardedProjectBeforeStageResolution(t *testing.T) {
+	t.Parallel()
+
+	transaction := &recordingStore{
+		findResult: Project{ID: 7, Status: string(ListStatusOpen)},
+	}
+	store := &recordingStore{transactionStore: transaction}
+
+	_, err := NewService(store).Move(context.Background(), 7, "doing", nil)
+	if errorCode(err) != apperr.Conflict {
+		t.Fatalf("Move() error = %v, want conflict", err)
+	}
+	if transaction.findStageByIDCalls != 0 || transaction.findStageCalls != 0 ||
+		transaction.moveStageCalls != 0 {
+		t.Errorf(
+			"stage-by-ID/stage/MoveStage() calls = %d/%d/%d, want 0/0/0",
+			transaction.findStageByIDCalls,
+			transaction.findStageCalls,
+			transaction.moveStageCalls,
+		)
+	}
+}
+
 func TestMoveAcrossStagesDelegatesAppendAndExplicitPlacement(t *testing.T) {
 	t.Parallel()
 
@@ -1099,7 +1484,7 @@ func TestMoveAcrossStagesDelegatesAppendAndExplicitPlacement(t *testing.T) {
 		}
 	})
 
-	t.Run("explicit placement is honored", func(t *testing.T) {
+	t.Run("explicit placement accepts resolved destination reference", func(t *testing.T) {
 		t.Parallel()
 
 		referenceStageID := destinationStageID
@@ -1107,7 +1492,7 @@ func TestMoveAcrossStagesDelegatesAppendAndExplicitPlacement(t *testing.T) {
 		transaction := &recordingStore{
 			findResults: []Project{
 				current,
-				{ID: 8, StageID: &referenceStageID, Status: string(ListStatusOpen)},
+				{ID: 8, StageID: &referenceStageID, Status: string(ListStatusDone)},
 			},
 			findStageByIDResult: StageReference{ID: currentStageID, BoardID: 1, BoardTitle: "Software", Title: "Research"},
 			findStageResult:     destination,
@@ -1196,8 +1581,9 @@ func TestMoveRejectsUnknownStageAndForeignPlacementReference(t *testing.T) {
 		}
 		store := &recordingStore{transactionStore: transaction}
 		_, err := NewService(store).Move(context.Background(), 7, "shipping", nil)
-		if errorCode(err) != apperr.NotFound {
-			t.Errorf("Move() error = %v, want not_found", err)
+		if errorCode(err) != apperr.NotFound ||
+			!strings.Contains(err.Error(), "no stage shipping on board Software") {
+			t.Errorf("Move() error = %v, want not_found naming stage shipping on stored board Software", err)
 		}
 		if transaction.moveStageCalls != 0 {
 			t.Errorf("MoveStage() calls = %d, want 0", transaction.moveStageCalls)

@@ -349,7 +349,7 @@ WHERE id IN (?, ?)
 		t.Fatalf("arrange shown project positions: %v", err)
 	}
 
-	openTask := addStoredTask(t, tasks, task.AddFields{ProjectID: &firstA.ID, Title: "open"})
+	addStoredTask(t, tasks, task.AddFields{ProjectID: &firstA.ID, Title: "open"})
 	doneTask := addStoredTask(t, tasks, task.AddFields{ProjectID: &firstA.ID, Title: "done"})
 	cancelledTask := addStoredTask(t, tasks, task.AddFields{ProjectID: &firstA.ID, Title: "cancelled"})
 	if _, err := tasks.Done(ctx, doneTask.ID, "2026-01-03T00:00:00.000Z"); err != nil {
@@ -381,9 +381,6 @@ WHERE id IN (?, ?)
 	}
 	if shown[0].Progress != (board.ProjectProgress{}) || shown[2].Progress != (board.ProjectProgress{}) {
 		t.Errorf("empty progress values = %#v/%#v, want 0/0", shown[0].Progress, shown[2].Progress)
-	}
-	if openTask.Status != "open" {
-		t.Errorf("open task status = %q, want open", openTask.Status)
 	}
 }
 

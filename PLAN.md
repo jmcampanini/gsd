@@ -68,7 +68,8 @@ stories were reconciled to match.
   append to the destination column; an explicit placement positions
   the project in that destination; a same-stage move with a placement
   is the within-column reorder; a bare same-stage move is a no-op.
-  Placement references are project IDs in the same stage. `reorder` stays
+  Placement references are project IDs in the same stage, including
+  resolved projects that retain hidden positions. `reorder` stays
   area-axis only.
 - **Naming.** Board and stage names use title validation (nonblank
   UTF-8, stored unchanged). Boards are `NOCASE`-unique globally;

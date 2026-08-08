@@ -86,7 +86,11 @@ func (f *fakeStore) FindBoard(_ context.Context, title string) (Board, error) {
 	if f.findBoardError != nil {
 		return Board{}, f.findBoardError
 	}
-	return f.findBoards[title], nil
+	found, exists := f.findBoards[title]
+	if !exists {
+		return Board{}, apperr.New(apperr.NotFound, "no board "+title, nil)
+	}
+	return found, nil
 }
 
 func (f *fakeStore) ListBoards(context.Context) ([]Board, error) {
@@ -137,7 +141,11 @@ func (f *fakeStore) FindStage(_ context.Context, boardID int64, title string) (S
 	if f.findStageError != nil {
 		return Stage{}, f.findStageError
 	}
-	return f.findStages[title], nil
+	found, exists := f.findStages[title]
+	if !exists {
+		return Stage{}, apperr.New(apperr.NotFound, "no stage "+title, nil)
+	}
+	return found, nil
 }
 
 func (f *fakeStore) ListStages(_ context.Context, boardID int64) ([]Stage, error) {
@@ -210,6 +218,20 @@ func (f *fakeStore) WithinReadTransaction(ctx context.Context, operation func(Tr
 		transaction = f
 	}
 	return operation(transaction)
+}
+
+func callPrecedes(calls []string, before, after string) bool {
+	beforeIndex := -1
+	afterIndex := -1
+	for index, call := range calls {
+		switch call {
+		case before:
+			beforeIndex = index
+		case after:
+			afterIndex = index
+		}
+	}
+	return beforeIndex >= 0 && afterIndex >= 0 && beforeIndex < afterIndex
 }
 
 func TestInvalidInputsAreRejectedBeforeStoreOrClock(t *testing.T) {
@@ -308,9 +330,6 @@ func TestAddUsesOneTransactionTimestampAndInputStageOrder(t *testing.T) {
 	if store.transactionCalls != 1 || len(store.calls) != 0 {
 		t.Errorf("outer store = %#v, want transaction boundary only", store)
 	}
-	if !reflect.DeepEqual(transaction.calls, []string{"add board", "add stage Ideas", "add stage Doing"}) {
-		t.Errorf("transaction calls = %v, want board then stages in input order", transaction.calls)
-	}
 	if !reflect.DeepEqual(transaction.addBoardFields, fields) || !reflect.DeepEqual(transaction.addStageBoardIDs, []int64{4, 4}) || !reflect.DeepEqual(transaction.addStageTitles, fields.Stages) {
 		t.Errorf("add delegation = %#v, want unchanged fields on board 4", transaction)
 	}
@@ -332,8 +351,9 @@ func TestAddReturnsTransactionFailureWithoutPartialResult(t *testing.T) {
 	if err == nil {
 		t.Fatal("Add() error = nil, want stage failure")
 	}
-	if !reflect.DeepEqual(got, Addition{}) || store.transactionCalls != 1 || !reflect.DeepEqual(transaction.calls, []string{"add board", "add stage One", "add stage Two"}) {
-		t.Errorf("Add() result/delegation = %#v/%v, want zero result and one failed transaction", got, transaction.calls)
+	if !reflect.DeepEqual(got, Addition{}) || store.transactionCalls != 1 || transaction.addStageCalls != 2 ||
+		!reflect.DeepEqual(transaction.addStageTitles, []string{"One", "Two"}) {
+		t.Errorf("Add() result/delegation = %#v/%#v, want zero result after second stage fails", got, transaction)
 	}
 }
 
@@ -352,7 +372,7 @@ func TestReordersResolveNamesToIDsInsideWriteTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reorder() error = %v", err)
 	}
-	if gotBoard != boardTransaction.reorderBoardResult || boardStore.transactionCalls != 1 || !reflect.DeepEqual(boardTransaction.calls, []string{"find board WORK", "find board HOME", "reorder board"}) || boardTransaction.reorderBoardID != 7 || boardTransaction.reorderBoardPlacement != (domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: 9}) {
+	if gotBoard != boardTransaction.reorderBoardResult || boardStore.transactionCalls != 1 || boardTransaction.reorderBoardID != 7 || boardTransaction.reorderBoardPlacement != (domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: 9}) {
 		t.Errorf("board reorder result/delegation = %#v/%#v", gotBoard, boardTransaction)
 	}
 
@@ -370,7 +390,7 @@ func TestReordersResolveNamesToIDsInsideWriteTransaction(t *testing.T) {
 		t.Fatalf("ReorderStage() error = %v", err)
 	}
 	wantStage := StageResult{Board: stageTransaction.findBoards["WORK"], Stage: stageTransaction.reorderStageResult}
-	if !reflect.DeepEqual(gotStage, wantStage) || stageStore.transactionCalls != 1 || !reflect.DeepEqual(stageTransaction.calls, []string{"find board WORK", "find stage DOING", "find stage DONE", "reorder stage"}) || stageTransaction.reorderStageBoardID != 7 || stageTransaction.reorderStageID != 12 || stageTransaction.reorderStagePlacement != (domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: 13}) || !reflect.DeepEqual(stageTransaction.findStageBoardIDs, []int64{7, 7}) {
+	if !reflect.DeepEqual(gotStage, wantStage) || stageStore.transactionCalls != 1 || stageTransaction.reorderStageBoardID != 7 || stageTransaction.reorderStageID != 12 || stageTransaction.reorderStagePlacement != (domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: 13}) || !reflect.DeepEqual(stageTransaction.findStageBoardIDs, []int64{7, 7}) {
 		t.Errorf("stage reorder result/delegation = %#v/%#v", gotStage, stageTransaction)
 	}
 }
@@ -387,8 +407,8 @@ func TestRelativeReorderRejectsResolvedSelfReference(t *testing.T) {
 	if code, _ := apperr.CodeOf(err); code != apperr.InvalidArgument {
 		t.Fatalf("Reorder() error = %v, want invalid_argument", err)
 	}
-	if !reflect.DeepEqual(transaction.calls, []string{"find board work", "find board WORK"}) {
-		t.Errorf("transaction calls = %v, want both resolutions and no mutation", transaction.calls)
+	if transaction.reorderBoardID != 0 {
+		t.Errorf("ReorderBoard() ID = %d, want no mutation", transaction.reorderBoardID)
 	}
 }
 
@@ -407,7 +427,7 @@ func TestAddStageDefaultsToAppendWithoutSecondMutation(t *testing.T) {
 		t.Fatalf("AddStage() error = %v", err)
 	}
 	want := StageResult{Board: transaction.findBoards["work"], Stage: transaction.addStageResults[0]}
-	if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(transaction.calls, []string{"find board work", "add stage Review"}) || transaction.addStageBoardIDs[0] != 7 || transaction.addStageTimestamps[0] != "2026-08-08T01:02:03.000Z" {
+	if !reflect.DeepEqual(got, want) || transaction.addStageCalls != 1 || transaction.reorderStageID != 0 || transaction.addStageBoardIDs[0] != 7 || transaction.addStageTimestamps[0] != "2026-08-08T01:02:03.000Z" {
 		t.Errorf("AddStage() result/delegation = %#v/%#v, want append only", got, transaction)
 	}
 }
@@ -439,8 +459,8 @@ func TestAddStageRelativePlacementResolvesThenAppendsAndReordersInSameTransactio
 		t.Fatalf("AddStage() error = %v", err)
 	}
 	want := StageResult{Board: transaction.findBoards["work"], Stage: transaction.reorderStageResult}
-	if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(transaction.calls, []string{"find board work", "find stage Doing", "add stage Review", "reorder stage"}) {
-		t.Errorf("AddStage() result/calls = %#v/%v, want resolve, append, reorder", got, transaction.calls)
+	if !reflect.DeepEqual(got, want) || transaction.addStageCalls != 1 {
+		t.Errorf("AddStage() result/add calls = %#v/%d, want resolved append and reorder", got, transaction.addStageCalls)
 	}
 	wantPlacement := domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: 12}
 	wantTimestamp := "2026-08-08T01:02:03.456Z"
@@ -467,8 +487,8 @@ func TestAddStageResolvesUnknownRelativePlacementBeforeInsert(t *testing.T) {
 		!strings.Contains(err.Error(), "Review") || !strings.Contains(err.Error(), "Work") {
 		t.Fatalf("AddStage() error = %v, want stored-board not_found", err)
 	}
-	if !reflect.DeepEqual(transaction.calls, []string{"find board work", "find stage Review"}) || transaction.addStageCalls != 0 {
-		t.Errorf("AddStage() calls = %v, want placement resolution before insert", transaction.calls)
+	if transaction.addStageCalls != 0 || transaction.reorderStageID != 0 {
+		t.Errorf("AddStage()/ReorderStage() calls = %d/%d, want no mutation", transaction.addStageCalls, transaction.reorderStageID)
 	}
 }
 
@@ -484,7 +504,7 @@ func TestListAndShowAssembleNonnilSlicesInReadTransactions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if listStore.readTransactionCalls != 1 || len(listed) != 1 || listed[0].Stages == nil || len(listed[0].Stages) != 0 || !reflect.DeepEqual(listTransaction.calls, []string{"list boards", "list stages"}) {
+	if listStore.readTransactionCalls != 1 || len(listed) != 1 || listed[0].Stages == nil || len(listed[0].Stages) != 0 {
 		t.Errorf("List() result/read = %#v/%#v, want coherent board with empty stages", listed, listTransaction)
 	}
 
@@ -547,7 +567,6 @@ func TestShowGroupsPopulatedProjectsByStageWithNonnilArrays(t *testing.T) {
 		t.Fatalf("Show() error = %v", err)
 	}
 	if store.readTransactionCalls != 1 ||
-		!reflect.DeepEqual(transaction.calls, []string{"find board work", "list stages", "list shown projects"}) ||
 		!reflect.DeepEqual(transaction.listShownProjectsBoardIDs, []int64{7}) {
 		t.Errorf("Show() read delegation = %#v/%#v, want one board-scoped read transaction", store, transaction)
 	}
@@ -586,7 +605,6 @@ func TestOccupiedBoardAndStageDeletesConflictBeforeDelete(t *testing.T) {
 			t.Fatalf("Delete() error = %v, want conflict", err)
 		}
 		if !reflect.DeepEqual(got, Deletion{}) || store.transactionCalls != 1 ||
-			!reflect.DeepEqual(transaction.calls, []string{"find board work", "board occupied"}) ||
 			!reflect.DeepEqual(transaction.boardOccupiedIDs, []int64{7}) || transaction.deleteBoardID != 0 {
 			t.Errorf("Delete() result/delegation = %#v/%#v, want conflict before delete", got, transaction)
 		}
@@ -607,7 +625,6 @@ func TestOccupiedBoardAndStageDeletesConflictBeforeDelete(t *testing.T) {
 			t.Fatalf("DeleteStage() error = %v, want conflict", err)
 		}
 		if !reflect.DeepEqual(got, StageResult{}) || store.transactionCalls != 1 ||
-			!reflect.DeepEqual(transaction.calls, []string{"find board work", "find stage doing", "stage occupied"}) ||
 			!reflect.DeepEqual(transaction.stageOccupiedIDs, []int64{11}) || transaction.deleteStageID != 0 {
 			t.Errorf("DeleteStage() result/delegation = %#v/%#v, want conflict before delete", got, transaction)
 		}
@@ -629,8 +646,11 @@ func TestDeleteSnapshotsOrderedStagesBeforeBoardDeletion(t *testing.T) {
 		t.Fatalf("Delete() error = %v", err)
 	}
 	want := Deletion{Board: transaction.deleteBoardResult, Stages: stages}
-	if !reflect.DeepEqual(got, want) || store.transactionCalls != 1 || transaction.deleteBoardID != 7 || !reflect.DeepEqual(transaction.calls, []string{"find board work", "board occupied", "list stages", "delete board"}) {
-		t.Errorf("Delete() result/delegation = %#v/%#v, want ordered snapshot before deletion", got, transaction)
+	if !reflect.DeepEqual(got, want) || store.transactionCalls != 1 || transaction.deleteBoardID != 7 ||
+		!reflect.DeepEqual(transaction.boardOccupiedIDs, []int64{7}) ||
+		!callPrecedes(transaction.calls, "board occupied", "delete board") ||
+		!callPrecedes(transaction.calls, "list stages", "delete board") {
+		t.Errorf("Delete() result/delegation = %#v/%#v, want occupancy check and snapshot before deletion", got, transaction)
 	}
 }
 

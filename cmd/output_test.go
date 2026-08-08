@@ -196,6 +196,35 @@ func TestFinalGlyphVocabulary(t *testing.T) {
 	}
 }
 
+func TestProjectBoardEditUsesResolvedStatusGlyph(t *testing.T) {
+	t.Parallel()
+
+	location := &project.Location{BoardTitle: "Software", StageTitle: "Doing"}
+	for _, test := range []struct {
+		name   string
+		status string
+		glyph  string
+	}{
+		{name: "done", status: "done", glyph: "✓"},
+		{name: "cancelled", status: "cancelled", glyph: "✗"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := renderHuman(t, colorprofile.NoTTY, func(output humanOutput) error {
+				return output.writeProjectBoardEdit(project.Edition{
+					Project:  project.Project{ID: 7, Title: "Finished", Status: test.status},
+					Location: location,
+				})
+			})
+			want := "~ Edited: " + test.glyph + " 7  Finished → Software/Doing\n"
+			if got != want {
+				t.Errorf("board edit = %q, want resolved glyph output %q", got, want)
+			}
+		})
+	}
+}
+
 func TestCascadeUsesStandardTreeBranches(t *testing.T) {
 	t.Parallel()
 

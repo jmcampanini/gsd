@@ -166,10 +166,13 @@ gsd capture
   same container as the moved one; a cross-container reference or a
   self-reference is `invalid_argument`. Reordering is status-blind — done,
   cancelled, and archived siblings keep their positions, can be moved, and
-  can serve as references — and a placement that lands the entity where it
-  already sits succeeds as an ordinary reorder. Exactly one placement flag
-  must be meaningfully given: an explicitly false boolean placement
-  (`--first=false`) is the same arity failure as omitting placement
+  can serve as references. The board axis applies the same reference rule:
+  resolved projects retain hidden stage positions and remain valid placement
+  references, though resolved projects themselves cannot move. A placement
+  that lands the entity where it already sits succeeds as an ordinary
+  reorder. Exactly one placement flag must be meaningfully given. An
+  explicitly false boolean placement (`--first=false`) is the same arity
+  failure as omitting placement
   entirely, a usage error.
 - **Tag names use title validation**: they must be valid UTF-8 and nonblank
   after surrounding-space inspection, and accepted spelling is stored

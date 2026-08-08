@@ -461,7 +461,7 @@ func (o humanOutput) writeProjectBoardMutation(
 		"%s %s: %s %s  %s → %s\n",
 		o.verbGlyph(verb),
 		verb.label,
-		glyphProjectOpen,
+		o.projectGlyph(current.Status),
 		o.styles.faint.Render(strconv.FormatInt(current.ID, 10)),
 		text.Human(current.Title, false),
 		destination,
@@ -765,12 +765,6 @@ func (o humanOutput) writeTask(current task.Task) error {
 
 func (o humanOutput) writeProject(detail project.Detail) error {
 	current := detail.Project
-	glyph := glyphProjectOpen
-	if current.Status == string(project.ListStatusDone) {
-		glyph = o.styles.green.Render(glyphDone)
-	} else if current.Status == string(project.ListStatusCancelled) {
-		glyph = o.styles.red.Render(glyphCancelled)
-	}
 	boardLocation := ""
 	if detail.Location != nil {
 		boardLocation = text.Human(detail.Location.BoardTitle, false) + "/" +
@@ -788,7 +782,18 @@ func (o humanOutput) writeProject(detail project.Detail) error {
 		{Label: "updated at", Value: o.metadata(text.Human(current.UpdatedAt, false))},
 		{Label: "tags", Value: o.humanTagTitles(current.Tags)},
 	}
-	return o.writeDetail(glyph, current.ID, current.Title, fields)
+	return o.writeDetail(o.projectGlyph(current.Status), current.ID, current.Title, fields)
+}
+
+func (o humanOutput) projectGlyph(status string) string {
+	switch status {
+	case string(project.ListStatusDone):
+		return o.styles.green.Render(glyphDone)
+	case string(project.ListStatusCancelled):
+		return o.styles.red.Render(glyphCancelled)
+	default:
+		return glyphProjectOpen
+	}
 }
 
 func (o humanOutput) writeArea(current area.Area) error {

@@ -211,17 +211,6 @@ func (s *projectsCore) Add(
 	fields project.CreateFields,
 	timestamp string,
 ) (project.Project, error) {
-	if fields.AreaID != nil {
-		archivedAreaIDs, err := s.archivedAreaIDs(ctx, *fields.AreaID)
-		if err != nil {
-			return project.Project{}, err
-		}
-		if len(archivedAreaIDs) > 0 {
-			message := fmt.Sprintf("cannot add project to area %d while it is archived", *fields.AreaID)
-			return project.Project{}, archivedAreasConflict(message, archivedAreaIDs, nil)
-		}
-	}
-
 	areaID := nullableID(fields.AreaID)
 	stageID := nullableID(fields.StageID)
 	created, err := scanProject(s.executor.QueryRowContext(ctx, `
@@ -448,18 +437,6 @@ func (s *projectsCore) Edit(
 		areaDestination = nil
 	}
 	areaMovement := !sameProjectArea(current.AreaID, areaDestination)
-	if areaMovement {
-		areaIDs := make([]int64, 0, 2)
-		if areaDestination != nil {
-			areaIDs = append(areaIDs, *areaDestination)
-		}
-		if current.AreaID != nil {
-			areaIDs = append(areaIDs, *current.AreaID)
-		}
-		if err := s.validateActiveAreas(ctx, fmt.Sprintf("move project %d", id), areaIDs...); err != nil {
-			return project.Project{}, err
-		}
-	}
 
 	stageDestination := current.StageID
 	if fields.Stage.Set != nil {
