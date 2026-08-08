@@ -12,6 +12,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/board"
 	"github.com/jmcampanini/gsd/internal/domain"
+	"github.com/jmcampanini/gsd/internal/project"
 )
 
 type fakeBoardApplication struct {
@@ -320,6 +321,53 @@ func TestBoardShowWritesEnvelopeAndEmptyStageHumanView(t *testing.T) {
 	}}, "board", "show", "software")
 	if zero.exitCode != 0 || zero.stdout != "soft\\x1bware  (no stages)\n" || zero.stderr != "" {
 		t.Errorf("zero-stage result = %#v, want escaped no-stages headline", zero)
+	}
+}
+
+func TestBoardShowWritesPopulatedProgressEnvelopeAndHumanColumns(t *testing.T) {
+	t.Parallel()
+
+	shown := board.Show{
+		Board: board.Board{ID: 1, Title: "software"},
+		Stages: []board.ShownStage{
+			{Stage: board.Stage{ID: 2, BoardID: 1, Title: "research"}, Projects: []board.ShownProject{}},
+			{Stage: board.Stage{ID: 3, BoardID: 1, Title: "planning"}, Projects: []board.ShownProject{
+				{Project: project.Project{ID: 14, Title: "homelab backups", Tags: domain.TagNames{}}, Progress: board.ProjectProgress{Done: 2, Total: 6}},
+			}},
+			{Stage: board.Stage{ID: 4, BoardID: 1, Title: "doing"}, Projects: []board.ShownProject{
+				{Project: project.Project{ID: 12, Title: "gsd boards milestone", Tags: domain.TagNames{}}, Progress: board.ProjectProgress{Done: 5, Total: 8}},
+				{Project: project.Project{ID: 9, Title: "blog rewrite", Tags: domain.TagNames{}}, Progress: board.ProjectProgress{Done: 1, Total: 3}},
+			}},
+			{Stage: board.Stage{ID: 5, BoardID: 1, Title: "review"}, Projects: []board.ShownProject{}},
+		},
+	}
+	jsonResult := runBoardCommand(t, &fakeBoardApplication{showResult: shown},
+		"board", "show", "software", "--json")
+	if jsonResult.exitCode != 0 || jsonResult.stderr != "" {
+		t.Fatalf("JSON result = %#v, want success", jsonResult)
+	}
+	got := decodeBoardJSON[board.Show](t, jsonResult.stdout)
+	if !reflect.DeepEqual(got, shown) {
+		t.Errorf("JSON show = %#v, want populated envelope %#v", got, shown)
+	}
+
+	human := runBoardCommand(t, &fakeBoardApplication{showResult: shown}, "board", "show", "software")
+	wantRows := []string{
+		"software research → planning → doing → review",
+		"research (empty)",
+		"planning ◆ 14 homelab backups 2/6",
+		"doing ◆ 12 gsd boards milestone 5/8",
+		"◆ 9 blog rewrite 1/3",
+		"review (empty)",
+	}
+	lines := strings.Split(strings.TrimSuffix(human.stdout, "\n"), "\n")
+	if human.exitCode != 0 || human.stderr != "" || len(lines) != len(wantRows) {
+		t.Fatalf("human result = %#v, want %d board rows", human, len(wantRows))
+	}
+	for index, want := range wantRows {
+		if got := humanFields(lines[index]); got != want {
+			t.Errorf("human row %d = %q, want %q", index, got, want)
+		}
 	}
 }
 

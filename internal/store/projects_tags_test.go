@@ -24,10 +24,9 @@ func TestProjectTagsRoundTripInAlphabeticalOrderAcrossProjectOperations(t *testi
 	blue := addProjectTestTag(t, tags, "Blue")
 	amber := addProjectTestTag(t, tags, "amber")
 	container := addStoredArea(t, areas, area.AddFields{Title: "container"})
-	created, err := projects.Add(ctx, project.AddFields{
+	created, err := projects.Add(ctx, project.CreateFields{
 		AreaID: &container.ID,
 		Title:  "tagged primitives",
-		Tags:   []string{"Blue", "amber"},
 	}, "2026-01-02T00:00:00.000Z")
 	if err != nil {
 		t.Fatalf("Add(project) error = %v", err)
@@ -72,7 +71,7 @@ func TestProjectTagsRoundTripInAlphabeticalOrderAcrossProjectOperations(t *testi
 	edited, err := projects.Edit(
 		ctx,
 		created.ID,
-		project.EditFields{Title: &title},
+		project.UpdateFields{Title: &title},
 		"2026-01-03T00:00:00.000Z",
 	)
 	if err != nil {
@@ -128,7 +127,7 @@ func TestProjectTagPrimitivesShareTransactionsAndAllowResolvedArchivedContainers
 	tags := NewTags(storage)
 	marker := addProjectTestTag(t, tags, "marker")
 	container := addStoredArea(t, areas, area.AddFields{Title: "container"})
-	persisted := addStoredProject(t, projects, project.AddFields{
+	persisted := addStoredProject(t, projects, project.CreateFields{
 		AreaID: &container.ID,
 		Title:  "persisted",
 	})
@@ -137,10 +136,9 @@ func TestProjectTagPrimitivesShareTransactionsAndAllowResolvedArchivedContainers
 	var transient project.Project
 	err := projects.WithinTransaction(ctx, func(transaction project.Transaction) error {
 		var operationErr error
-		transient, operationErr = transaction.Add(ctx, project.AddFields{
+		transient, operationErr = transaction.Add(ctx, project.CreateFields{
 			AreaID: &container.ID,
 			Title:  "transient",
-			Tags:   []string{marker.Title},
 		}, "2026-01-02T00:00:00.000Z")
 		if operationErr != nil {
 			return operationErr
@@ -225,7 +223,7 @@ func TestProjectTaskBulkMutationsReturnTaskTagsAndDeletionSnapshotsThem(t *testi
 
 	firstTag := addProjectTestTag(t, tags, "first")
 	secondTag := addProjectTestTag(t, tags, "second")
-	container := addStoredProject(t, projects, project.AddFields{Title: "container"})
+	container := addStoredProject(t, projects, project.CreateFields{Title: "container"})
 	first := addStoredTask(t, tasks, task.AddFields{ProjectID: &container.ID, Title: "first"})
 	second := addStoredTask(t, tasks, task.AddFields{ProjectID: &container.ID, Title: "second"})
 	if _, err := storage.database.ExecContext(ctx, `

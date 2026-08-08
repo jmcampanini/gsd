@@ -60,8 +60,9 @@ deferred tasks in the same stroke).
   within a stage by `stage_position` with the placement grammar.
 - **Movement** is a dedicated transition verb in the `done`/`cancel`
   family — `gsd project move ID STAGE [placement]` — any direction,
-  no sequence enforcement, never gated on tasks. Cross-stage moves
-  append; a same-stage move with a placement is the within-column
+  no sequence enforcement, never gated on tasks. Bare cross-stage
+  moves append; an explicit placement positions the project in the
+  destination; a same-stage move with a placement is the within-column
   reorder; `reorder` stays area-axis only.
 - **Stage is orthogonal to status.** The board shows open projects
   only; resolving a project removes it from the board and the logbook

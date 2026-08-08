@@ -319,6 +319,15 @@ func normalizeApplicationError(err error) error {
 		if errors.As(err, &archivedAreas) {
 			guided = appendRecoveryGuidance(guided, "unarchive", "area unarchive", archivedAreas.IDs)
 		}
+		var projectArchivedAreas *project.ArchivedAreasError
+		if errors.As(err, &projectArchivedAreas) {
+			guided = appendRecoveryGuidance(
+				guided,
+				"unarchive",
+				"area unarchive",
+				projectArchivedAreas.IDs,
+			)
+		}
 		if guided != message {
 			return apperr.New(code, guided, err)
 		}

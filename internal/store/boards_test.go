@@ -11,6 +11,8 @@ import (
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/board"
 	"github.com/jmcampanini/gsd/internal/domain"
+	"github.com/jmcampanini/gsd/internal/project"
+	"github.com/jmcampanini/gsd/internal/task"
 )
 
 func TestBoardSchemaEnforcesStorageIdentityAndScopedStageNames(t *testing.T) {
@@ -315,6 +317,102 @@ func TestBoardAndStageDeletesReturnSnapshotsCascadeAndLeaveOrdinalGaps(t *testin
 	}
 	if _, err := boards.DeleteStage(ctx, kept.ID, 999); errorCode(err) != apperr.NotFound {
 		t.Errorf("DeleteStage(missing) error = %v, want not_found", err)
+	}
+}
+
+func TestBoardShownProjectsGroupOrderAndExcludeCancelledFromProgress(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	boards := NewBoards(storage)
+	projects := NewProjects(storage)
+	tasks := NewTasks(storage)
+	pipeline := addStoredBoard(t, boards, board.AddFields{Title: "pipeline"}, "2026-01-01T00:00:00.000Z")
+	firstStage := addStoredStage(t, boards, pipeline.ID, "first", "2026-01-01T00:00:00.000Z")
+	secondStage := addStoredStage(t, boards, pipeline.ID, "second", "2026-01-01T00:00:00.000Z")
+
+	secondStageProject := addStoredProject(t, projects, project.CreateFields{
+		StageID: &secondStage.ID,
+		Title:   "second stage",
+	})
+	firstA := addStoredProject(t, projects, project.CreateFields{StageID: &firstStage.ID, Title: "first A"})
+	firstB := addStoredProject(t, projects, project.CreateFields{StageID: &firstStage.ID, Title: "first B"})
+	resolved := addStoredProject(t, projects, project.CreateFields{StageID: &firstStage.ID, Title: "resolved"})
+	if _, err := projects.Resolve(ctx, resolved.ID, project.ExitDone, "2026-01-02T00:00:00.000Z"); err != nil {
+		t.Fatalf("Resolve(board project) error = %v", err)
+	}
+	if _, err := storage.database.ExecContext(ctx, `
+UPDATE projects
+SET stage_position = CASE id WHEN ? THEN 9 WHEN ? THEN 3 ELSE stage_position END
+WHERE id IN (?, ?)
+`, firstA.ID, firstB.ID, firstA.ID, firstB.ID); err != nil {
+		t.Fatalf("arrange shown project positions: %v", err)
+	}
+
+	openTask := addStoredTask(t, tasks, task.AddFields{ProjectID: &firstA.ID, Title: "open"})
+	doneTask := addStoredTask(t, tasks, task.AddFields{ProjectID: &firstA.ID, Title: "done"})
+	cancelledTask := addStoredTask(t, tasks, task.AddFields{ProjectID: &firstA.ID, Title: "cancelled"})
+	if _, err := tasks.Done(ctx, doneTask.ID, "2026-01-03T00:00:00.000Z"); err != nil {
+		t.Fatalf("Done(project task) error = %v", err)
+	}
+	if _, err := tasks.Cancel(ctx, cancelledTask.ID, "2026-01-04T00:00:00.000Z"); err != nil {
+		t.Fatalf("Cancel(project task) error = %v", err)
+	}
+
+	shown, err := boards.ListShownProjects(ctx, pipeline.ID)
+	if err != nil {
+		t.Fatalf("ListShownProjects() error = %v", err)
+	}
+	wantIDs := []int64{firstB.ID, firstA.ID, secondStageProject.ID}
+	if len(shown) != len(wantIDs) {
+		t.Fatalf("shown projects = %#v, want IDs %v", shown, wantIDs)
+	}
+	for index, wantID := range wantIDs {
+		if shown[index].ID != wantID {
+			t.Errorf("shown project IDs = %#v, want %v", shown, wantIDs)
+			break
+		}
+		if shown[index].Tags == nil {
+			t.Errorf("shown project %d tags = nil, want []", wantID)
+		}
+	}
+	if shown[1].Progress != (board.ProjectProgress{Done: 1, Total: 2}) {
+		t.Errorf("first A progress = %#v, want done 1/total 2", shown[1].Progress)
+	}
+	if shown[0].Progress != (board.ProjectProgress{}) || shown[2].Progress != (board.ProjectProgress{}) {
+		t.Errorf("empty progress values = %#v/%#v, want 0/0", shown[0].Progress, shown[2].Progress)
+	}
+	if openTask.Status != "open" {
+		t.Errorf("open task status = %q, want open", openTask.Status)
+	}
+}
+
+func TestBoardOccupancyIncludesResolvedProjects(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	boards := NewBoards(storage)
+	projects := NewProjects(storage)
+	pipeline := addStoredBoard(t, boards, board.AddFields{Title: "pipeline"}, "2026-01-01T00:00:00.000Z")
+	occupiedStage := addStoredStage(t, boards, pipeline.ID, "occupied", "2026-01-01T00:00:00.000Z")
+	emptyStage := addStoredStage(t, boards, pipeline.ID, "empty", "2026-01-01T00:00:00.000Z")
+
+	if occupied, err := boards.BoardOccupied(ctx, pipeline.ID); err != nil || occupied {
+		t.Fatalf("BoardOccupied(empty) = %t, %v; want false, nil", occupied, err)
+	}
+	resolved := addStoredProject(t, projects, project.CreateFields{StageID: &occupiedStage.ID, Title: "resolved"})
+	if _, err := projects.Resolve(ctx, resolved.ID, project.ExitCancelled, "2026-01-02T00:00:00.000Z"); err != nil {
+		t.Fatalf("Resolve(occupant) error = %v", err)
+	}
+
+	if occupied, err := boards.BoardOccupied(ctx, pipeline.ID); err != nil || !occupied {
+		t.Errorf("BoardOccupied(resolved) = %t, %v; want true, nil", occupied, err)
+	}
+	if occupied, err := boards.StageOccupied(ctx, occupiedStage.ID); err != nil || !occupied {
+		t.Errorf("StageOccupied(resolved) = %t, %v; want true, nil", occupied, err)
+	}
+	if occupied, err := boards.StageOccupied(ctx, emptyStage.ID); err != nil || occupied {
+		t.Errorf("StageOccupied(empty) = %t, %v; want false, nil", occupied, err)
 	}
 }
 

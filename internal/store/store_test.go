@@ -116,7 +116,7 @@ func TestContainedListingsDoNotReserveWriter(t *testing.T) {
 	projects := NewProjects(reader)
 	tasks := NewTasks(reader)
 	container := addStoredArea(t, areas, area.AddFields{Title: "area"})
-	contained := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "project"})
+	contained := addStoredProject(t, projects, project.CreateFields{AreaID: &container.ID, Title: "project"})
 	created := addStoredTask(t, tasks, task.AddFields{ProjectID: &contained.ID, Title: "task"})
 	if _, err := reader.database.ExecContext(ctx, "PRAGMA busy_timeout = 0"); err != nil {
 		t.Fatalf("disable reader busy timeout: %v", err)
@@ -936,7 +936,7 @@ func TestTaskLifecycleTransitionsAreBlockedByResolvedProject(t *testing.T) {
 
 	container, err := projects.Add(
 		ctx,
-		project.AddFields{Title: "resolved"},
+		project.CreateFields{Title: "resolved"},
 		"2026-01-01T00:00:00.000Z",
 	)
 	if err != nil {
@@ -1062,12 +1062,12 @@ func TestTaskArchivedAreaLifecycleGuardsAndDeleteAllowance(t *testing.T) {
 	openProject := addStoredProject(
 		t,
 		projects,
-		project.AddFields{AreaID: &inheritedArea.ID, Title: "open project"},
+		project.CreateFields{AreaID: &inheritedArea.ID, Title: "open project"},
 	)
 	resolvedProject := addStoredProject(
 		t,
 		projects,
-		project.AddFields{AreaID: &inheritedArea.ID, Title: "resolved project"},
+		project.CreateFields{AreaID: &inheritedArea.ID, Title: "resolved project"},
 	)
 	doneCandidate := addStoredTask(
 		t,
@@ -1283,7 +1283,7 @@ func TestTaskTransactionUsesAmbientStateAndRollsBack(t *testing.T) {
 	ctx, storage := openTestStorage(t)
 	projects := NewProjects(storage)
 	tasks := NewTasks(storage)
-	container := addStoredProject(t, projects, project.AddFields{Title: "container"})
+	container := addStoredProject(t, projects, project.CreateFields{Title: "container"})
 
 	var added task.Task
 	err := tasks.WithinTransaction(ctx, func(transaction task.Transaction) error {

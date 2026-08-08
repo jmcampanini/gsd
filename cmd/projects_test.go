@@ -18,10 +18,12 @@ type fakeProjectApplication struct {
 	addError         error
 	listResult       []project.Project
 	listError        error
-	showResult       project.Project
+	showResult       project.Detail
 	showError        error
-	editResult       project.Project
+	editResult       project.Edition
 	editError        error
+	moveResult       project.Movement
+	moveError        error
 	resolveResult    project.Resolution
 	resolveError     error
 	reopenResult     project.Project
@@ -39,6 +41,9 @@ type fakeProjectApplication struct {
 	showID           int64
 	editID           int64
 	editFields       project.EditFields
+	moveID           int64
+	moveStage        string
+	movePlacement    *domain.Placement
 	resolveID        int64
 	resolveExit      project.Exit
 	reopenID         int64
@@ -71,7 +76,7 @@ func (f *fakeProjectApplication) List(
 func (f *fakeProjectApplication) Show(
 	_ context.Context,
 	id int64,
-) (project.Project, error) {
+) (project.Detail, error) {
 	f.showID = id
 	return f.showResult, f.showError
 }
@@ -80,10 +85,22 @@ func (f *fakeProjectApplication) Edit(
 	_ context.Context,
 	id int64,
 	fields project.EditFields,
-) (project.Project, error) {
+) (project.Edition, error) {
 	f.editID = id
 	f.editFields = fields
 	return f.editResult, f.editError
+}
+
+func (f *fakeProjectApplication) Move(
+	_ context.Context,
+	id int64,
+	stage string,
+	placement *domain.Placement,
+) (project.Movement, error) {
+	f.moveID = id
+	f.moveStage = stage
+	f.movePlacement = placement
+	return f.moveResult, f.moveError
 }
 
 func (f *fakeProjectApplication) Resolve(
@@ -404,14 +421,17 @@ func TestProjectAddAndEditAdaptFieldsAndOutput(t *testing.T) {
 		"position",
 		"created_at",
 		"updated_at",
+		"stage_id",
+		"stage_position",
 		"tags",
 	} {
 		if _, ok := fields[field]; !ok {
 			t.Errorf("JSON fields = %v, missing %q", fields, field)
 		}
 	}
-	if len(fields) != 11 || string(fields["area_id"]) != "null" || string(fields["done_at"]) != "null" ||
-		string(fields["cancelled_at"]) != "null" || string(fields["tags"]) != "[]" {
+	if len(fields) != 13 || string(fields["area_id"]) != "null" || string(fields["done_at"]) != "null" ||
+		string(fields["cancelled_at"]) != "null" || string(fields["stage_id"]) != "null" ||
+		string(fields["stage_position"]) != "null" || string(fields["tags"]) != "[]" {
 		t.Errorf("JSON fields = %v, want complete project row with null exits and tags", fields)
 	}
 	if addResult.openPath != "chosen.db" || addResult.opens != 1 || addResult.closes != 1 {
@@ -431,7 +451,7 @@ func TestProjectAddAndEditAdaptFieldsAndOutput(t *testing.T) {
 	}
 
 	title := "Bathroom"
-	editApplication := &fakeProjectApplication{editResult: project.Project{ID: 7, Title: title}}
+	editApplication := &fakeProjectApplication{editResult: project.Edition{Project: project.Project{ID: 7, Title: title}}}
 	editResult := runProjectCommand(
 		t,
 		editApplication,
@@ -563,17 +583,82 @@ func TestProjectAreaFlagsAdaptContainmentIntent(t *testing.T) {
 		t.Fatalf("list = %#v/%#v, want area 5", listResult, listApplication.listOptions)
 	}
 
-	editApplication := &fakeProjectApplication{editResult: project.Project{ID: 1}}
+	editApplication := &fakeProjectApplication{editResult: project.Edition{Project: project.Project{ID: 1}}}
 	editResult := runProjectCommand(t, editApplication, "project", "edit", "1", "--area", "6", "--json")
 	if editResult.exitCode != 0 || editApplication.editFields.Area.Set == nil ||
 		*editApplication.editFields.Area.Set != 6 || editApplication.editFields.Area.Clear {
 		t.Fatalf("edit = %#v/%#v, want set area 6", editResult, editApplication.editFields)
 	}
 
-	clearApplication := &fakeProjectApplication{editResult: project.Project{ID: 1}}
+	clearApplication := &fakeProjectApplication{editResult: project.Edition{Project: project.Project{ID: 1}}}
 	clearResult := runProjectCommand(t, clearApplication, "project", "edit", "1", "--no-area", "--json")
 	if clearResult.exitCode != 0 || !clearApplication.editFields.Area.Clear || clearApplication.editFields.Area.Set != nil {
 		t.Fatalf("edit = %#v/%#v, want clear area", clearResult, clearApplication.editFields)
+	}
+}
+
+func TestProjectBoardFlagsAdaptMembershipIntentAndOutput(t *testing.T) {
+	t.Parallel()
+
+	boardTitle := "Software"
+	stageID := int64(4)
+	stagePosition := int64(2)
+	created := project.Project{
+		ID: 1, Title: "Kitchen", StageID: &stageID, StagePosition: &stagePosition, Tags: domain.TagNames{},
+	}
+	addApplication := &fakeProjectApplication{addResult: created}
+	addResult := runProjectCommand(t, addApplication, "projects", "add", "Kitchen", "--board", boardTitle, "--json")
+	requireProjectCommandJSON(t, addResult, created)
+	if addApplication.addFields.Board == nil || *addApplication.addFields.Board != boardTitle {
+		t.Errorf("Add() board = %#v, want exact board title %q", addApplication.addFields.Board, boardTitle)
+	}
+
+	edition := project.Edition{
+		Project:       created,
+		ClearedDefers: []task.Task{},
+		Location:      &project.Location{BoardTitle: "Software", StageTitle: "Research"},
+	}
+	editApplication := &fakeProjectApplication{editResult: edition}
+	editResult := runProjectCommand(t, editApplication, "project", "edit", "1", "--board", "software", "--json")
+	requireProjectCommandJSON(t, editResult, project.Edition{
+		Project: created, ClearedDefers: []task.Task{},
+	})
+	if editApplication.editFields.Board.Set == nil || *editApplication.editFields.Board.Set != "software" ||
+		editApplication.editFields.Board.Clear {
+		t.Errorf("Edit() board change = %#v, want set software", editApplication.editFields.Board)
+	}
+
+	human := runProjectCommand(t, &fakeProjectApplication{editResult: edition},
+		"project", "edit", "1", "--board", "software")
+	if human.exitCode != 0 || human.stderr != "" ||
+		human.stdout != "~ Edited: ◆ 1  Kitchen → Software/Research\n" {
+		t.Errorf("human board edit = %#v, want exact destination mutation", human)
+	}
+
+	cleared := project.Edition{Project: project.Project{ID: 1, Title: "Kitchen"}, ClearedDefers: []task.Task{}}
+	clearApplication := &fakeProjectApplication{editResult: cleared}
+	clearResult := runProjectCommand(t, clearApplication, "project", "edit", "1", "--no-board")
+	if clearResult.exitCode != 0 || clearResult.stderr != "" ||
+		clearResult.stdout != "~ Edited: ◆ 1  Kitchen → (no board)\n" ||
+		!clearApplication.editFields.Board.Clear || clearApplication.editFields.Board.Set != nil {
+		t.Errorf("clear board result/call = %#v/%#v, want cleared destination", clearResult, clearApplication.editFields.Board)
+	}
+}
+
+func TestProjectBoardFlagConflictIsUsageWithoutOpeningApplication(t *testing.T) {
+	t.Parallel()
+
+	result := runProjectCommand(
+		t,
+		&fakeProjectApplication{},
+		"project", "edit", "1", "--board", "software", "--no-board", "--json",
+	)
+	if result.exitCode != 2 || result.opens != 0 || result.closes != 0 ||
+		result.stdout != "" || result.stderr == "" {
+		t.Errorf("result = %#v, want stderr-only usage error without application lifecycle", result)
+	}
+	if strings.HasPrefix(result.stderr, "{") {
+		t.Errorf("stderr = %q, want human-readable usage diagnostic", result.stderr)
 	}
 }
 
@@ -639,7 +724,7 @@ func TestProjectShowUsesSchemaOrderFieldValueTable(t *testing.T) {
 		CreatedAt: "2026-07-27T12:00:00.000Z",
 		UpdatedAt: doneAt,
 	}
-	application := &fakeProjectApplication{showResult: shown}
+	application := &fakeProjectApplication{showResult: project.Detail{Project: shown}}
 	result := runProjectCommand(t, application, "project", "show", "7")
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)
@@ -650,6 +735,7 @@ func TestProjectShowUsesSchemaOrderFieldValueTable(t *testing.T) {
 
 	wantRows := []string{
 		"area 3",
+		"board",
 		"note Budget: 20k",
 		"done at 2026-07-28T12:00:00.000Z",
 		"cancelled at",
@@ -673,6 +759,37 @@ func TestProjectShowUsesSchemaOrderFieldValueTable(t *testing.T) {
 	}
 	if strings.Contains(result.stdout, "\x1b[") {
 		t.Errorf("stdout = %q, want plain output", result.stdout)
+	}
+}
+
+func TestProjectShowWritesBoardLocationAndBareProjectJSON(t *testing.T) {
+	t.Parallel()
+
+	stageID := int64(3)
+	stagePosition := int64(1)
+	shown := project.Project{
+		ID: 7, Title: "Milestone", Status: "open", StageID: &stageID,
+		StagePosition: &stagePosition, Tags: domain.TagNames{},
+	}
+	detail := project.Detail{
+		Project:  shown,
+		Location: &project.Location{BoardTitle: "Soft\x1bware", StageTitle: "Doing\nnow"},
+	}
+	human := runProjectCommand(t, &fakeProjectApplication{showResult: detail}, "project", "show", "7")
+	if human.exitCode != 0 || human.stderr != "" ||
+		!strings.Contains(human.stdout, "    board         Soft\\x1bware/Doing\\nnow\n") {
+		t.Errorf("human show = %#v, want escaped board/stage row", human)
+	}
+
+	jsonResult := runProjectCommand(t, &fakeProjectApplication{showResult: detail},
+		"project", "show", "7", "--json")
+	requireProjectCommandJSON(t, jsonResult, shown)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(jsonResult.stdout), &fields); err != nil {
+		t.Fatalf("decode shown project: %v", err)
+	}
+	if _, exists := fields["location"]; exists {
+		t.Errorf("JSON fields = %v, want bare project row without display location", fields)
 	}
 }
 
@@ -711,6 +828,77 @@ func TestProjectResolveCommandsAdaptExitAndJSONEnvelope(t *testing.T) {
 				t.Errorf("factory lifecycle = %#v, want one open and close", result)
 			}
 		})
+	}
+}
+
+func TestProjectMoveAdaptsOptionalPlacementAndWritesOwnedOutputs(t *testing.T) {
+	t.Parallel()
+
+	wantProject := project.Project{ID: 7, Title: "Milestone", Status: "open", Tags: domain.TagNames{}}
+	tests := []struct {
+		name string
+		args []string
+		want *domain.Placement
+	}{
+		{name: "bare", args: nil},
+		{name: "after", args: []string{"--after=008"}, want: &domain.Placement{Anchor: domain.PlacementAfter, ReferenceID: 8}},
+		{name: "before", args: []string{"--before=008"}, want: &domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: 8}},
+		{name: "first", args: []string{"--first"}, want: &domain.Placement{Anchor: domain.PlacementFirst}},
+		{name: "last", args: []string{"--last"}, want: &domain.Placement{Anchor: domain.PlacementLast}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			application := &fakeProjectApplication{moveResult: project.Movement{Project: wantProject, StageTitle: "Doing"}}
+			args := []string{"project", "move", "007", "doing"}
+			args = append(args, test.args...)
+			args = append(args, "--json")
+			result := runProjectCommand(t, application, args...)
+			requireProjectCommandJSON(t, result, wantProject)
+			if application.moveID != 7 || application.moveStage != "doing" ||
+				!reflect.DeepEqual(application.movePlacement, test.want) {
+				t.Errorf("Move() input = (%d, %q, %#v), want (7, doing, %#v)",
+					application.moveID, application.moveStage, application.movePlacement, test.want)
+			}
+			if result.opens != 1 || result.closes != 1 {
+				t.Errorf("factory lifecycle = %#v, want one open and close", result)
+			}
+		})
+	}
+
+	human := runProjectCommand(t, &fakeProjectApplication{moveResult: project.Movement{
+		Project: project.Project{ID: 7, Title: "Milestone\x1b"}, StageTitle: "Doing\nnow",
+	}}, "project", "move", "7", "doing")
+	if human.exitCode != 0 || human.stderr != "" ||
+		human.stdout != "~ Moved: ◆ 7  Milestone\\x1b → Doing\\nnow\n" {
+		t.Errorf("human move = %#v, want exact escaped movement echo", human)
+	}
+}
+
+func TestProjectMoveGrammarFailuresDoNotOpenApplication(t *testing.T) {
+	t.Parallel()
+
+	help := runProjectCommand(t, &fakeProjectApplication{}, "project", "move", "--help")
+	if help.exitCode != 0 || help.opens != 0 || help.closes != 0 || help.stderr != "" || help.stdout == "" {
+		t.Errorf("move help = %#v, want stdout help without application lifecycle", help)
+	}
+
+	for _, args := range [][]string{
+		{"project", "move", "7"},
+		{"project", "move", "7", "doing", "extra"},
+		{"project", "move", "7", "doing", "--first", "--last"},
+		{"project", "move", "7", "doing", "--first=false"},
+		{"project", "move", "nope", "doing"},
+		{"project", "move", "7", "doing", "--before", "nope"},
+	} {
+		result := runProjectCommand(t, &fakeProjectApplication{}, args...)
+		if result.opens != 0 || result.closes != 0 || result.stdout != "" || result.stderr == "" {
+			t.Errorf("move %v = %#v, want pre-open grammar/argument failure", args, result)
+		}
+		if result.exitCode != 1 && result.exitCode != 2 {
+			t.Errorf("move %v exit = %d, want application-argument 1 or grammar 2", args, result.exitCode)
+		}
 	}
 }
 

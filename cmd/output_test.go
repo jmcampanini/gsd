@@ -137,13 +137,13 @@ func TestFinalGlyphVocabulary(t *testing.T) {
 			return o.writeTask(task.Task{ID: 1, Title: "Task", Status: "cancelled"})
 		}},
 		{name: "project open", prefix: "◆ 2  Project", render: func(o humanOutput) error {
-			return o.writeProject(project.Project{ID: 2, Title: "Project", Status: "open"})
+			return o.writeProject(project.Detail{Project: project.Project{ID: 2, Title: "Project", Status: "open"}})
 		}},
 		{name: "project done", prefix: "✓ 2  Project", render: func(o humanOutput) error {
-			return o.writeProject(project.Project{ID: 2, Title: "Project", Status: "done"})
+			return o.writeProject(project.Detail{Project: project.Project{ID: 2, Title: "Project", Status: "done"}})
 		}},
 		{name: "project cancelled", prefix: "✗ 2  Project", render: func(o humanOutput) error {
-			return o.writeProject(project.Project{ID: 2, Title: "Project", Status: "cancelled"})
+			return o.writeProject(project.Detail{Project: project.Project{ID: 2, Title: "Project", Status: "cancelled"}})
 		}},
 		{name: "area active", prefix: "● 3  Area", render: func(o humanOutput) error {
 			return o.writeArea(area.Area{ID: 3, Title: "Area"})

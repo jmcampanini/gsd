@@ -185,7 +185,7 @@ func TestAreaDeletionReturnsPreDeleteTagSnapshotsAtEveryRecursiveLevel(t *testin
 	}
 
 	doomed := addStoredArea(t, areas, area.AddFields{Title: "recursive tagged"})
-	containedProject := addStoredProject(t, projects, project.AddFields{AreaID: &doomed.ID, Title: "project"})
+	containedProject := addStoredProject(t, projects, project.CreateFields{AreaID: &doomed.ID, Title: "project"})
 	projectTask := addStoredTask(t, tasks, task.AddFields{ProjectID: &containedProject.ID, Title: "project task"})
 	looseTask := addStoredTask(t, tasks, task.AddFields{AreaID: &doomed.ID, Title: "loose task"})
 	if err := areas.AttachTags(ctx, doomed.ID, []tag.Tag{secondTag, firstTag}); err != nil {

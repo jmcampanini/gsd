@@ -60,6 +60,7 @@ var (
 	verbCancelled  = mutationVerb{label: "Cancelled", glyph: glyphCancelled, accent: accentRed}
 	verbArchived   = mutationVerb{label: "Archived", glyph: glyphCancelled, accent: accentRed}
 	verbEdited     = mutationVerb{label: "Edited", glyph: glyphNeutral}
+	verbMoved      = mutationVerb{label: "Moved", glyph: glyphNeutral}
 	verbReopened   = mutationVerb{label: "Reopened", glyph: glyphNeutral}
 	verbReordered  = mutationVerb{label: "Reordered", glyph: glyphNeutral}
 	verbUnarchived = mutationVerb{label: "Unarchived", glyph: glyphNeutral}
@@ -433,6 +434,41 @@ func (o humanOutput) writeProjectMutation(verb mutationVerb, current project.Pro
 	return err
 }
 
+func (o humanOutput) writeProjectBoardEdit(edition project.Edition) error {
+	destination := "(no board)"
+	if edition.Location != nil {
+		destination = text.Human(edition.Location.BoardTitle, false) + "/" +
+			text.Human(edition.Location.StageTitle, false)
+	}
+	return o.writeProjectBoardMutation(verbEdited, edition.Project, destination)
+}
+
+func (o humanOutput) writeProjectMovement(movement project.Movement) error {
+	return o.writeProjectBoardMutation(
+		verbMoved,
+		movement.Project,
+		text.Human(movement.StageTitle, false),
+	)
+}
+
+func (o humanOutput) writeProjectBoardMutation(
+	verb mutationVerb,
+	current project.Project,
+	destination string,
+) error {
+	_, err := fmt.Fprintf(
+		o.writer,
+		"%s %s: %s %s  %s → %s\n",
+		o.verbGlyph(verb),
+		verb.label,
+		glyphProjectOpen,
+		o.styles.faint.Render(strconv.FormatInt(current.ID, 10)),
+		text.Human(current.Title, false),
+		destination,
+	)
+	return err
+}
+
 func (o humanOutput) writeProjectResolution(verb mutationVerb, resolution project.Resolution) error {
 	if err := o.writeProjectMutation(verb, resolution.Project); err != nil {
 		return err
@@ -727,15 +763,22 @@ func (o humanOutput) writeTask(current task.Task) error {
 	return o.writeDetail(glyph, current.ID, current.Title, fields)
 }
 
-func (o humanOutput) writeProject(current project.Project) error {
+func (o humanOutput) writeProject(detail project.Detail) error {
+	current := detail.Project
 	glyph := glyphProjectOpen
 	if current.Status == string(project.ListStatusDone) {
 		glyph = o.styles.green.Render(glyphDone)
 	} else if current.Status == string(project.ListStatusCancelled) {
 		glyph = o.styles.red.Render(glyphCancelled)
 	}
+	boardLocation := ""
+	if detail.Location != nil {
+		boardLocation = text.Human(detail.Location.BoardTitle, false) + "/" +
+			text.Human(detail.Location.StageTitle, false)
+	}
 	fields := []detailField{
 		{Label: "area", Value: o.metadata(nullableInt64(current.AreaID))},
+		{Label: "board", Value: o.metadata(boardLocation)},
 		{Label: "note", Value: text.Human(current.Note, true)},
 		{Label: "done at", Value: o.metadata(text.Human(nullableString(current.DoneAt), false))},
 		{Label: "cancelled at", Value: o.metadata(text.Human(nullableString(current.CancelledAt), false))},

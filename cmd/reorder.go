@@ -13,11 +13,19 @@ type reorderFlags struct {
 }
 
 func (f *reorderFlags) register(command *cobra.Command, entity string) {
+	f.registerFlags(command, entity)
+	command.MarkFlagsOneRequired("after", "before", "first", "last")
+}
+
+func (f *reorderFlags) registerOptional(command *cobra.Command, entity string) {
+	f.registerFlags(command, entity)
+}
+
+func (f *reorderFlags) registerFlags(command *cobra.Command, entity string) {
 	command.Flags().StringVar(&f.afterIDValue, "after", "", "place after "+entity+" ID")
 	command.Flags().StringVar(&f.beforeIDValue, "before", "", "place before "+entity+" ID")
 	command.Flags().BoolVar(&f.first, "first", false, "place first")
 	command.Flags().BoolVar(&f.last, "last", false, "place last")
-	command.MarkFlagsOneRequired("after", "before", "first", "last")
 	command.MarkFlagsMutuallyExclusive("after", "before", "first", "last")
 }
 
@@ -29,6 +37,20 @@ func (f reorderFlags) validate(command *cobra.Command) error {
 		return usageError("--last cannot be false")
 	}
 	return nil
+}
+
+func (f reorderFlags) optionalPlacement(
+	command *cobra.Command,
+	parseID func(string) (int64, error),
+) (*domain.Placement, error) {
+	if !anyFlagChanged(command, "after", "before", "first", "last") {
+		return nil, nil
+	}
+	placement, err := f.placement(command, parseID)
+	if err != nil {
+		return nil, err
+	}
+	return &placement, nil
 }
 
 func (f reorderFlags) placement(
