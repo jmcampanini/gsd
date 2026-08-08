@@ -99,6 +99,21 @@ func (s *Boards) ListStages(ctx context.Context, boardID int64) ([]board.Stage, 
 	return s.poolCore().ListStages(ctx, boardID)
 }
 
+func (s *Boards) ListShownProjects(
+	ctx context.Context,
+	boardID int64,
+) ([]board.ShownProject, error) {
+	return s.poolCore().ListShownProjects(ctx, boardID)
+}
+
+func (s *Boards) BoardOccupied(ctx context.Context, boardID int64) (bool, error) {
+	return s.poolCore().BoardOccupied(ctx, boardID)
+}
+
+func (s *Boards) StageOccupied(ctx context.Context, stageID int64) (bool, error) {
+	return s.poolCore().StageOccupied(ctx, stageID)
+}
+
 func (s *Boards) RenameStage(
 	ctx context.Context,
 	boardID, id int64,
@@ -406,6 +421,60 @@ func (s *boardsCore) ListStages(ctx context.Context, boardID int64) ([]board.Sta
 	return collectRows(rows, scanStage, "scan listed stage", "iterate listed stages")
 }
 
+func (s *boardsCore) ListShownProjects(
+	ctx context.Context,
+	boardID int64,
+) ([]board.ShownProject, error) {
+	rows, err := s.executor.QueryContext(ctx, `
+SELECT `+qualifiedColumns("p", projectColumns)+`,
+       `+tagJSONExpression(projectTagSpec, "p.id")+` AS tags,
+       (SELECT COUNT(*)
+        FROM tasks done
+        WHERE done.project_id = p.id AND done.done_at IS NOT NULL) AS done_count,
+       (SELECT COUNT(*)
+        FROM tasks counted
+        WHERE counted.project_id = p.id AND counted.cancelled_at IS NULL) AS total_count
+FROM projects p
+JOIN stages s ON s.id = p.stage_id
+WHERE s.board_id = ? AND p.status = 'open'
+ORDER BY s.position, s.id, p.stage_position, p.id`, boardID)
+	if err != nil {
+		return nil, fmt.Errorf("list shown board projects: %w", err)
+	}
+	return collectRows(
+		rows,
+		scanShownProject,
+		"scan shown board project",
+		"iterate shown board projects",
+	)
+}
+
+func (s *boardsCore) BoardOccupied(ctx context.Context, boardID int64) (bool, error) {
+	var occupied bool
+	if err := s.executor.QueryRowContext(ctx, `
+SELECT EXISTS (
+    SELECT 1
+    FROM projects p
+    JOIN stages s ON s.id = p.stage_id
+    WHERE s.board_id = ?
+)`, boardID).Scan(&occupied); err != nil {
+		return false, fmt.Errorf("check board occupancy: %w", err)
+	}
+	return occupied, nil
+}
+
+func (s *boardsCore) StageOccupied(ctx context.Context, stageID int64) (bool, error) {
+	var occupied bool
+	if err := s.executor.QueryRowContext(
+		ctx,
+		"SELECT EXISTS (SELECT 1 FROM projects WHERE stage_id = ?)",
+		stageID,
+	).Scan(&occupied); err != nil {
+		return false, fmt.Errorf("check stage occupancy: %w", err)
+	}
+	return occupied, nil
+}
+
 func (s *boardsCore) RenameStage(
 	ctx context.Context,
 	boardID, id int64,
@@ -531,5 +600,13 @@ func scanStage(scanner rowScanner) (board.Stage, error) {
 		&value.CreatedAt,
 		&value.UpdatedAt,
 	)
+	return value, err
+}
+
+func scanShownProject(scanner rowScanner) (board.ShownProject, error) {
+	var value board.ShownProject
+	targets := append(projectBaseScanTargets(&value.Project), scanTagTitles(&value.Tags))
+	targets = append(targets, &value.Progress.Done, &value.Progress.Total)
+	err := scanner.Scan(targets...)
 	return value, err
 }

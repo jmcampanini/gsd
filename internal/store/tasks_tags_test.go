@@ -140,7 +140,7 @@ func TestTaskListTagIDFilterComposesWithAllPredicates(t *testing.T) {
 
 	focus := addTaskTestTag(t, tags, "Focus")
 	other := addTaskTestTag(t, tags, "other")
-	container := addStoredProject(t, projects, project.AddFields{Title: "container"})
+	container := addStoredProject(t, projects, project.CreateFields{Title: "container"})
 	dueOn := "2026-08-03"
 	focusDue := addStoredTask(t, tasks, task.AddFields{
 		ProjectID: &container.ID,

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/board"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -22,7 +25,7 @@ func TestProjectStoreRoundTripsEditsAndOrdersLists(t *testing.T) {
 
 	first, err := projects.Add(
 		ctx,
-		project.AddFields{Title: "first", Note: "first note"},
+		project.CreateFields{Title: "first", Note: "first note"},
 		"2026-01-01T00:00:00.000Z",
 	)
 	if err != nil {
@@ -43,7 +46,7 @@ func TestProjectStoreRoundTripsEditsAndOrdersLists(t *testing.T) {
 	}
 	second, err := projects.Add(
 		ctx,
-		project.AddFields{Title: "second"},
+		project.CreateFields{Title: "second"},
 		"2026-01-03T00:00:00.000Z",
 	)
 	if err != nil {
@@ -58,7 +61,7 @@ func TestProjectStoreRoundTripsEditsAndOrdersLists(t *testing.T) {
 	edited, err := projects.Edit(
 		ctx,
 		second.ID,
-		project.EditFields{Title: &title, Note: &note},
+		project.UpdateFields{Title: &title, Note: &note},
 		"2026-01-04T00:00:00.000Z",
 	)
 	if err != nil {
@@ -116,7 +119,7 @@ func TestProjectAddAppendsWithinArea(t *testing.T) {
 	for _, fixture := range fixtures {
 		created, err := projects.Add(
 			ctx,
-			project.AddFields{AreaID: fixture.areaID, Title: fixture.title},
+			project.CreateFields{AreaID: fixture.areaID, Title: fixture.title},
 			"2026-01-02T00:00:00.000Z",
 		)
 		if err != nil {
@@ -133,15 +136,6 @@ func TestProjectAddAppendsWithinArea(t *testing.T) {
 			)
 		}
 	}
-
-	missingAreaID := int64(999)
-	if _, err := projects.Add(
-		ctx,
-		project.AddFields{AreaID: &missingAreaID, Title: "orphan"},
-		"2026-01-03T00:00:00.000Z",
-	); errorCode(err) != apperr.NotFound || !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("Add(missing area) error = %v, want not_found wrapping sql.ErrNoRows", err)
-	}
 }
 
 func TestProjectListReturnsEmptyForExistingFilteredArea(t *testing.T) {
@@ -153,11 +147,11 @@ func TestProjectListReturnsEmptyForExistingFilteredArea(t *testing.T) {
 
 	requestedArea := addStoredArea(t, areas, area.AddFields{Title: "requested"})
 	otherArea := addStoredArea(t, areas, area.AddFields{Title: "other"})
-	resolved := addStoredProject(t, projects, project.AddFields{AreaID: &requestedArea.ID, Title: "resolved"})
+	resolved := addStoredProject(t, projects, project.CreateFields{AreaID: &requestedArea.ID, Title: "resolved"})
 	if _, err := projects.Resolve(ctx, resolved.ID, project.ExitDone, "2026-01-03T00:00:00.000Z"); err != nil {
 		t.Fatalf("Resolve(project) error = %v", err)
 	}
-	addStoredProject(t, projects, project.AddFields{AreaID: &otherArea.ID, Title: "other project"})
+	addStoredProject(t, projects, project.CreateFields{AreaID: &otherArea.ID, Title: "other project"})
 
 	open, err := projects.List(ctx, project.ListOptions{
 		Status: project.ListStatusOpen,
@@ -180,9 +174,9 @@ func TestProjectEditReparentsAtomicallyAndPreservesNoOpMembership(t *testing.T) 
 
 	sourceArea := addStoredArea(t, areas, area.AddFields{Title: "source"})
 	destinationArea := addStoredArea(t, areas, area.AddFields{Title: "destination"})
-	addStoredProject(t, projects, project.AddFields{AreaID: &destinationArea.ID, Title: "destination sibling"})
-	addStoredProject(t, projects, project.AddFields{Title: "standalone sibling"})
-	created := addStoredProject(t, projects, project.AddFields{AreaID: &sourceArea.ID, Title: "moving"})
+	addStoredProject(t, projects, project.CreateFields{AreaID: &destinationArea.ID, Title: "destination sibling"})
+	addStoredProject(t, projects, project.CreateFields{Title: "standalone sibling"})
+	created := addStoredProject(t, projects, project.CreateFields{AreaID: &sourceArea.ID, Title: "moving"})
 	resolved, err := projects.Resolve(ctx, created.ID, project.ExitDone, "2026-01-03T00:00:00.000Z")
 	if err != nil {
 		t.Fatalf("Resolve(moving project) error = %v", err)
@@ -191,7 +185,7 @@ func TestProjectEditReparentsAtomicallyAndPreservesNoOpMembership(t *testing.T) 
 	unchanged, err := projects.Edit(
 		ctx,
 		resolved.ID,
-		project.EditFields{Area: project.AreaChange{Set: &sourceArea.ID}},
+		project.UpdateFields{Area: project.AreaChange{Set: &sourceArea.ID}},
 		"2026-01-04T00:00:00.000Z",
 	)
 	if err != nil {
@@ -204,7 +198,7 @@ func TestProjectEditReparentsAtomicallyAndPreservesNoOpMembership(t *testing.T) 
 	moved, err := projects.Edit(
 		ctx,
 		resolved.ID,
-		project.EditFields{Area: project.AreaChange{Set: &destinationArea.ID}},
+		project.UpdateFields{Area: project.AreaChange{Set: &destinationArea.ID}},
 		"2026-01-05T00:00:00.000Z",
 	)
 	if err != nil {
@@ -215,31 +209,10 @@ func TestProjectEditReparentsAtomicallyAndPreservesNoOpMembership(t *testing.T) 
 		t.Errorf("Edit(move) = %#v, want resolved project appended to destination area", moved)
 	}
 
-	missingAreaID := int64(999)
-	uncommittedTitle := "must not persist"
-	if _, err := projects.Edit(
-		ctx,
-		moved.ID,
-		project.EditFields{
-			Area:  project.AreaChange{Set: &missingAreaID},
-			Title: &uncommittedTitle,
-		},
-		"2026-01-06T00:00:00.000Z",
-	); errorCode(err) != apperr.NotFound {
-		t.Errorf("Edit(missing destination) error = %v, want not_found", err)
-	}
-	persisted, err := projects.Find(ctx, moved.ID)
-	if err != nil {
-		t.Fatalf("Find(after failed move) error = %v", err)
-	}
-	if !reflect.DeepEqual(persisted, moved) {
-		t.Errorf("project after failed move = %#v, want unchanged %#v", persisted, moved)
-	}
-
 	cleared, err := projects.Edit(
 		ctx,
 		moved.ID,
-		project.EditFields{Area: project.AreaChange{Clear: true}},
+		project.UpdateFields{Area: project.AreaChange{Clear: true}},
 		"2026-01-07T00:00:00.000Z",
 	)
 	if err != nil {
@@ -252,7 +225,7 @@ func TestProjectEditReparentsAtomicallyAndPreservesNoOpMembership(t *testing.T) 
 	redundantClear, err := projects.Edit(
 		ctx,
 		moved.ID,
-		project.EditFields{Area: project.AreaChange{Clear: true}},
+		project.UpdateFields{Area: project.AreaChange{Clear: true}},
 		"2026-01-08T00:00:00.000Z",
 	)
 	if err != nil {
@@ -260,114 +233,6 @@ func TestProjectEditReparentsAtomicallyAndPreservesNoOpMembership(t *testing.T) 
 	}
 	if !reflect.DeepEqual(redundantClear, cleared) {
 		t.Errorf("Edit(redundant clear) = %#v, want no-op %#v", redundantClear, cleared)
-	}
-}
-
-func TestProjectArchivedAreaGuardsCreationAndMovement(t *testing.T) {
-	t.Parallel()
-
-	ctx, storage := openTestStorage(t)
-	areas := NewAreas(storage)
-	projects := NewProjects(storage)
-
-	sourceArea := addStoredArea(t, areas, area.AddFields{Title: "source"})
-	destinationArea := addStoredArea(t, areas, area.AddFields{Title: "destination"})
-	activeArea := addStoredArea(t, areas, area.AddFields{Title: "active"})
-	moving := addStoredProject(t, projects, project.AddFields{AreaID: &sourceArea.ID, Title: "moving"})
-	standalone := addStoredProject(t, projects, project.AddFields{Title: "standalone"})
-	addStoredProject(t, projects, project.AddFields{AreaID: &activeArea.ID, Title: "active anchor"})
-	if _, err := areas.Archive(ctx, sourceArea.ID, "2026-01-02T00:00:00.000Z"); err != nil {
-		t.Fatalf("Archive(source) error = %v", err)
-	}
-	if _, err := areas.Archive(ctx, destinationArea.ID, "2026-01-03T00:00:00.000Z"); err != nil {
-		t.Fatalf("Archive(destination) error = %v", err)
-	}
-
-	_, err := projects.Add(
-		ctx,
-		project.AddFields{AreaID: &sourceArea.ID, Title: "blocked"},
-		"2026-01-04T00:00:00.000Z",
-	)
-	wantAddError := fmt.Sprintf("cannot add project to area %d while it is archived", sourceArea.ID)
-	if err == nil || err.Error() != wantAddError {
-		t.Errorf("Add(archived area) error = %v, want %q", err, wantAddError)
-	}
-	assertArchivedAreaConflict(t, err, sourceArea.ID)
-
-	restated, err := projects.Edit(
-		ctx,
-		moving.ID,
-		project.EditFields{Area: project.AreaChange{Set: &sourceArea.ID}},
-		"2026-01-05T00:00:00.000Z",
-	)
-	if err != nil {
-		t.Fatalf("Edit(restate archived area) error = %v", err)
-	}
-	if !reflect.DeepEqual(restated, moving) {
-		t.Errorf("Edit(restate archived area) = %#v, want no-op %#v", restated, moving)
-	}
-
-	revisedTitle := "content allowed"
-	contentEdited, err := projects.Edit(
-		ctx,
-		moving.ID,
-		project.EditFields{
-			Area:  project.AreaChange{Set: &sourceArea.ID},
-			Title: &revisedTitle,
-		},
-		"2026-01-06T00:00:00.000Z",
-	)
-	if err != nil {
-		t.Fatalf("Edit(content with restated archived area) error = %v", err)
-	}
-	if contentEdited.Title != revisedTitle || contentEdited.Position != moving.Position ||
-		contentEdited.AreaID == nil || *contentEdited.AreaID != sourceArea.ID {
-		t.Errorf("Edit(content with restated archived area) = %#v, want content-only mutation", contentEdited)
-	}
-
-	blockedTitle := "must not persist"
-	_, err = projects.Edit(
-		ctx,
-		moving.ID,
-		project.EditFields{
-			Area:  project.AreaChange{Set: &activeArea.ID},
-			Title: &blockedTitle,
-		},
-		"2026-01-07T00:00:00.000Z",
-	)
-	assertArchivedAreaConflict(t, err, sourceArea.ID)
-	persisted, err := projects.Find(ctx, moving.ID)
-	if err != nil {
-		t.Fatalf("Find(after blocked source move) error = %v", err)
-	}
-	if !reflect.DeepEqual(persisted, contentEdited) {
-		t.Errorf("project after blocked source move = %#v, want unchanged %#v", persisted, contentEdited)
-	}
-
-	_, err = projects.Edit(
-		ctx,
-		standalone.ID,
-		project.EditFields{Area: project.AreaChange{Set: &destinationArea.ID}},
-		"2026-01-08T00:00:00.000Z",
-	)
-	assertArchivedAreaConflict(t, err, destinationArea.ID)
-
-	_, err = projects.Edit(
-		ctx,
-		moving.ID,
-		project.EditFields{Area: project.AreaChange{Set: &destinationArea.ID}},
-		"2026-01-09T00:00:00.000Z",
-	)
-	assertArchivedAreaConflict(t, err, sourceArea.ID, destinationArea.ID)
-
-	missingAreaID := int64(999)
-	if _, err := projects.Edit(
-		ctx,
-		moving.ID,
-		project.EditFields{Area: project.AreaChange{Set: &missingAreaID}},
-		"2026-01-10T00:00:00.000Z",
-	); errorCode(err) != apperr.NotFound {
-		t.Errorf("Edit(archived source to missing destination) error = %v, want not_found", err)
 	}
 }
 
@@ -379,10 +244,10 @@ func TestProjectArchivedAreaGuardsLifecycleButAllowsDelete(t *testing.T) {
 	projects := NewProjects(storage)
 
 	container := addStoredArea(t, areas, area.AddFields{Title: "retired"})
-	completeCandidate := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "complete"})
-	cancelCandidate := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "cancel"})
-	reopenCandidate := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "reopen"})
-	deleteCandidate := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "delete"})
+	completeCandidate := addStoredProject(t, projects, project.CreateFields{AreaID: &container.ID, Title: "complete"})
+	cancelCandidate := addStoredProject(t, projects, project.CreateFields{AreaID: &container.ID, Title: "cancel"})
+	reopenCandidate := addStoredProject(t, projects, project.CreateFields{AreaID: &container.ID, Title: "reopen"})
+	deleteCandidate := addStoredProject(t, projects, project.CreateFields{AreaID: &container.ID, Title: "delete"})
 	if _, err := projects.Resolve(
 		ctx,
 		reopenCandidate.ID,
@@ -439,66 +304,6 @@ func assertArchivedAreaConflict(t *testing.T, err error, wantIDs ...int64) {
 	}
 }
 
-func TestProjectTransactionUsesAmbientAreaStateAndRollsBack(t *testing.T) {
-	t.Parallel()
-
-	ctx, storage := openTestStorage(t)
-	areas := NewAreas(storage)
-	projects := NewProjects(storage)
-	destination := addStoredArea(t, areas, area.AddFields{Title: "destination"})
-	moving := addStoredProject(t, projects, project.AddFields{Title: "moving"})
-
-	var added project.Project
-	err := projects.WithinTransaction(ctx, func(transaction project.Transaction) error {
-		var operationErr error
-		added, operationErr = transaction.Add(
-			ctx,
-			project.AddFields{Title: "must roll back"},
-			"2026-01-02T00:00:00.000Z",
-		)
-		if operationErr != nil {
-			return operationErr
-		}
-
-		bound := transaction.(*projectsCore)
-		var areaID int64
-		if operationErr = bound.executor.QueryRowContext(ctx, `
-UPDATE areas
-SET archived_at = ?, updated_at = ?
-WHERE id = ?
-RETURNING id
-`, "2026-01-03T00:00:00.000Z", "2026-01-03T00:00:00.000Z", destination.ID).Scan(&areaID); operationErr != nil {
-			return operationErr
-		}
-		_, operationErr = transaction.Edit(
-			ctx,
-			moving.ID,
-			project.EditFields{Area: project.AreaChange{Set: &destination.ID}},
-			"2026-01-04T00:00:00.000Z",
-		)
-		return operationErr
-	})
-	assertArchivedAreaConflict(t, err, destination.ID)
-
-	if _, findErr := projects.Find(ctx, added.ID); errorCode(findErr) != apperr.NotFound {
-		t.Errorf("Find(rolled-back project) error = %v, want not_found", findErr)
-	}
-	persistedArea, findErr := areas.Find(ctx, destination.ID)
-	if findErr != nil {
-		t.Fatalf("Find(area after rollback) error = %v", findErr)
-	}
-	if !reflect.DeepEqual(persistedArea, destination) {
-		t.Errorf("area after rollback = %#v, want original %#v", persistedArea, destination)
-	}
-	persistedProject, findErr := projects.Find(ctx, moving.ID)
-	if findErr != nil {
-		t.Fatalf("Find(project after rollback) error = %v", findErr)
-	}
-	if !reflect.DeepEqual(persistedProject, moving) {
-		t.Errorf("project after rollback = %#v, want original %#v", persistedProject, moving)
-	}
-}
-
 func TestProjectLifecycleTransactionSharesTimestampAndOrdersCancelledTasks(t *testing.T) {
 	t.Parallel()
 
@@ -508,7 +313,7 @@ func TestProjectLifecycleTransactionSharesTimestampAndOrdersCancelledTasks(t *te
 
 	created, err := projects.Add(
 		ctx,
-		project.AddFields{Title: "release"},
+		project.CreateFields{Title: "release"},
 		"2026-01-01T00:00:00.000Z",
 	)
 	if err != nil {
@@ -530,7 +335,7 @@ WHERE project_id = ?
 	}
 	untouchedProject, err := projects.Add(
 		ctx,
-		project.AddFields{Title: "untouched"},
+		project.CreateFields{Title: "untouched"},
 		"2026-01-02T00:00:00.000Z",
 	)
 	if err != nil {
@@ -632,7 +437,7 @@ func TestProjectResolutionRollsBackWhenCascadeFails(t *testing.T) {
 	projects := NewProjects(storage)
 	tasks := NewTasks(storage)
 
-	created, err := projects.Add(ctx, project.AddFields{Title: "atomic"}, "2026-01-01T00:00:00.000Z")
+	created, err := projects.Add(ctx, project.CreateFields{Title: "atomic"}, "2026-01-01T00:00:00.000Z")
 	if err != nil {
 		t.Fatalf("Add(project) error = %v", err)
 	}
@@ -687,7 +492,7 @@ func TestProjectTransactionRollsBackAfterPanic(t *testing.T) {
 
 	created, err := projects.Add(
 		ctx,
-		project.AddFields{Title: "panic rollback"},
+		project.CreateFields{Title: "panic rollback"},
 		"2026-01-01T00:00:00.000Z",
 	)
 	if err != nil {
@@ -726,7 +531,7 @@ func TestProjectTransactionRollsBackAfterPanic(t *testing.T) {
 	}
 	if _, err := projects.Add(
 		ctx,
-		project.AddFields{Title: "connection remains usable"},
+		project.CreateFields{Title: "connection remains usable"},
 		"2026-01-03T00:00:00.000Z",
 	); err != nil {
 		t.Errorf("Add(after transaction panic) error = %v", err)
@@ -740,7 +545,7 @@ func TestProjectDeleteHonorsRestrictAndRecursiveTransaction(t *testing.T) {
 	projects := NewProjects(storage)
 	tasks := NewTasks(storage)
 
-	created, err := projects.Add(ctx, project.AddFields{Title: "doomed"}, "2026-01-01T00:00:00.000Z")
+	created, err := projects.Add(ctx, project.CreateFields{Title: "doomed"}, "2026-01-01T00:00:00.000Z")
 	if err != nil {
 		t.Fatalf("Add(project) error = %v", err)
 	}
@@ -764,7 +569,7 @@ func TestProjectDeleteHonorsRestrictAndRecursiveTransaction(t *testing.T) {
 	}
 	untouchedProject, err := projects.Add(
 		ctx,
-		project.AddFields{Title: "untouched"},
+		project.CreateFields{Title: "untouched"},
 		"2026-01-03T00:00:00.000Z",
 	)
 	if err != nil {
@@ -784,7 +589,7 @@ func TestProjectDeleteHonorsRestrictAndRecursiveTransaction(t *testing.T) {
 
 	aborted, err := projects.Add(
 		ctx,
-		project.AddFields{Title: "non-FK failure"},
+		project.CreateFields{Title: "non-FK failure"},
 		"2026-01-03T00:00:00.000Z",
 	)
 	if err != nil {
@@ -855,7 +660,7 @@ END
 
 	rollbackProject, err := projects.Add(
 		ctx,
-		project.AddFields{Title: "rollback"},
+		project.CreateFields{Title: "rollback"},
 		"2026-01-04T00:00:00.000Z",
 	)
 	if err != nil {
@@ -895,6 +700,322 @@ END
 	}
 }
 
+func TestProjectBoardAndStageFindersUseStoredIdentityAndPosition(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	boards := NewBoards(storage)
+	projects := NewProjects(storage)
+	pipeline := addStoredBoard(
+		t,
+		boards,
+		board.AddFields{Title: "Delivery"},
+		"2026-01-01T00:00:00.000Z",
+	)
+	earlier := addStoredStage(t, boards, pipeline.ID, "Research", "2026-01-01T00:00:00.000Z")
+	later := addStoredStage(t, boards, pipeline.ID, "Review", "2026-01-01T00:00:00.000Z")
+	if _, err := boards.ReorderStage(
+		ctx,
+		pipeline.ID,
+		later.ID,
+		domain.Placement{Anchor: domain.PlacementFirst},
+		"2026-01-02T00:00:00.000Z",
+	); err != nil {
+		t.Fatalf("ReorderStage(later first) error = %v", err)
+	}
+	stageless := addStoredBoard(
+		t,
+		boards,
+		board.AddFields{Title: "Empty"},
+		"2026-01-01T00:00:00.000Z",
+	)
+
+	foundBoard, err := projects.FindBoard(ctx, "dElIvErY")
+	if err != nil {
+		t.Fatalf("FindBoard(case variant) error = %v", err)
+	}
+	if foundBoard.ID != pipeline.ID || foundBoard.Title != pipeline.Title {
+		t.Errorf("FindBoard(case variant) = %#v, want stored identity %#v", foundBoard, pipeline)
+	}
+
+	first, err := projects.FindFirstStage(ctx, pipeline.ID)
+	if err != nil {
+		t.Fatalf("FindFirstStage(reordered board) error = %v", err)
+	}
+	if first == nil || first.ID != later.ID || first.BoardTitle != pipeline.Title ||
+		first.Title != later.Title || first.Position != 0 {
+		t.Errorf("FindFirstStage(reordered board) = %#v, want stored stage %q at position 0", first, later.Title)
+	}
+	if first, err := projects.FindFirstStage(ctx, stageless.ID); err != nil || first != nil {
+		t.Errorf("FindFirstStage(stageless board) = %#v, %v; want nil, nil", first, err)
+	}
+
+	foundStage, err := projects.FindStage(ctx, pipeline.ID, "rEsEaRcH")
+	if err != nil {
+		t.Fatalf("FindStage(case variant) error = %v", err)
+	}
+	if foundStage.ID != earlier.ID || foundStage.BoardID != pipeline.ID ||
+		foundStage.BoardTitle != pipeline.Title || foundStage.Title != earlier.Title ||
+		foundStage.Position != 1 {
+		t.Errorf("FindStage(case variant) = %#v, want stored stage %q at position 1", foundStage, earlier.Title)
+	}
+	foundByID, err := projects.FindStageByID(ctx, later.ID)
+	if err != nil {
+		t.Fatalf("FindStageByID() error = %v", err)
+	}
+	if foundByID.ID != later.ID || foundByID.BoardID != pipeline.ID ||
+		foundByID.BoardTitle != pipeline.Title || foundByID.Title != later.Title ||
+		foundByID.Position != 0 {
+		t.Errorf("FindStageByID() = %#v, want stored reordered stage", foundByID)
+	}
+
+	if _, err := projects.FindBoard(ctx, "missing"); errorCode(err) != apperr.NotFound {
+		t.Errorf("FindBoard(missing) error = %v, want not_found", err)
+	}
+	if _, err := projects.FindStage(ctx, pipeline.ID, "missing"); errorCode(err) != apperr.NotFound {
+		t.Errorf("FindStage(missing) error = %v, want not_found", err)
+	}
+	if _, err := projects.FindStageByID(ctx, 999); errorCode(err) != apperr.NotFound {
+		t.Errorf("FindStageByID(missing) error = %v, want not_found", err)
+	}
+}
+
+func TestProjectStageMembershipAppendsClearsAndSwitches(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	boards := NewBoards(storage)
+	projects := NewProjects(storage)
+	pipeline := addStoredBoard(t, boards, board.AddFields{Title: "pipeline"}, "2026-01-01T00:00:00.000Z")
+	firstStage := addStoredStage(t, boards, pipeline.ID, "first", "2026-01-01T00:00:00.000Z")
+	secondStage := addStoredStage(t, boards, pipeline.ID, "second", "2026-01-01T00:00:00.000Z")
+
+	first := addStoredProject(t, projects, project.CreateFields{StageID: &firstStage.ID, Title: "first"})
+	second := addStoredProject(t, projects, project.CreateFields{StageID: &firstStage.ID, Title: "second"})
+	anchor := addStoredProject(t, projects, project.CreateFields{StageID: &secondStage.ID, Title: "anchor"})
+	if first.StageID == nil || *first.StageID != firstStage.ID || first.StagePosition == nil || *first.StagePosition != 0 ||
+		second.StagePosition == nil || *second.StagePosition != 1 || anchor.StagePosition == nil || *anchor.StagePosition != 0 {
+		t.Fatalf("stage additions = %#v/%#v/%#v, want independently appended positions 0/1 and 0", first, second, anchor)
+	}
+
+	cleared, err := projects.Edit(
+		ctx,
+		first.ID,
+		project.UpdateFields{Stage: project.StageChange{Clear: true}},
+		"2026-01-02T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Edit(clear stage) error = %v", err)
+	}
+	if cleared.StageID != nil || cleared.StagePosition != nil {
+		t.Errorf("cleared project = %#v, want both stage fields null", cleared)
+	}
+
+	switched, err := projects.Edit(
+		ctx,
+		second.ID,
+		project.UpdateFields{Stage: project.StageChange{Set: &secondStage.ID}},
+		"2026-01-03T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Edit(switch stage) error = %v", err)
+	}
+	if switched.StageID == nil || *switched.StageID != secondStage.ID ||
+		switched.StagePosition == nil || *switched.StagePosition != 1 {
+		t.Errorf("switched project = %#v, want append after target anchor", switched)
+	}
+	assertProjectStageOrder(t, storage, secondStage.ID, []int64{anchor.ID, second.ID})
+
+	restated, err := projects.Edit(
+		ctx,
+		second.ID,
+		project.UpdateFields{Stage: project.StageChange{Set: &secondStage.ID}},
+		"2026-01-04T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("Edit(restate stage) error = %v", err)
+	}
+	if !reflect.DeepEqual(restated, switched) {
+		t.Errorf("restated stage = %#v, want unchanged %#v", restated, switched)
+	}
+}
+
+func TestProjectStageMovesAppendPlaceAndReorderWithMovedTimestampOnly(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	boards := NewBoards(storage)
+	projects := NewProjects(storage)
+	pipeline := addStoredBoard(t, boards, board.AddFields{Title: "pipeline"}, "2026-01-01T00:00:00.000Z")
+	source := addStoredStage(t, boards, pipeline.ID, "source", "2026-01-01T00:00:00.000Z")
+	target := addStoredStage(t, boards, pipeline.ID, "target", "2026-01-01T00:00:00.000Z")
+
+	movingFirst := addStoredProject(t, projects, project.CreateFields{StageID: &source.ID, Title: "moving first"})
+	movingSecond := addStoredProject(t, projects, project.CreateFields{StageID: &source.ID, Title: "moving second"})
+	targetFirst := addStoredProject(t, projects, project.CreateFields{StageID: &target.ID, Title: "target first"})
+	targetSecond := addStoredProject(t, projects, project.CreateFields{StageID: &target.ID, Title: "target second"})
+
+	appended, err := projects.MoveStage(
+		ctx,
+		movingFirst.ID,
+		target.ID,
+		domain.Placement{},
+		"2026-01-02T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("MoveStage(cross-stage append) error = %v", err)
+	}
+	if appended.StageID == nil || *appended.StageID != target.ID ||
+		appended.StagePosition == nil || *appended.StagePosition != 2 {
+		t.Errorf("appended project = %#v, want target position 2", appended)
+	}
+	assertProjectStageOrder(t, storage, target.ID, []int64{targetFirst.ID, targetSecond.ID, movingFirst.ID})
+
+	placed, err := projects.MoveStage(
+		ctx,
+		movingSecond.ID,
+		target.ID,
+		domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: targetSecond.ID},
+		"2026-01-03T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("MoveStage(cross-stage placement) error = %v", err)
+	}
+	if placed.StageID == nil || *placed.StageID != target.ID ||
+		placed.StagePosition == nil || *placed.StagePosition != 1 {
+		t.Errorf("placed project = %#v, want target position 1", placed)
+	}
+	assertProjectStageOrder(t, storage, target.ID, []int64{
+		targetFirst.ID, movingSecond.ID, targetSecond.ID, movingFirst.ID,
+	})
+
+	ids := []int64{targetFirst.ID, movingSecond.ID, targetSecond.ID, movingFirst.ID}
+	before := storedUpdatedAt(t, storage, "projects", ids)
+	movedAt := "2026-01-04T00:00:00.000Z"
+	reordered, err := projects.MoveStage(
+		ctx,
+		movingFirst.ID,
+		target.ID,
+		domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: movingSecond.ID},
+		movedAt,
+	)
+	if err != nil {
+		t.Fatalf("MoveStage(within-stage reorder) error = %v", err)
+	}
+	if reordered.StagePosition == nil || *reordered.StagePosition != 1 {
+		t.Errorf("reordered project = %#v, want target position 1", reordered)
+	}
+	assertProjectStageOrder(t, storage, target.ID, []int64{
+		targetFirst.ID, movingFirst.ID, movingSecond.ID, targetSecond.ID,
+	})
+	assertMovedOnlyTimestamp(t, storage, "projects", before, movingFirst.ID, movedAt)
+}
+
+func TestProjectStageMovesHonorBoundaryPlacementAndRollBackFailures(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	boards := NewBoards(storage)
+	projects := NewProjects(storage)
+	pipeline := addStoredBoard(t, boards, board.AddFields{Title: "pipeline"}, "2026-01-01T00:00:00.000Z")
+	source := addStoredStage(t, boards, pipeline.ID, "source", "2026-01-01T00:00:00.000Z")
+	target := addStoredStage(t, boards, pipeline.ID, "target", "2026-01-01T00:00:00.000Z")
+
+	rollbackMover := addStoredProject(t, projects, project.CreateFields{StageID: &source.ID, Title: "rollback mover"})
+	foreignReference := addStoredProject(t, projects, project.CreateFields{StageID: &source.ID, Title: "foreign reference"})
+	movingFirst := addStoredProject(t, projects, project.CreateFields{StageID: &source.ID, Title: "moving first"})
+	movingLast := addStoredProject(t, projects, project.CreateFields{StageID: &source.ID, Title: "moving last"})
+	targetFirst := addStoredProject(t, projects, project.CreateFields{StageID: &target.ID, Title: "target first"})
+	targetSecond := addStoredProject(t, projects, project.CreateFields{StageID: &target.ID, Title: "target second"})
+
+	_, err := projects.MoveStage(
+		ctx,
+		rollbackMover.ID,
+		target.ID,
+		domain.Placement{Anchor: domain.PlacementBefore, ReferenceID: foreignReference.ID},
+		"2026-01-02T00:00:00.000Z",
+	)
+	if errorCode(err) != apperr.InvalidArgument {
+		t.Fatalf("MoveStage(foreign cross-stage reference) error = %v, want invalid_argument", err)
+	}
+	persistedMover, err := projects.Find(ctx, rollbackMover.ID)
+	if err != nil {
+		t.Fatalf("Find(rollback mover) error = %v", err)
+	}
+	if !reflect.DeepEqual(persistedMover, rollbackMover) {
+		t.Errorf("rollback mover after failed move = %#v, want unchanged %#v", persistedMover, rollbackMover)
+	}
+	assertProjectStageOrder(t, storage, source.ID, []int64{
+		rollbackMover.ID, foreignReference.ID, movingFirst.ID, movingLast.ID,
+	})
+	assertProjectStageOrder(t, storage, target.ID, []int64{targetFirst.ID, targetSecond.ID})
+
+	first, err := projects.MoveStage(
+		ctx,
+		movingFirst.ID,
+		target.ID,
+		domain.Placement{Anchor: domain.PlacementFirst},
+		"2026-01-03T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("MoveStage(cross-stage first) error = %v", err)
+	}
+	if first.StageID == nil || *first.StageID != target.ID ||
+		first.StagePosition == nil || *first.StagePosition != 0 {
+		t.Errorf("MoveStage(cross-stage first) = %#v, want target position 0", first)
+	}
+	assertProjectStageOrder(t, storage, target.ID, []int64{movingFirst.ID, targetFirst.ID, targetSecond.ID})
+
+	last, err := projects.MoveStage(
+		ctx,
+		movingLast.ID,
+		target.ID,
+		domain.Placement{Anchor: domain.PlacementLast},
+		"2026-01-04T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatalf("MoveStage(cross-stage last) error = %v", err)
+	}
+	if last.StageID == nil || *last.StageID != target.ID ||
+		last.StagePosition == nil || *last.StagePosition != 3 {
+		t.Errorf("MoveStage(cross-stage last) = %#v, want target position 3", last)
+	}
+	assertProjectStageOrder(t, storage, target.ID, []int64{
+		movingFirst.ID, targetFirst.ID, targetSecond.ID, movingLast.ID,
+	})
+}
+
+func assertProjectStageOrder(t *testing.T, storage *DB, stageID int64, want []int64) {
+	t.Helper()
+	rows, err := storage.database.QueryContext(
+		context.Background(),
+		"SELECT id, stage_position FROM projects WHERE stage_id = ? ORDER BY stage_position, id",
+		stageID,
+	)
+	if err != nil {
+		t.Fatalf("query project stage order: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	got := make([]int64, 0, len(want))
+	for rows.Next() {
+		var id, position int64
+		if err := rows.Scan(&id, &position); err != nil {
+			t.Fatalf("scan project stage order: %v", err)
+		}
+		if position != int64(len(got)) {
+			t.Errorf("project %d stage_position = %d, want %d", id, position, len(got))
+		}
+		got = append(got, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate project stage order: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("project stage order = %v, want %v", got, want)
+	}
+}
+
 func TestProjectStoreRejectsInvalidCallsAndReportsMissingProjects(t *testing.T) {
 	t.Parallel()
 
@@ -922,7 +1043,7 @@ func TestProjectStoreRejectsInvalidCallsAndReportsMissingProjects(t *testing.T) 
 	if _, err := projects.Edit(
 		ctx,
 		99,
-		project.EditFields{Title: &title},
+		project.UpdateFields{Title: &title},
 		"2026-01-01T00:00:00.000Z",
 	); errorCode(err) != apperr.NotFound {
 		t.Errorf("Edit(missing) error = %v, want not_found", err)
@@ -930,7 +1051,7 @@ func TestProjectStoreRejectsInvalidCallsAndReportsMissingProjects(t *testing.T) 
 	if _, err := projects.Edit(
 		ctx,
 		1,
-		project.EditFields{},
+		project.UpdateFields{},
 		"2026-01-01T00:00:00.000Z",
 	); err == nil {
 		t.Error("Edit(no fields) error = nil, want caller-contract error")
@@ -941,7 +1062,7 @@ func TestProjectStoreRejectsInvalidCallsAndReportsMissingProjects(t *testing.T) 
 	if _, err := projects.Edit(
 		ctx,
 		1,
-		project.EditFields{Area: project.AreaChange{Set: &areaID, Clear: true}},
+		project.UpdateFields{Area: project.AreaChange{Set: &areaID, Clear: true}},
 		"2026-01-01T00:00:00.000Z",
 	); err == nil {
 		t.Error("Edit(set and clear area) error = nil, want caller-contract error")

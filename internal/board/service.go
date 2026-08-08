@@ -100,13 +100,29 @@ func (s *Service) Show(ctx context.Context, title string) (Show, error) {
 		if err != nil {
 			return err
 		}
+		projects, err := domain.NormalizeSliceResult(store.ListShownProjects(ctx, found.ID))
+		if err != nil {
+			return err
+		}
 
 		result.Board = found
+		stageIndexes := make(map[int64]int, len(stages))
 		for _, stage := range stages {
+			stageIndexes[stage.ID] = len(result.Stages)
 			result.Stages = append(result.Stages, ShownStage{
 				Stage:    stage,
 				Projects: []ShownProject{},
 			})
+		}
+		for _, current := range projects {
+			if current.StageID == nil {
+				return fmt.Errorf("shown project %d has no stage", current.ID)
+			}
+			index, exists := stageIndexes[*current.StageID]
+			if !exists {
+				return fmt.Errorf("shown project %d has stage outside board", current.ID)
+			}
+			result.Stages[index].Projects = append(result.Stages[index].Projects, current)
 		}
 		return nil
 	})
@@ -192,6 +208,17 @@ func (s *Service) Delete(ctx context.Context, title string) (Deletion, error) {
 		found, err := store.FindBoard(ctx, title)
 		if err != nil {
 			return err
+		}
+		occupied, err := store.BoardOccupied(ctx, found.ID)
+		if err != nil {
+			return err
+		}
+		if occupied {
+			return apperr.New(
+				apperr.Conflict,
+				fmt.Sprintf("cannot delete board %s while it contains projects", found.Title),
+				nil,
+			)
 		}
 		stages, err := domain.NormalizeSliceResult(store.ListStages(ctx, found.ID))
 		if err != nil {
@@ -371,6 +398,21 @@ func (s *Service) DeleteStage(
 		foundStage, err := findStage(ctx, store, foundBoard, stageTitle)
 		if err != nil {
 			return err
+		}
+		occupied, err := store.StageOccupied(ctx, foundStage.ID)
+		if err != nil {
+			return err
+		}
+		if occupied {
+			return apperr.New(
+				apperr.Conflict,
+				fmt.Sprintf(
+					"cannot delete stage %s on board %s while it contains projects",
+					foundStage.Title,
+					foundBoard.Title,
+				),
+				nil,
+			)
 		}
 		deleted, err := store.DeleteStage(ctx, foundBoard.ID, foundStage.ID)
 		if err != nil {

@@ -360,13 +360,13 @@ func TestAreaDeleteHonorsRestrictAndRecursiveTransaction(t *testing.T) {
 
 	doomed := addStoredArea(t, areas, area.AddFields{Title: "Doomed"})
 	untouched := addStoredArea(t, areas, area.AddFields{Title: "Untouched"})
-	firstProject := addStoredProject(t, projects, project.AddFields{AreaID: &doomed.ID, Title: "first project"})
-	secondProject := addStoredProject(t, projects, project.AddFields{AreaID: &doomed.ID, Title: "second project"})
+	firstProject := addStoredProject(t, projects, project.CreateFields{AreaID: &doomed.ID, Title: "first project"})
+	secondProject := addStoredProject(t, projects, project.CreateFields{AreaID: &doomed.ID, Title: "second project"})
 	firstProjectTask := addStoredTask(t, tasks, task.AddFields{ProjectID: &firstProject.ID, Title: "first project task"})
 	secondProjectTask := addStoredTask(t, tasks, task.AddFields{ProjectID: &secondProject.ID, Title: "second project task"})
 	firstLoose := addStoredTask(t, tasks, task.AddFields{AreaID: &doomed.ID, Title: "first loose"})
 	secondLoose := addStoredTask(t, tasks, task.AddFields{AreaID: &doomed.ID, Title: "second loose"})
-	untouchedProject := addStoredProject(t, projects, project.AddFields{AreaID: &untouched.ID, Title: "untouched project"})
+	untouchedProject := addStoredProject(t, projects, project.CreateFields{AreaID: &untouched.ID, Title: "untouched project"})
 	untouchedTask := addStoredTask(t, tasks, task.AddFields{ProjectID: &untouchedProject.ID, Title: "untouched task"})
 	if _, err := projects.Resolve(
 		ctx,
@@ -468,7 +468,7 @@ func TestAreaRecursiveDeleteRollsBackAllLevelsOnFailure(t *testing.T) {
 	tasks := NewTasks(storage)
 
 	doomed := addStoredArea(t, areas, area.AddFields{Title: "Rollback"})
-	containedProject := addStoredProject(t, projects, project.AddFields{AreaID: &doomed.ID, Title: "project"})
+	containedProject := addStoredProject(t, projects, project.CreateFields{AreaID: &doomed.ID, Title: "project"})
 	projectTask := addStoredTask(t, tasks, task.AddFields{ProjectID: &containedProject.ID, Title: "project task"})
 	looseTask := addStoredTask(t, tasks, task.AddFields{AreaID: &doomed.ID, Title: "loose task"})
 	trigger := fmt.Sprintf(`

@@ -64,10 +64,12 @@ stories were reconciled to match.
   reopen/unarchive-first guidance.
 - **`move` owns the whole board axis.** Any direction, no sequence
   enforcement, never gated on tasks; a transition in the
-  `done`/`cancel` family, guarded like one. Cross-stage moves append
-  to the destination column; a same-stage move with a placement is the
-  within-column reorder; a bare same-stage move is a no-op. Placement
-  references are project IDs in the same stage. `reorder` stays
+  `done`/`cancel` family, guarded like one. Bare cross-stage moves
+  append to the destination column; an explicit placement positions
+  the project in that destination; a same-stage move with a placement
+  is the within-column reorder; a bare same-stage move is a no-op.
+  Placement references are project IDs in the same stage, including
+  resolved projects that retain hidden positions. `reorder` stays
   area-axis only.
 - **Naming.** Board and stage names use title validation (nonblank
   UTF-8, stored unchanged). Boards are `NOCASE`-unique globally;
@@ -238,22 +240,23 @@ deletes proven live.
 
 Implementation:
 
-- [ ] `0001_baseline.sql`: `projects.stage_id`/`stage_position` with
+- [x] `0001_baseline.sql`: `projects.stage_id`/`stage_position` with
       the pair CHECK and index; snapshot test updated.
-- [ ] `internal/store`: project stage assignment (append on entry),
+- [x] `internal/store`: project stage assignment (append on entry),
       clearing, within-stage splice reorder, board and stage occupancy
       queries, and the grouped `board show` read with per-project
       done/total counts (cancelled excluded).
-- [ ] Project service: `--board`/`--no-board` orchestration on add
+- [x] Project service: `--board`/`--no-board` orchestration on add
       and edit — first-stage entry, board switch re-entry, stage
       clearing, containment guards, stageless-board `conflict` —
       returning the edit envelope (`cleared_defers` empty until
       chunk 3 populates it).
-- [ ] Project service: `move` — name resolution against the project's
-      board, cross-stage append, same-stage placement reorder,
-      same-stage bare no-op, transition guards.
-- [ ] Board service: occupied board/stage deletes now `conflict`.
-- [ ] `cmd`: `--board` on `projects add`, `--board`/`--no-board` on
+- [x] Project service: `move` — name resolution against the project's
+      board, bare cross-stage append, explicit destination placement,
+      same-stage placement reorder, same-stage bare no-op, transition
+      guards.
+- [x] Board service: occupied board/stage deletes now `conflict`.
+- [x] `cmd`: `--board` on `projects add`, `--board`/`--no-board` on
       `project edit` (set-plus-clear usage error), `project move`
       with placement flags, board-result edit lines, `~ Moved:`
       lines, full `board show` rendering.
@@ -262,17 +265,18 @@ Verification (primary owners: store tests for the column pair and
 grouped read; service tests for orchestration and guards; cmd tests
 for envelopes and rendering):
 
-- [ ] Store: pair CHECK enforced; entry appends to the column;
+- [x] Store: pair CHECK enforced; entry appends to the column;
+      explicit cross-stage placement splices into the destination;
       within-stage renumber touches `updated_at` on the moved row
       only; progress counts exclude cancelled; `board show` read
       groups and orders by `stage_position, id`.
-- [ ] Service: unknown board/stage `not_found`; stageless board
+- [x] Service: unknown board/stage `not_found`; stageless board
       `conflict`; guards on resolved/archived; switch re-enters first
       stage; bare same-stage move is a no-op; placement references
       outside the stage are `invalid_argument`.
-- [ ] cmd: move echo is the project row; `board show` envelope and
+- [x] cmd: move echo is the project row; `board show` envelope and
       human layout; `--board --no-board` usage error, exit 2.
-- [ ] `make check` green.
+- [x] `make check` green.
 
 Human proof (chunk demo `.sandbox/demos/11-chunk-2.html`), exact
 commands:
@@ -300,7 +304,7 @@ gsd --db .sandbox/demo2.db project edit 2 --no-board
 gsd --db .sandbox/demo2.db board show software
 ```
 
-- [ ] Agent verification before review: build the real binary, run
+- [x] Agent verification before review: build the real binary, run
       the demo command list against a fresh temporary database,
       capture the verbatim output into the deck, and pass local
       `make check`.

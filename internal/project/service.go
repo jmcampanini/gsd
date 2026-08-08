@@ -2,7 +2,10 @@ package project
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
@@ -30,6 +33,11 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Project, error) {
 	if err := validateAreaID(fields.AreaID); err != nil {
 		return Project{}, err
 	}
+	if fields.Board != nil {
+		if err := domain.ValidateTitle(*fields.Board); err != nil {
+			return Project{}, err
+		}
+	}
 
 	var err error
 	fields.Tags, err = domain.NormalizeTagNames(fields.Tags)
@@ -37,15 +45,44 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Project, error) {
 		return Project{}, err
 	}
 	timestamp := domain.FormatTimestamp(s.now())
-	if len(fields.Tags) == 0 {
-		return s.store.Add(ctx, fields, timestamp)
+	create := CreateFields{
+		AreaID: fields.AreaID,
+		Title:  fields.Title,
+		Note:   fields.Note,
+	}
+	if len(fields.Tags) == 0 && fields.AreaID == nil && fields.Board == nil {
+		return s.store.Add(ctx, create, timestamp)
 	}
 
 	var created Project
 	err = s.store.WithinTransaction(ctx, func(store Transaction) error {
-		created, err = store.Add(ctx, fields, timestamp)
+		if fields.AreaID != nil {
+			foundArea, err := store.FindArea(ctx, *fields.AreaID)
+			if err != nil {
+				return err
+			}
+			if err := containmentConflict("add project", Project{}, foundArea); err != nil {
+				return err
+			}
+		}
+		if fields.Board != nil {
+			foundBoard, err := store.FindBoard(ctx, *fields.Board)
+			if err != nil {
+				return err
+			}
+			firstStage, err := requireFirstStage(ctx, store, foundBoard)
+			if err != nil {
+				return err
+			}
+			create.StageID = &firstStage.ID
+		}
+
+		created, err = store.Add(ctx, create, timestamp)
 		if err != nil {
 			return err
+		}
+		if len(fields.Tags) == 0 {
+			return nil
 		}
 
 		resolved, err := store.ResolveTags(ctx, fields.Tags)
@@ -98,30 +135,63 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Project, err
 	return domain.NormalizeSliceResult(listed, nil)
 }
 
-func (s *Service) Show(ctx context.Context, id int64) (Project, error) {
+func (s *Service) Show(ctx context.Context, id int64) (Detail, error) {
 	if err := validateID(id); err != nil {
-		return Project{}, err
+		return Detail{}, err
 	}
 
-	return s.store.Find(ctx, id)
+	var detail Detail
+	err := s.store.WithinReadTransaction(ctx, func(store Transaction) error {
+		found, err := store.Find(ctx, id)
+		if err != nil {
+			return err
+		}
+		detail.Project = found
+		if found.StageID == nil {
+			return nil
+		}
+		stage, err := store.FindStageByID(ctx, *found.StageID)
+		if err != nil {
+			return err
+		}
+		detail.Location = locationForStage(stage)
+		return nil
+	})
+	if err != nil {
+		return Detail{}, err
+	}
+	return detail, nil
 }
 
-func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Project, error) {
+func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Edition, error) {
 	if err := validateID(id); err != nil {
-		return Project{}, err
+		return Edition{}, err
 	}
 	if fields.Area.Set != nil && fields.Area.Clear {
-		return Project{}, apperr.New(
+		return Edition{}, apperr.New(
 			apperr.InvalidArgument,
 			"area cannot be set and cleared",
 			nil,
 		)
 	}
-	if err := validateAreaID(fields.Area.Set); err != nil {
-		return Project{}, err
+	if fields.Board.Set != nil && fields.Board.Clear {
+		return Edition{}, apperr.New(
+			apperr.InvalidArgument,
+			"board cannot be set and cleared",
+			nil,
+		)
 	}
-	if fields.Title == nil && fields.Note == nil && fields.Area.Set == nil && !fields.Area.Clear {
-		return Project{}, apperr.New(
+	if err := validateAreaID(fields.Area.Set); err != nil {
+		return Edition{}, err
+	}
+	if fields.Board.Set != nil {
+		if err := domain.ValidateTitle(*fields.Board.Set); err != nil {
+			return Edition{}, err
+		}
+	}
+	if fields.Title == nil && fields.Note == nil && fields.Area.Set == nil && !fields.Area.Clear &&
+		fields.Board.Set == nil && !fields.Board.Clear {
+		return Edition{}, apperr.New(
 			apperr.InvalidArgument,
 			"project edit requires at least one field",
 			nil,
@@ -129,16 +199,205 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Projec
 	}
 	if fields.Title != nil {
 		if err := domain.ValidateTitle(*fields.Title); err != nil {
-			return Project{}, err
+			return Edition{}, err
 		}
 	}
 	if fields.Note != nil {
 		if err := domain.ValidateNote(*fields.Note); err != nil {
-			return Project{}, err
+			return Edition{}, err
 		}
 	}
 
-	return s.store.Edit(ctx, id, fields, domain.FormatTimestamp(s.now()))
+	timestamp := domain.FormatTimestamp(s.now())
+	result := Edition{ClearedDefers: []task.Task{}}
+	boardRequested := fields.Board.Set != nil || fields.Board.Clear
+	membershipRequested := fields.Area.Set != nil || fields.Area.Clear || boardRequested
+	if !membershipRequested {
+		updated := UpdateFields{Title: fields.Title, Note: fields.Note}
+		edited, err := s.store.Edit(ctx, id, updated, timestamp)
+		if err != nil {
+			return Edition{}, err
+		}
+		result.Project = edited
+		return result, nil
+	}
+
+	err := s.store.WithinTransaction(ctx, func(store Transaction) error {
+		current, err := store.Find(ctx, id)
+		if err != nil {
+			return err
+		}
+		updated := UpdateFields{Area: fields.Area, Title: fields.Title, Note: fields.Note}
+
+		var currentStage *StageReference
+		if boardRequested && current.StageID != nil {
+			stage, err := store.FindStageByID(ctx, *current.StageID)
+			if err != nil {
+				return err
+			}
+			currentStage = &stage
+		}
+
+		boardMovement := false
+		switch {
+		case fields.Board.Set != nil:
+			foundBoard, err := store.FindBoard(ctx, *fields.Board.Set)
+			if err != nil {
+				return err
+			}
+			if currentStage != nil && currentStage.BoardID == foundBoard.ID {
+				result.Location = locationForStage(*currentStage)
+				break
+			}
+			firstStage, err := requireFirstStage(ctx, store, foundBoard)
+			if err != nil {
+				return err
+			}
+			updated.Stage.Set = &firstStage.ID
+			result.Location = locationForStage(firstStage)
+			boardMovement = true
+		case fields.Board.Clear && currentStage != nil:
+			updated.Stage.Clear = true
+			boardMovement = true
+		}
+
+		areaReferences, areaMovement, err := resolveEditAreas(ctx, store, current, fields.Area)
+		if err != nil {
+			return err
+		}
+		if boardMovement || areaMovement {
+			guardedProject := Project{}
+			if boardMovement {
+				guardedProject = current
+			}
+			if err := containmentConflict(
+				fmt.Sprintf("move project %d", id),
+				guardedProject,
+				areaReferences...,
+			); err != nil {
+				return err
+			}
+		}
+
+		if !hasUpdateFields(updated) {
+			result.Project = current
+			return nil
+		}
+		result.Project, err = store.Edit(ctx, id, updated, timestamp)
+		return err
+	})
+	if err != nil {
+		return Edition{}, err
+	}
+	return result, nil
+}
+
+func (s *Service) Move(
+	ctx context.Context,
+	id int64,
+	stageTitle string,
+	placement *domain.Placement,
+) (Movement, error) {
+	if err := validateID(id); err != nil {
+		return Movement{}, err
+	}
+	if err := domain.ValidateTitle(stageTitle); err != nil {
+		return Movement{}, err
+	}
+	if placement != nil {
+		if err := domain.ValidatePlacement(*placement); err != nil {
+			return Movement{}, err
+		}
+	}
+
+	var result Movement
+	err := s.store.WithinTransaction(ctx, func(store Transaction) error {
+		current, err := store.Find(ctx, id)
+		if err != nil {
+			return err
+		}
+		if current.StageID == nil {
+			return apperr.New(
+				apperr.Conflict,
+				fmt.Sprintf("cannot move project %d while it is not on a board", id),
+				nil,
+			)
+		}
+		currentStage, err := store.FindStageByID(ctx, *current.StageID)
+		if err != nil {
+			return err
+		}
+		destination, err := store.FindStage(ctx, currentStage.BoardID, stageTitle)
+		if err != nil {
+			if code, coded := apperr.CodeOf(err); coded && code == apperr.NotFound {
+				return apperr.New(
+					apperr.NotFound,
+					fmt.Sprintf("no stage %s on board %s", stageTitle, currentStage.BoardTitle),
+					err,
+				)
+			}
+			return err
+		}
+		if placement != nil &&
+			(placement.Anchor == domain.PlacementAfter || placement.Anchor == domain.PlacementBefore) {
+			reference, err := store.Find(ctx, placement.ReferenceID)
+			if err != nil {
+				return err
+			}
+			if reference.ID == current.ID {
+				return apperr.New(
+					apperr.InvalidArgument,
+					"project cannot be placed relative to itself",
+					nil,
+				)
+			}
+			if reference.StageID == nil || *reference.StageID != destination.ID {
+				return apperr.New(
+					apperr.InvalidArgument,
+					fmt.Sprintf("project %d is in a different stage", reference.ID),
+					nil,
+				)
+			}
+		}
+
+		areaReferences := []AreaReference{}
+		if current.AreaID != nil {
+			foundArea, err := store.FindArea(ctx, *current.AreaID)
+			if err != nil {
+				return err
+			}
+			areaReferences = append(areaReferences, foundArea)
+		}
+		if err := containmentConflict(
+			fmt.Sprintf("move project %d", id),
+			current,
+			areaReferences...,
+		); err != nil {
+			return err
+		}
+
+		result.StageTitle = destination.Title
+		if destination.ID == currentStage.ID && placement == nil {
+			result.Project = current
+			return nil
+		}
+		numeric := domain.Placement{}
+		if placement != nil {
+			numeric = *placement
+		}
+		result.Project, err = store.MoveStage(
+			ctx,
+			id,
+			destination.ID,
+			numeric,
+			domain.FormatTimestamp(s.now()),
+		)
+		return err
+	})
+	if err != nil {
+		return Movement{}, err
+	}
+	return result, nil
 }
 
 func (s *Service) Reorder(ctx context.Context, id int64, placement domain.Placement) (Project, error) {
@@ -296,6 +555,114 @@ func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletio
 	}
 
 	return deletion, nil
+}
+
+func resolveEditAreas(
+	ctx context.Context,
+	store Transaction,
+	current Project,
+	change AreaChange,
+) ([]AreaReference, bool, error) {
+	destination := current.AreaID
+	var destinationArea *AreaReference
+	if change.Set != nil {
+		found, err := store.FindArea(ctx, *change.Set)
+		if err != nil {
+			return nil, false, err
+		}
+		destination = change.Set
+		destinationArea = &found
+	} else if change.Clear {
+		destination = nil
+	}
+
+	movement := !sameOptionalID(current.AreaID, destination)
+	references := make([]AreaReference, 0, 2)
+	if current.AreaID != nil {
+		if destinationArea != nil && destinationArea.ID == *current.AreaID {
+			references = append(references, *destinationArea)
+		} else {
+			found, err := store.FindArea(ctx, *current.AreaID)
+			if err != nil {
+				return nil, false, err
+			}
+			references = append(references, found)
+		}
+	}
+	if destinationArea != nil && (current.AreaID == nil || destinationArea.ID != *current.AreaID) {
+		references = append(references, *destinationArea)
+	}
+	return references, movement, nil
+}
+
+func containmentConflict(action string, current Project, areas ...AreaReference) error {
+	resolved := current.ID != 0 && (current.DoneAt != nil || current.CancelledAt != nil ||
+		(current.Status != "" && current.Status != string(ListStatusOpen)))
+	archivedIDs := make([]int64, 0, len(areas))
+	for _, currentArea := range areas {
+		if currentArea.ArchivedAt != nil {
+			archivedIDs = append(archivedIDs, currentArea.ID)
+		}
+	}
+	if !resolved && len(archivedIDs) == 0 {
+		return nil
+	}
+
+	slices.Sort(archivedIDs)
+	archivedIDs = slices.Compact(archivedIDs)
+	blockers := make([]string, 0, 2)
+	causes := make([]error, 0, 2)
+	if resolved {
+		blockers = append(blockers, fmt.Sprintf("project %d is resolved", current.ID))
+		causes = append(causes, &ResolvedProjectsError{IDs: []int64{current.ID}})
+	}
+	if len(archivedIDs) == 1 {
+		blockers = append(blockers, fmt.Sprintf("area %d is archived", archivedIDs[0]))
+		causes = append(causes, &ArchivedAreasError{IDs: archivedIDs})
+	} else if len(archivedIDs) > 1 {
+		blockers = append(blockers, fmt.Sprintf("areas %v are archived", archivedIDs))
+		causes = append(causes, &ArchivedAreasError{IDs: archivedIDs})
+	}
+	return apperr.New(
+		apperr.Conflict,
+		fmt.Sprintf("cannot %s while %s", action, strings.Join(blockers, " and ")),
+		errors.Join(causes...),
+	)
+}
+
+func requireFirstStage(
+	ctx context.Context,
+	store Transaction,
+	currentBoard BoardReference,
+) (StageReference, error) {
+	stage, err := store.FindFirstStage(ctx, currentBoard.ID)
+	if err != nil {
+		return StageReference{}, err
+	}
+	if stage == nil {
+		return StageReference{}, apperr.New(
+			apperr.Conflict,
+			fmt.Sprintf("board %s has no stages", currentBoard.Title),
+			nil,
+		)
+	}
+	return *stage, nil
+}
+
+func locationForStage(stage StageReference) *Location {
+	return &Location{BoardTitle: stage.BoardTitle, StageTitle: stage.Title}
+}
+
+func hasUpdateFields(fields UpdateFields) bool {
+	return fields.Title != nil || fields.Note != nil || fields.Area.Set != nil || fields.Area.Clear ||
+		fields.Stage.Set != nil || fields.Stage.Clear
+}
+
+func sameOptionalID(left, right *int64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func ParseID(value string) (int64, error) {

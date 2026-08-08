@@ -29,7 +29,7 @@ func TestSchemaColumnsConstraintsAndIndexes(t *testing.T) {
 			"id", "board_id", "title", "position", "created_at", "updated_at",
 		},
 		"projects": {
-			"id", "area_id", "title", "note", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at",
+			"id", "area_id", "title", "note", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at", "stage_id", "stage_position",
 		},
 		"tasks": {
 			"id", "project_id", "area_id", "title", "note", "defer_until", "due_on", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at",
@@ -47,7 +47,7 @@ func TestSchemaColumnsConstraintsAndIndexes(t *testing.T) {
 
 	for tableName, indexNames := range map[string][]string{
 		"stages":       {"idx_stages_board"},
-		"projects":     {"idx_projects_area"},
+		"projects":     {"idx_projects_area", "idx_projects_stage"},
 		"tasks":        {"idx_tasks_project", "idx_tasks_area"},
 		"task_tags":    {"idx_task_tags_tag"},
 		"project_tags": {"idx_project_tags_tag"},
@@ -68,6 +68,17 @@ WHERE name = ?
 		}
 	}
 
+	var indexedStageColumn string
+	if err := storage.database.QueryRowContext(
+		ctx,
+		"SELECT name FROM pragma_index_info('idx_projects_stage') WHERE seqno = 0",
+	).Scan(&indexedStageColumn); err != nil {
+		t.Fatalf("inspect idx_projects_stage: %v", err)
+	}
+	if indexedStageColumn != "stage_id" {
+		t.Errorf("idx_projects_stage first column = %q, want stage_id", indexedStageColumn)
+	}
+
 	for _, relationship := range []struct {
 		table    string
 		parent   string
@@ -76,6 +87,7 @@ WHERE name = ?
 	}{
 		{table: "stages", parent: "boards", column: "board_id", onDelete: "CASCADE"},
 		{table: "projects", parent: "areas", column: "area_id", onDelete: "RESTRICT"},
+		{table: "projects", parent: "stages", column: "stage_id", onDelete: "RESTRICT"},
 		{table: "tasks", parent: "projects", column: "project_id", onDelete: "RESTRICT"},
 		{table: "tasks", parent: "areas", column: "area_id", onDelete: "RESTRICT"},
 	} {
@@ -107,15 +119,32 @@ WHERE "table" = ? AND "from" = ? AND on_delete = ?
 	boardID := insertFixture(t, storage.database, `
 INSERT INTO boards (title, position) VALUES ('Delivery', 0)
 `)
-	if _, err := storage.database.ExecContext(ctx, `
+	stageID := insertFixture(t, storage.database, `
 INSERT INTO stages (board_id, title, position) VALUES (?, 'Ready', 0)
-`, boardID); err != nil {
-		t.Fatalf("insert board stage: %v", err)
-	}
+`, boardID)
 	if _, err := storage.database.ExecContext(ctx, `
 INSERT INTO stages (board_id, title, position) VALUES (99, 'orphan', 0)
 `); err == nil {
 		t.Error("insert stage for missing board error = nil, want FK failure")
+	}
+	for description, statement := range map[string]string{
+		"stage without position": "INSERT INTO projects (title, position, stage_id) VALUES ('half pair', 0, (SELECT id FROM stages LIMIT 1))",
+		"position without stage": "INSERT INTO projects (title, position, stage_position) VALUES ('half pair', 0, 0)",
+		"missing stage":          "INSERT INTO projects (title, position, stage_id, stage_position) VALUES ('orphan', 0, 99, 0)",
+	} {
+		if _, err := storage.database.ExecContext(ctx, statement); err == nil {
+			t.Errorf("project %s error = nil, want constraint failure", description)
+		}
+	}
+	boardedProjectID := insertFixture(t, storage.database, `
+INSERT INTO projects (title, position, stage_id, stage_position)
+VALUES ('boarded', 0, ?, 0)
+`, stageID)
+	if _, err := storage.database.ExecContext(ctx, "DELETE FROM stages WHERE id = ?", stageID); err == nil {
+		t.Error("delete occupied stage error = nil, want RESTRICT failure")
+	}
+	if _, err := storage.database.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", boardedProjectID); err != nil {
+		t.Fatalf("delete boarded project: %v", err)
 	}
 	if _, err := storage.database.ExecContext(ctx, "DELETE FROM boards WHERE id = ?", boardID); err != nil {
 		t.Fatalf("delete board: %v", err)

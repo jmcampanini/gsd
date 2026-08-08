@@ -137,13 +137,13 @@ func TestFinalGlyphVocabulary(t *testing.T) {
 			return o.writeTask(task.Task{ID: 1, Title: "Task", Status: "cancelled"})
 		}},
 		{name: "project open", prefix: "◆ 2  Project", render: func(o humanOutput) error {
-			return o.writeProject(project.Project{ID: 2, Title: "Project", Status: "open"})
+			return o.writeProject(project.Detail{Project: project.Project{ID: 2, Title: "Project", Status: "open"}})
 		}},
 		{name: "project done", prefix: "✓ 2  Project", render: func(o humanOutput) error {
-			return o.writeProject(project.Project{ID: 2, Title: "Project", Status: "done"})
+			return o.writeProject(project.Detail{Project: project.Project{ID: 2, Title: "Project", Status: "done"}})
 		}},
 		{name: "project cancelled", prefix: "✗ 2  Project", render: func(o humanOutput) error {
-			return o.writeProject(project.Project{ID: 2, Title: "Project", Status: "cancelled"})
+			return o.writeProject(project.Detail{Project: project.Project{ID: 2, Title: "Project", Status: "cancelled"}})
 		}},
 		{name: "area active", prefix: "● 3  Area", render: func(o humanOutput) error {
 			return o.writeArea(area.Area{ID: 3, Title: "Area"})
@@ -191,6 +191,35 @@ func TestFinalGlyphVocabulary(t *testing.T) {
 			got := renderHuman(t, colorprofile.NoTTY, test.render)
 			if !strings.HasPrefix(got, test.prefix) {
 				t.Errorf("output = %q, want prefix %q", got, test.prefix)
+			}
+		})
+	}
+}
+
+func TestProjectBoardEditUsesResolvedStatusGlyph(t *testing.T) {
+	t.Parallel()
+
+	location := &project.Location{BoardTitle: "Software", StageTitle: "Doing"}
+	for _, test := range []struct {
+		name   string
+		status string
+		glyph  string
+	}{
+		{name: "done", status: "done", glyph: "✓"},
+		{name: "cancelled", status: "cancelled", glyph: "✗"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := renderHuman(t, colorprofile.NoTTY, func(output humanOutput) error {
+				return output.writeProjectBoardEdit(project.Edition{
+					Project:  project.Project{ID: 7, Title: "Finished", Status: test.status},
+					Location: location,
+				})
+			})
+			want := "~ Edited: " + test.glyph + " 7  Finished → Software/Doing\n"
+			if got != want {
+				t.Errorf("board edit = %q, want resolved glyph output %q", got, want)
 			}
 		})
 	}

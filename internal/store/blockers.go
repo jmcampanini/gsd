@@ -12,13 +12,6 @@ import (
 	"github.com/jmcampanini/gsd/internal/project"
 )
 
-func archivedAreasConflict(message string, areaIDs []int64, cause error) error {
-	ids := sortedUniqueIDs(areaIDs)
-	marker := &area.ArchivedAreasError{IDs: ids}
-
-	return apperr.New(apperr.Conflict, message, errors.Join(cause, marker))
-}
-
 func taskBlockersConflict(
 	action string,
 	resolvedProjectIDs []int64,

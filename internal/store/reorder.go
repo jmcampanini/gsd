@@ -68,6 +68,15 @@ func spliceOrderedIDs(
 // IDs and positions are inlined because binding them would exceed SQLite's
 // bind-variable limit on containers above roughly ten thousand rows.
 func reorderCaseUpdate(ordered []int64, movedID int64, timestamp string) (string, []any) {
+	return reorderColumnCaseUpdate("position", ordered, movedID, timestamp)
+}
+
+func reorderColumnCaseUpdate(
+	column string,
+	ordered []int64,
+	movedID int64,
+	timestamp string,
+) (string, []any) {
 	positionCases := make([]string, 0, len(ordered))
 	identifiers := make([]string, 0, len(ordered))
 	for position, id := range ordered {
@@ -75,7 +84,7 @@ func reorderCaseUpdate(ordered []int64, movedID int64, timestamp string) (string
 		identifiers = append(identifiers, fmt.Sprintf("%d", id))
 	}
 
-	clause := "position = CASE id " + strings.Join(positionCases, " ") +
+	clause := column + " = CASE id " + strings.Join(positionCases, " ") +
 		" END, updated_at = CASE WHEN id = ? THEN ? ELSE updated_at END" +
 		" WHERE id IN (" + strings.Join(identifiers, ", ") + ")"
 	return clause, []any{movedID, timestamp}

@@ -41,12 +41,16 @@ CREATE TABLE projects (
                           WHEN cancelled_at IS NOT NULL THEN 'cancelled'
                           ELSE 'open' END) VIRTUAL,
     position     INTEGER NOT NULL,
-    created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    CHECK (done_at IS NULL OR cancelled_at IS NULL)
+    created_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    stage_id       INTEGER REFERENCES stages(id) ON DELETE RESTRICT,
+    stage_position INTEGER,
+    CHECK (done_at IS NULL OR cancelled_at IS NULL),
+    CHECK ((stage_id IS NULL) = (stage_position IS NULL))
 ) STRICT;
 
-CREATE INDEX idx_projects_area ON projects(area_id);
+CREATE INDEX idx_projects_area  ON projects(area_id);
+CREATE INDEX idx_projects_stage ON projects(stage_id);
 
 CREATE TABLE tasks (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,

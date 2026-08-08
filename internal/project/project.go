@@ -26,24 +26,34 @@ const (
 )
 
 type Project struct {
-	ID          int64           `json:"id"`
-	AreaID      *int64          `json:"area_id"`
-	Title       string          `json:"title"`
-	Note        string          `json:"note"`
-	DoneAt      *string         `json:"done_at"`
-	CancelledAt *string         `json:"cancelled_at"`
-	Status      string          `json:"status"`
-	Position    int64           `json:"position"`
-	CreatedAt   string          `json:"created_at"`
-	UpdatedAt   string          `json:"updated_at"`
-	Tags        domain.TagNames `json:"tags"`
+	ID            int64           `json:"id"`
+	AreaID        *int64          `json:"area_id"`
+	Title         string          `json:"title"`
+	Note          string          `json:"note"`
+	DoneAt        *string         `json:"done_at"`
+	CancelledAt   *string         `json:"cancelled_at"`
+	Status        string          `json:"status"`
+	Position      int64           `json:"position"`
+	CreatedAt     string          `json:"created_at"`
+	UpdatedAt     string          `json:"updated_at"`
+	StageID       *int64          `json:"stage_id"`
+	StagePosition *int64          `json:"stage_position"`
+	Tags          domain.TagNames `json:"tags"`
 }
 
 type AddFields struct {
 	AreaID *int64
+	Board  *string
 	Title  string
 	Note   string
 	Tags   []string
+}
+
+type CreateFields struct {
+	AreaID  *int64
+	StageID *int64
+	Title   string
+	Note    string
 }
 
 type AreaChange struct {
@@ -51,8 +61,26 @@ type AreaChange struct {
 	Clear bool
 }
 
+type BoardChange struct {
+	Set   *string
+	Clear bool
+}
+
+type StageChange struct {
+	Set   *int64
+	Clear bool
+}
+
 type EditFields struct {
 	Area  AreaChange
+	Board BoardChange
+	Title *string
+	Note  *string
+}
+
+type UpdateFields struct {
+	Area  AreaChange
+	Stage StageChange
 	Title *string
 	Note  *string
 }
@@ -60,6 +88,45 @@ type EditFields struct {
 type ListOptions struct {
 	Status ListStatus
 	AreaID *int64
+}
+
+type Location struct {
+	BoardTitle string
+	StageTitle string
+}
+
+type Detail struct {
+	Project
+	Location *Location `json:"-"`
+}
+
+type Edition struct {
+	Project       Project     `json:"project"`
+	ClearedDefers []task.Task `json:"cleared_defers"`
+	Location      *Location   `json:"-"`
+}
+
+type Movement struct {
+	Project    Project
+	StageTitle string
+}
+
+type BoardReference struct {
+	ID    int64
+	Title string
+}
+
+type StageReference struct {
+	ID         int64
+	BoardID    int64
+	BoardTitle string
+	Title      string
+	Position   int64
+}
+
+type AreaReference struct {
+	ID         int64
+	ArchivedAt *string
 }
 
 type Resolution struct {
@@ -85,13 +152,27 @@ func (e ResolvedProjectsError) Error() string {
 	return fmt.Sprintf("resolved projects block this operation: %v", e.IDs)
 }
 
+type ArchivedAreasError struct {
+	IDs []int64
+}
+
+func (e ArchivedAreasError) Error() string {
+	return fmt.Sprintf("archived areas block this operation: %v", e.IDs)
+}
+
 // Transaction methods return projects and tasks with non-nil Tags slices.
 type Transaction interface {
-	Add(context.Context, AddFields, string) (Project, error)
+	Add(context.Context, CreateFields, string) (Project, error)
 	Find(context.Context, int64) (Project, error)
 	List(context.Context, ListOptions) ([]Project, error)
 	AreaExists(context.Context, int64) error
-	Edit(context.Context, int64, EditFields, string) (Project, error)
+	FindArea(context.Context, int64) (AreaReference, error)
+	FindBoard(context.Context, string) (BoardReference, error)
+	FindFirstStage(context.Context, int64) (*StageReference, error)
+	FindStage(context.Context, int64, string) (StageReference, error)
+	FindStageByID(context.Context, int64) (StageReference, error)
+	Edit(context.Context, int64, UpdateFields, string) (Project, error)
+	MoveStage(context.Context, int64, int64, domain.Placement, string) (Project, error)
 	Reorder(context.Context, int64, domain.Placement, string) (Project, error)
 	Resolve(context.Context, int64, Exit, string) (Project, error)
 	CancelOpenTasks(context.Context, int64, string) ([]task.Task, error)
@@ -112,8 +193,9 @@ type Store interface {
 type Application interface {
 	Add(context.Context, AddFields) (Project, error)
 	List(context.Context, ListOptions) ([]Project, error)
-	Show(context.Context, int64) (Project, error)
-	Edit(context.Context, int64, EditFields) (Project, error)
+	Show(context.Context, int64) (Detail, error)
+	Edit(context.Context, int64, EditFields) (Edition, error)
+	Move(context.Context, int64, string, *domain.Placement) (Movement, error)
 	Reorder(context.Context, int64, domain.Placement) (Project, error)
 	Resolve(context.Context, int64, Exit) (Resolution, error)
 	Reopen(context.Context, int64) (Project, error)

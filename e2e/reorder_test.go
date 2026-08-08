@@ -93,7 +93,7 @@ func TestReorderWorkflowAcrossBinaryInvocations(t *testing.T) {
 	projectFirst := decodeProject(t, projectFirstResult)
 	assertReorderObjectShape(t, projectFirstResult, []string{
 		"id", "area_id", "title", "note", "done_at", "cancelled_at", "status", "position",
-		"created_at", "updated_at", "tags",
+		"created_at", "updated_at", "stage_id", "stage_position", "tags",
 	})
 	if projectFirst.ID != projectCancelled.ID || projectFirst.Status != "cancelled" ||
 		projectFirst.Position != 0 || !slices.Equal(projectFirst.Tags, []string{milestone.Title}) {
