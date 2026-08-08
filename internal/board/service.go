@@ -384,12 +384,12 @@ func (s *Service) DeleteStage(
 	ctx context.Context,
 	boardTitle string,
 	stageTitle string,
-) (StageResult, error) {
+) (StageDeletion, error) {
 	if err := validateBoardAndStageTitles(boardTitle, stageTitle); err != nil {
-		return StageResult{}, err
+		return StageDeletion{}, err
 	}
 
-	var result StageResult
+	var result StageDeletion
 	err := s.store.WithinTransaction(ctx, func(store Transaction) error {
 		foundBoard, err := store.FindBoard(ctx, boardTitle)
 		if err != nil {
@@ -414,15 +414,19 @@ func (s *Service) DeleteStage(
 				nil,
 			)
 		}
+		cleared, err := store.ClearTaskStageDefers(ctx, foundStage.ID, domain.FormatTimestamp(s.now()))
+		if err != nil {
+			return err
+		}
 		deleted, err := store.DeleteStage(ctx, foundBoard.ID, foundStage.ID)
 		if err != nil {
 			return err
 		}
-		result = StageResult{Board: foundBoard, Stage: deleted}
+		result = StageDeletion{Board: foundBoard, Stage: deleted, ClearedDefers: cleared}
 		return nil
 	})
 	if err != nil {
-		return StageResult{}, err
+		return StageDeletion{}, err
 	}
 	return result, nil
 }

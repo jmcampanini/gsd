@@ -137,6 +137,14 @@ func (s *Projects) CancelOpenTasks(
 	return s.poolCore().CancelOpenTasks(ctx, projectID, timestamp)
 }
 
+func (s *Projects) ClearTaskStageDefers(
+	ctx context.Context,
+	projectID int64,
+	timestamp string,
+) ([]task.Task, error) {
+	return s.poolCore().ClearTaskStageDefers(ctx, projectID, timestamp)
+}
+
 func (s *Projects) Reopen(
 	ctx context.Context,
 	id int64,
@@ -689,6 +697,28 @@ RETURNING `+taskColumnsWithTags("tasks.id"), timestamp, timestamp, projectID)
 	sortTasks(cancelled)
 
 	return cancelled, nil
+}
+
+func (s *projectsCore) ClearTaskStageDefers(
+	ctx context.Context,
+	projectID int64,
+	timestamp string,
+) ([]task.Task, error) {
+	rows, err := s.executor.QueryContext(ctx, `
+UPDATE tasks
+SET defer_stage_id = NULL, updated_at = ?
+WHERE project_id = ? AND defer_stage_id IS NOT NULL
+RETURNING `+taskColumnsWithTags("tasks.id"), timestamp, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("clear project task stage defers: %w", err)
+	}
+
+	cleared, err := collectRows(rows, scanTask, "scan cleared project task stage defer", "iterate cleared project task stage defers")
+	if err != nil {
+		return nil, err
+	}
+	sortTasks(cleared)
+	return cleared, nil
 }
 
 func (s *projectsCore) Reopen(

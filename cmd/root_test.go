@@ -30,8 +30,10 @@ type fakeApplication struct {
 	showResult       task.Task
 	showError        error
 	editResult       task.Task
+	editEdition      *task.Edition
 	editError        error
 	doneResult       task.Task
+	doneCompletion   *task.Completion
 	doneError        error
 	cancelResult     task.Task
 	cancelError      error
@@ -51,11 +53,13 @@ type fakeApplication struct {
 	addAreaID        *int64
 	addDueOn         *string
 	addDeferUntil    *string
+	addDeferStage    *string
+	addPromotes      bool
 	addTags          []string
 	listOptions      task.ListOptions
 	showID           int64
 	editID           int64
-	editFields       task.EditFields
+	editFields       task.EditRequest
 	reorderID        int64
 	reorderPlacement domain.Placement
 	mutation         string
@@ -65,13 +69,15 @@ type fakeApplication struct {
 	taggingNames     []string
 }
 
-func (f *fakeApplication) Add(_ context.Context, fields task.AddFields) (task.Task, error) {
+func (f *fakeApplication) Add(_ context.Context, fields task.AddRequest) (task.Task, error) {
 	f.addTitle = fields.Title
 	f.addNote = fields.Note
 	f.addProjectID = fields.ProjectID
 	f.addAreaID = fields.AreaID
 	f.addDueOn = fields.DueOn
 	f.addDeferUntil = fields.DeferUntil
+	f.addDeferStage = fields.DeferStage
+	f.addPromotes = fields.Promotes
 	f.addTags = fields.Tags
 	return f.addResult, f.addError
 }
@@ -97,17 +103,23 @@ func (f *fakeApplication) Show(_ context.Context, id int64) (task.Task, error) {
 func (f *fakeApplication) Edit(
 	_ context.Context,
 	id int64,
-	fields task.EditFields,
-) (task.Task, error) {
+	fields task.EditRequest,
+) (task.Edition, error) {
 	f.editID = id
 	f.editFields = fields
-	return f.editResult, f.editError
+	if f.editEdition != nil {
+		return *f.editEdition, f.editError
+	}
+	return task.Edition{Task: f.editResult, ClearedDefers: []task.Task{}}, f.editError
 }
 
-func (f *fakeApplication) Done(_ context.Context, id int64) (task.Task, error) {
+func (f *fakeApplication) Done(_ context.Context, id int64) (task.Completion, error) {
 	f.mutation = "done"
 	f.mutationID = id
-	return f.doneResult, f.doneError
+	if f.doneCompletion != nil {
+		return *f.doneCompletion, f.doneError
+	}
+	return task.Completion{Task: f.doneResult}, f.doneError
 }
 
 func (f *fakeApplication) Cancel(_ context.Context, id int64) (task.Task, error) {
@@ -419,7 +431,9 @@ func TestJSONCommandOutput(t *testing.T) {
 		"title",
 		"note",
 		"defer_until",
+		"defer_stage_id",
 		"due_on",
+		"promotes",
 		"done_at",
 		"cancelled_at",
 		"status",
@@ -432,8 +446,8 @@ func TestJSONCommandOutput(t *testing.T) {
 			t.Errorf("JSON fields = %v, missing %q", fields, field)
 		}
 	}
-	if len(fields) != 14 {
-		t.Errorf("JSON field count = %d, want 14", len(fields))
+	if len(fields) != 16 {
+		t.Errorf("JSON field count = %d, want 16", len(fields))
 	}
 	if string(fields["project_id"]) != "null" || string(fields["area_id"]) != "null" ||
 		string(fields["done_at"]) != "null" || string(fields["cancelled_at"]) != "null" {
@@ -676,6 +690,66 @@ func TestEditAdaptsDeferIntent(t *testing.T) {
 	}
 }
 
+func TestStageAwareTaskFlagsAdaptExactIntent(t *testing.T) {
+	t.Parallel()
+
+	add := &fakeApplication{addResult: task.Task{ID: 7, Title: "capstone"}}
+	addResult := runCommand(t, add, "add", "capstone", "--defer-stage", "Doing", "--promotes", "--json")
+	if addResult.exitCode != 0 || addResult.stderr != "" || add.addDeferStage == nil ||
+		*add.addDeferStage != "Doing" || !add.addPromotes {
+		t.Fatalf("add result/call = %#v/%#v, want exact stage and promotion intent", addResult, add)
+	}
+	noOpAdd := &fakeApplication{addResult: task.Task{ID: 8, Title: "ordinary"}}
+	noOpResult := runCommand(t, noOpAdd, "add", "ordinary", "--no-defer-stage", "--no-promotes", "--json")
+	if noOpResult.exitCode != 0 || noOpResult.stderr != "" || noOpAdd.addDeferStage != nil || noOpAdd.addPromotes {
+		t.Errorf("no-op add result/call = %#v/%#v, want explicit creation defaults", noOpResult, noOpAdd)
+	}
+
+	set := &fakeApplication{editResult: task.Task{ID: 7, Title: "capstone", Promotes: true}}
+	setResult := runCommand(t, set, "edit", "7", "--defer-stage", "Review", "--promotes", "--json")
+	if setResult.exitCode != 0 || setResult.stderr != "" || set.editFields.DeferStage.Set == nil ||
+		*set.editFields.DeferStage.Set != "Review" || set.editFields.DeferStage.Clear ||
+		set.editFields.Promotes == nil || !*set.editFields.Promotes {
+		t.Fatalf("set result/call = %#v/%#v, want exact edit intent", setResult, set.editFields)
+	}
+	var bare map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(setResult.stdout), &bare); err != nil {
+		t.Fatalf("decode non-containment edit: %v", err)
+	}
+	if _, wrapped := bare["task"]; wrapped {
+		t.Errorf("non-containment edit JSON = %s, want bare task", setResult.stdout)
+	}
+
+	clear := &fakeApplication{editResult: task.Task{ID: 7, Title: "capstone"}}
+	clearResult := runCommand(t, clear, "edit", "7", "--no-defer-stage", "--no-promotes", "--json")
+	if clearResult.exitCode != 0 || clearResult.stderr != "" || !clear.editFields.DeferStage.Clear ||
+		clear.editFields.DeferStage.Set != nil || clear.editFields.Promotes == nil || *clear.editFields.Promotes {
+		t.Errorf("clear result/call = %#v/%#v, want stage clear and promotes false", clearResult, clear.editFields)
+	}
+}
+
+func TestContainmentEditJSONAlwaysCarriesClearedDefersEnvelope(t *testing.T) {
+	t.Parallel()
+
+	projectID := int64(2)
+	edition := task.Edition{
+		Task:          task.Task{ID: 7, ProjectID: &projectID, Title: "capstone"},
+		ClearedDefers: []task.Task{},
+	}
+	application := &fakeApplication{editEdition: &edition}
+	result := runCommand(t, application, "edit", "7", "--project", "2", "--json")
+	if result.exitCode != 0 || result.stderr != "" {
+		t.Fatalf("result = %#v, want containment edit success", result)
+	}
+	var shape map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(result.stdout), &shape); err != nil {
+		t.Fatalf("decode containment edit: %v", err)
+	}
+	if len(shape) != 2 || string(shape["cleared_defers"]) != "[]" || shape["task"] == nil {
+		t.Errorf("containment edit JSON = %s, want task and empty cleared_defers", result.stdout)
+	}
+}
+
 func TestEditWithoutFieldsFailsBeforeOpeningApplication(t *testing.T) {
 	t.Parallel()
 
@@ -763,7 +837,8 @@ func TestInboxJSONIncludesExactViewTaskEnrichment(t *testing.T) {
 	}
 	want := []string{
 		"id", "project_id", "area_id", "title", "note", "defer_until", "due_on", "done_at",
-		"cancelled_at", "status", "position", "created_at", "updated_at", "tags", "project_title",
+		"cancelled_at", "status", "position", "created_at", "updated_at", "defer_stage_id",
+		"promotes", "tags", "project_title",
 		"governing_area_id", "governing_area_title",
 	}
 	if len(fields) != 1 || len(fields[0]) != len(want) {
@@ -877,7 +952,7 @@ func TestListAdaptsDeadlineSelectors(t *testing.T) {
 	}
 }
 
-func TestDateFlagConflictsAreUsageErrorsWithoutOpeningDatabase(t *testing.T) {
+func TestTaskFlagConflictsAreUsageErrorsWithoutOpeningDatabase(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -886,6 +961,10 @@ func TestDateFlagConflictsAreUsageErrorsWithoutOpeningDatabase(t *testing.T) {
 	}{
 		{name: "edit due", args: []string{"edit", "7", "--due", "today", "--no-due", "--json"}},
 		{name: "edit defer", args: []string{"edit", "7", "--defer", "today", "--no-defer", "--json"}},
+		{name: "add stage defer", args: []string{"add", "task", "--defer-stage", "Doing", "--no-defer-stage", "--json"}},
+		{name: "add promotes", args: []string{"add", "task", "--promotes", "--no-promotes", "--json"}},
+		{name: "edit stage defer", args: []string{"edit", "7", "--defer-stage", "Doing", "--no-defer-stage", "--json"}},
+		{name: "edit promotes", args: []string{"edit", "7", "--promotes", "--no-promotes", "--json"}},
 		{name: "list due overdue", args: []string{"list", "--due", "--overdue", "--json"}},
 		{name: "list due deferred", args: []string{"list", "--due", "--deferred", "--json"}},
 		{name: "list overdue deferred", args: []string{"list", "--overdue", "--deferred", "--json"}},
@@ -902,6 +981,25 @@ func TestDateFlagConflictsAreUsageErrorsWithoutOpeningDatabase(t *testing.T) {
 				t.Errorf("stderr = %q, want human-readable usage diagnostic", result.stderr)
 			}
 		})
+	}
+}
+
+func TestStageAwareBooleanFlagsRejectExplicitFalseBeforeOpeningApplication(t *testing.T) {
+	t.Parallel()
+
+	for _, args := range [][]string{
+		{"add", "task", "--no-defer-stage=false", "--json"},
+		{"add", "task", "--promotes=false", "--json"},
+		{"add", "task", "--no-promotes=false", "--json"},
+		{"edit", "7", "--no-defer-stage=false", "--json"},
+		{"edit", "7", "--promotes=false", "--json"},
+		{"edit", "7", "--no-promotes=false", "--json"},
+	} {
+		result := runCommand(t, &fakeApplication{}, args...)
+		if result.exitCode != 2 || result.opens != 0 || result.closes != 0 || result.stdout != "" ||
+			!strings.Contains(result.stderr, "cannot be false") {
+			t.Errorf("args %v result = %#v, want usage error without application lifecycle", args, result)
+		}
 	}
 }
 
@@ -1119,6 +1217,34 @@ func TestLifecycleCommandsAdaptIDsAndHumanActions(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestDoneJSONShapeTracksPromotionIntent(t *testing.T) {
+	t.Parallel()
+
+	plainTask := task.Task{ID: 7, Title: "ordinary", Promotes: false, Tags: domain.TagNames{}}
+	plain := runCommand(t, &fakeApplication{doneResult: plainTask}, "done", "7", "--json")
+	var plainShape map[string]json.RawMessage
+	if plain.exitCode != 0 || plain.stderr != "" || json.Unmarshal([]byte(plain.stdout), &plainShape) != nil {
+		t.Fatalf("plain result = %#v, want bare task JSON", plain)
+	}
+	if _, wrapped := plainShape["task"]; wrapped {
+		t.Errorf("plain done JSON = %s, want bare task", plain.stdout)
+	}
+
+	moved := domain.Project{ID: 12, Title: "Milestone"}
+	completion := task.Completion{
+		Task:            task.Task{ID: 8, Title: "capstone", Promotes: true, Tags: domain.TagNames{}},
+		PromotedProject: &moved,
+	}
+	promoting := runCommand(t, &fakeApplication{doneCompletion: &completion}, "done", "8", "--json")
+	var envelope map[string]json.RawMessage
+	if promoting.exitCode != 0 || promoting.stderr != "" || json.Unmarshal([]byte(promoting.stdout), &envelope) != nil {
+		t.Fatalf("promoting result = %#v, want completion JSON", promoting)
+	}
+	if len(envelope) != 2 || envelope["task"] == nil || envelope["promoted_project"] == nil {
+		t.Errorf("promoting done JSON = %s, want task and promoted_project", promoting.stdout)
 	}
 }
 

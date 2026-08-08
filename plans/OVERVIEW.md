@@ -5,8 +5,9 @@ incrementally, beginning with the `gsd capture` popup) wrapping a
 personal to-do system. Its design goals are simple, extendable primitives, a
 Things-inspired workflow, and a SQLite backend. The current baseline provides
 the repository and CLI foundation, a complete bare-inbox task lifecycle,
-calendar-aware due dates, deferrals, and an `available` view, projects
-with task containment, narrated completion cascades, and the interleaved
+calendar-aware due dates, date and stage deferrals, and an `available` view,
+projects with task containment, narrated completion cascades, user-defined
+boards with ordered stages and project movement, and the interleaved
 `logbook`, areas holding projects and loose tasks with governing-area
 archiving and RESTRICT-guarded recursive deletion, flat tags spanning all
 three entity kinds, and the settled config and presentation layer: a TOML
@@ -24,17 +25,36 @@ the forward-looking canonical v1 target delivered incrementally through
 - `position`
 - `archived_at` (retire an area without deleting it; empty = active)
 
-**Project** — belongs to at most one area. Carries no dates.
+**Board** — a global, user-defined pipeline orthogonal to areas. Its name is
+its identity, and its ordered stages define the workflow; gsd supplies no
+default board.
+
+- `title`, `note`
+- `position`
+
+**Stage** — a named, ordered step owned by a board. A rendered stage is a
+*column*. A project *moves* in either direction; *promote* means specifically
+moving it to the next stage and is a concept, not another CLI verb.
+
+- `title`
+- `position`
+
+**Project** — belongs to at most one area and, independently, at most one
+board, where it occupies exactly one stage. Carries no dates.
 
 - `title`, `note`
 - `done_at` / `cancelled_at` — at most one set; both empty = open
-- `position`
+- `position` — area sibling order
+- `stage_id`, `stage_position` — optional board membership and column order
 
 **Task** — belongs to exactly one of: a project, an area (loose task), or
 nothing (= inbox).
 
 - `title`, `note`
 - `defer_until` (optional) — calendar day; hides the task until it arrives
+- `defer_stage_id` (optional) — hides it until its project reaches or passes
+  that stage
+- `promotes` — declared intent to move its project to the next stage when done
 - `due_on` (optional) — calendar day; reserved for real external deadlines
   only, never aspirations
 - `done_at` / `cancelled_at` — at most one set; both empty = open
@@ -47,8 +67,9 @@ nothing (= inbox).
 
 - `*_at` — an instant (UTC timestamp), stamped by the system.
 - `*_on` / `*_until` — a calendar day (no timezone), chosen by the human.
-- No boolean fields: a flag is an event in disguise, stored as a nullable
-  `*_at` (empty = hasn't happened).
+- Events are nullable `*_at` fields rather than booleans. `promotes` is the
+  deliberate exception because it declares intent rather than recording an
+  event.
 
 ## Ordering
 
@@ -57,6 +78,24 @@ order you see when you drag things around: projects within an area, tasks
 within a project. Without it, every list
 falls back to alphabetical or created-at, which never matches how you
 actually think about the work.
+
+## Boards and stage-aware work
+
+- Board membership is containment independent of area membership. Entry and
+  board switching use the destination board's first stage; removing
+  membership clears the project's stage. A board with no stages cannot accept
+  projects.
+- `project move` owns all board movement: forward or backward, cross-stage or
+  within-column. Cross-stage movement appends unless explicitly positioned.
+  Status is orthogonal: resolving hides a project from the board, and reopen
+  restores its retained stage and position.
+- Stage defers are validated against the task's project board. When a task is
+  re-parented with an explicit stage defer, the destination is resolved first.
+  Re-parenting away, project board removal or switching, and stage deletion
+  clear affected stage defers as part of the same change.
+- Completing a promoting task moves its project forward exactly one stage in
+  the same operation. The marker is inert off-board, completion at the final
+  stage is a reported no-op, and reopening never demotes.
 
 ## State machine
 
@@ -72,8 +111,9 @@ Hard delete exists but is the uncommon path — the normal end of life is
 
 - **Inbox**: open tasks with no project and no area.
 - **Available**: task is open, its project (if any) is open, its area
-  (own, or inherited through its project) is not archived, and
-  `defer_until` is empty or ≤ today.
+  (own, or inherited through its project) is not archived, its defer date is
+  empty or arrived, and its stage defer is empty or its project has reached
+  or passed that stage. Date and stage gates are independent.
 - **Logbook**: everything done or cancelled — tasks and projects — ordered
   by resolution time, newest first; a project lists above the tasks its
   cascade cancelled at the same instant.

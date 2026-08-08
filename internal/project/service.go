@@ -278,6 +278,12 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Editio
 				return err
 			}
 		}
+		if boardMovement {
+			result.ClearedDefers, err = store.ClearTaskStageDefers(ctx, id, timestamp)
+			if err != nil {
+				return err
+			}
+		}
 
 		if !hasUpdateFields(updated) {
 			result.Project = current

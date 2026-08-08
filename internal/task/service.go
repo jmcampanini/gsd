@@ -20,49 +20,75 @@ func NewService(store Store) *Service {
 	return &Service{store: store, now: time.Now}
 }
 
-func (s *Service) Add(ctx context.Context, fields AddFields) (Task, error) {
-	if err := domain.ValidateTitle(fields.Title); err != nil {
+func (s *Service) Add(ctx context.Context, request AddRequest) (Task, error) {
+	if err := domain.ValidateTitle(request.Title); err != nil {
 		return Task{}, err
 	}
-	if err := domain.ValidateNote(fields.Note); err != nil {
+	if err := domain.ValidateNote(request.Note); err != nil {
 		return Task{}, err
 	}
-	if err := domain.ValidateOptionalID("project", fields.ProjectID); err != nil {
+	if err := domain.ValidateOptionalID("project", request.ProjectID); err != nil {
 		return Task{}, err
 	}
-	if err := domain.ValidateOptionalID("area", fields.AreaID); err != nil {
+	if err := domain.ValidateOptionalID("area", request.AreaID); err != nil {
 		return Task{}, err
 	}
-	if fields.ProjectID != nil && fields.AreaID != nil {
+	if request.ProjectID != nil && request.AreaID != nil {
 		return Task{}, apperr.New(apperr.InvalidArgument, "task cannot belong to both a project and an area", nil)
+	}
+	if request.DeferStage != nil {
+		if err := domain.ValidateTitle(*request.DeferStage); err != nil {
+			return Task{}, err
+		}
 	}
 
 	var err error
-	fields.Tags, err = domain.NormalizeTagNames(fields.Tags)
+	request.Tags, err = domain.NormalizeTagNames(request.Tags)
 	if err != nil {
 		return Task{}, err
 	}
 
 	reference := s.now()
-	fields.DueOn, err = canonicalizeDate(fields.DueOn, reference)
+	request.DueOn, err = canonicalizeDate(request.DueOn, reference)
 	if err != nil {
 		return Task{}, err
 	}
-	fields.DeferUntil, err = canonicalizeDate(fields.DeferUntil, reference)
+	request.DeferUntil, err = canonicalizeDate(request.DeferUntil, reference)
 	if err != nil {
 		return Task{}, err
 	}
 
+	fields := AddFields{
+		ProjectID:  request.ProjectID,
+		AreaID:     request.AreaID,
+		Title:      request.Title,
+		Note:       request.Note,
+		DeferUntil: request.DeferUntil,
+		DueOn:      request.DueOn,
+		Promotes:   request.Promotes,
+		Tags:       request.Tags,
+	}
 	timestamp := domain.FormatTimestamp(reference)
-	if len(fields.Tags) == 0 {
+	if len(fields.Tags) == 0 && request.DeferStage == nil {
 		return s.store.Add(ctx, fields, timestamp)
 	}
 
 	var added Task
 	err = s.store.WithinTransaction(ctx, func(store Transaction) error {
+		if request.DeferStage != nil {
+			stage, err := resolveDeferStage(ctx, store, request.ProjectID, *request.DeferStage)
+			if err != nil {
+				return err
+			}
+			fields.DeferStageID = &stage.ID
+		}
+
 		added, err = store.Add(ctx, fields, timestamp)
 		if err != nil {
 			return err
+		}
+		if len(fields.Tags) == 0 {
+			return nil
 		}
 
 		resolved, err := store.ResolveTags(ctx, fields.Tags)
@@ -162,65 +188,129 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Task, error)
 	return domain.NormalizeSliceResult(listed, nil)
 }
 
-func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Task, error) {
+func (s *Service) Edit(ctx context.Context, id int64, request EditRequest) (Edition, error) {
 	if err := validateID(id); err != nil {
-		return Task{}, err
+		return Edition{}, err
 	}
-	if fields.DueOn.Set != nil && fields.DueOn.Clear {
-		return Task{}, apperr.New(apperr.InvalidArgument, "due date cannot be set and cleared", nil)
+	if request.DueOn.Set != nil && request.DueOn.Clear {
+		return Edition{}, apperr.New(apperr.InvalidArgument, "due date cannot be set and cleared", nil)
 	}
-	if fields.DeferUntil.Set != nil && fields.DeferUntil.Clear {
-		return Task{}, apperr.New(apperr.InvalidArgument, "defer date cannot be set and cleared", nil)
+	if request.DeferUntil.Set != nil && request.DeferUntil.Clear {
+		return Edition{}, apperr.New(apperr.InvalidArgument, "defer date cannot be set and cleared", nil)
 	}
-	if fields.Project.Set != nil && fields.Project.Clear {
-		return Task{}, apperr.New(apperr.InvalidArgument, "project cannot be set and cleared", nil)
+	if request.DeferStage.Set != nil && request.DeferStage.Clear {
+		return Edition{}, apperr.New(apperr.InvalidArgument, "defer stage cannot be set and cleared", nil)
 	}
-	if err := domain.ValidateOptionalID("project", fields.Project.Set); err != nil {
-		return Task{}, err
+	if request.Project.Set != nil && request.Project.Clear {
+		return Edition{}, apperr.New(apperr.InvalidArgument, "project cannot be set and cleared", nil)
 	}
-	if fields.Area.Set != nil && fields.Area.Clear {
-		return Task{}, apperr.New(apperr.InvalidArgument, "area cannot be set and cleared", nil)
+	if err := domain.ValidateOptionalID("project", request.Project.Set); err != nil {
+		return Edition{}, err
 	}
-	if err := domain.ValidateOptionalID("area", fields.Area.Set); err != nil {
-		return Task{}, err
+	if request.Area.Set != nil && request.Area.Clear {
+		return Edition{}, apperr.New(apperr.InvalidArgument, "area cannot be set and cleared", nil)
 	}
-	if fields.Project.Set != nil && fields.Area.Set != nil {
-		return Task{}, apperr.New(apperr.InvalidArgument, "task cannot be moved to both a project and an area", nil)
+	if err := domain.ValidateOptionalID("area", request.Area.Set); err != nil {
+		return Edition{}, err
 	}
-	if fields.Title == nil && fields.Note == nil &&
-		fields.DueOn.Set == nil && !fields.DueOn.Clear &&
-		fields.DeferUntil.Set == nil && !fields.DeferUntil.Clear &&
-		fields.Project.Set == nil && !fields.Project.Clear &&
-		fields.Area.Set == nil && !fields.Area.Clear {
-		return Task{}, apperr.New(
+	if request.Project.Set != nil && request.Area.Set != nil {
+		return Edition{}, apperr.New(apperr.InvalidArgument, "task cannot be moved to both a project and an area", nil)
+	}
+	if request.Title == nil && request.Note == nil && request.Promotes == nil &&
+		request.DueOn.Set == nil && !request.DueOn.Clear &&
+		request.DeferUntil.Set == nil && !request.DeferUntil.Clear &&
+		request.DeferStage.Set == nil && !request.DeferStage.Clear &&
+		request.Project.Set == nil && !request.Project.Clear &&
+		request.Area.Set == nil && !request.Area.Clear {
+		return Edition{}, apperr.New(
 			apperr.InvalidArgument,
 			"task edit requires at least one field",
 			nil,
 		)
 	}
-	if fields.Title != nil {
-		if err := domain.ValidateTitle(*fields.Title); err != nil {
-			return Task{}, err
+	if request.Title != nil {
+		if err := domain.ValidateTitle(*request.Title); err != nil {
+			return Edition{}, err
 		}
 	}
-	if fields.Note != nil {
-		if err := domain.ValidateNote(*fields.Note); err != nil {
-			return Task{}, err
+	if request.Note != nil {
+		if err := domain.ValidateNote(*request.Note); err != nil {
+			return Edition{}, err
+		}
+	}
+	if request.DeferStage.Set != nil {
+		if err := domain.ValidateTitle(*request.DeferStage.Set); err != nil {
+			return Edition{}, err
 		}
 	}
 
 	reference := s.now()
 	var err error
-	fields.DueOn.Set, err = canonicalizeDate(fields.DueOn.Set, reference)
+	request.DueOn.Set, err = canonicalizeDate(request.DueOn.Set, reference)
 	if err != nil {
-		return Task{}, err
+		return Edition{}, err
 	}
-	fields.DeferUntil.Set, err = canonicalizeDate(fields.DeferUntil.Set, reference)
+	request.DeferUntil.Set, err = canonicalizeDate(request.DeferUntil.Set, reference)
 	if err != nil {
-		return Task{}, err
+		return Edition{}, err
 	}
 
-	return s.store.Edit(ctx, id, fields, domain.FormatTimestamp(reference))
+	fields := EditFields{
+		Project:    request.Project,
+		Area:       request.Area,
+		Title:      request.Title,
+		Note:       request.Note,
+		DeferUntil: request.DeferUntil,
+		DueOn:      request.DueOn,
+		Promotes:   request.Promotes,
+	}
+	result := Edition{ClearedDefers: []Task{}}
+	membershipRequested := request.Project.Set != nil || request.Project.Clear ||
+		request.Area.Set != nil || request.Area.Clear
+	stageRequested := request.DeferStage.Set != nil || request.DeferStage.Clear
+	timestamp := domain.FormatTimestamp(reference)
+	if !membershipRequested && !stageRequested {
+		result.Task, err = s.store.Edit(ctx, id, fields, timestamp)
+		if err != nil {
+			return Edition{}, err
+		}
+		return result, nil
+	}
+
+	err = s.store.WithinTransaction(ctx, func(store Transaction) error {
+		current, err := store.Find(ctx, id)
+		if err != nil {
+			return err
+		}
+		destinationProjectID := projectAfterEdit(current.ProjectID, current.AreaID, request)
+		projectChanged := !sameOptionalID(current.ProjectID, destinationProjectID)
+
+		switch {
+		case request.DeferStage.Set != nil:
+			stage, err := resolveDeferStage(ctx, store, destinationProjectID, *request.DeferStage.Set)
+			if err != nil {
+				return err
+			}
+			fields.DeferStageID.Set = &stage.ID
+		case request.DeferStage.Clear:
+			fields.DeferStageID.Clear = true
+		case projectChanged && current.DeferStageID != nil:
+			fields.DeferStageID.Clear = true
+		}
+
+		result.Task, err = store.Edit(ctx, id, fields, timestamp)
+		if err != nil {
+			return err
+		}
+		if projectChanged && request.DeferStage.Set == nil && current.DeferStageID != nil {
+			result.ClearedDefers = append(result.ClearedDefers, result.Task)
+		}
+		return nil
+	})
+	if err != nil {
+		return Edition{}, err
+	}
+	return result, nil
 }
 
 func (s *Service) Reorder(ctx context.Context, id int64, placement domain.Placement) (Task, error) {
@@ -234,12 +324,57 @@ func (s *Service) Reorder(ctx context.Context, id int64, placement domain.Placem
 	return s.store.Reorder(ctx, id, placement, domain.FormatTimestamp(s.now()))
 }
 
-func (s *Service) Done(ctx context.Context, id int64) (Task, error) {
+func (s *Service) Done(ctx context.Context, id int64) (Completion, error) {
 	if err := validateID(id); err != nil {
-		return Task{}, err
+		return Completion{}, err
 	}
 
-	return s.store.Done(ctx, id, domain.FormatTimestamp(s.now()))
+	timestamp := domain.FormatTimestamp(s.now())
+	var result Completion
+	err := s.store.WithinTransaction(ctx, func(store Transaction) error {
+		completed, err := store.Done(ctx, id, timestamp)
+		if err != nil {
+			return err
+		}
+		result.Task = completed
+		if !completed.Promotes || completed.ProjectID == nil {
+			return nil
+		}
+
+		currentProject, err := store.FindProject(ctx, *completed.ProjectID)
+		if err != nil {
+			return err
+		}
+		if currentProject.StageID == nil {
+			return nil
+		}
+		currentStage, err := store.FindStageByID(ctx, *currentProject.StageID)
+		if err != nil {
+			return err
+		}
+		nextStage, err := store.FindNextStage(ctx, currentStage.BoardID, currentStage.Position)
+		if err != nil {
+			return err
+		}
+		if nextStage == nil {
+			result.Promotion = &Promotion{
+				Project: currentProject, StageTitle: currentStage.Title, LastStage: true,
+			}
+			return nil
+		}
+
+		promoted, err := store.MoveProjectStage(ctx, currentProject.ID, nextStage.ID, timestamp)
+		if err != nil {
+			return err
+		}
+		result.PromotedProject = &promoted
+		result.Promotion = &Promotion{Project: promoted, StageTitle: nextStage.Title}
+		return nil
+	})
+	if err != nil {
+		return Completion{}, err
+	}
+	return result, nil
 }
 
 func (s *Service) Cancel(ctx context.Context, id int64) (Task, error) {
@@ -326,6 +461,74 @@ func (s *Service) Delete(ctx context.Context, id int64) (Task, error) {
 	}
 
 	return s.store.Delete(ctx, id)
+}
+
+func resolveDeferStage(
+	ctx context.Context,
+	store Transaction,
+	projectID *int64,
+	title string,
+) (StageReference, error) {
+	if projectID == nil {
+		return StageReference{}, apperr.New(
+			apperr.InvalidArgument,
+			"defer stage requires a task project on a board",
+			nil,
+		)
+	}
+	foundProject, err := store.FindProject(ctx, *projectID)
+	if err != nil {
+		return StageReference{}, err
+	}
+	if foundProject.StageID == nil {
+		return StageReference{}, apperr.New(
+			apperr.InvalidArgument,
+			fmt.Sprintf("defer stage requires project %d to be on a board", foundProject.ID),
+			nil,
+		)
+	}
+	currentStage, err := store.FindStageByID(ctx, *foundProject.StageID)
+	if err != nil {
+		return StageReference{}, err
+	}
+	target, err := store.FindStage(ctx, currentStage.BoardID, title)
+	if err == nil {
+		return target, nil
+	}
+	if code, coded := apperr.CodeOf(err); !coded || code != apperr.NotFound {
+		return StageReference{}, err
+	}
+	exists, existsErr := store.StageExists(ctx, title)
+	if existsErr != nil {
+		return StageReference{}, existsErr
+	}
+	if exists {
+		return StageReference{}, apperr.New(
+			apperr.InvalidArgument,
+			fmt.Sprintf("stage %s is not on project %d's board", title, foundProject.ID),
+			nil,
+		)
+	}
+	return StageReference{}, err
+}
+
+func projectAfterEdit(currentProjectID, currentAreaID *int64, request EditRequest) *int64 {
+	switch {
+	case request.Project.Set != nil:
+		return request.Project.Set
+	case request.Area.Set != nil:
+		return nil
+	case request.Project.Clear && currentProjectID != nil:
+		return nil
+	case request.Area.Clear && currentAreaID != nil:
+		return nil
+	default:
+		return currentProjectID
+	}
+}
+
+func sameOptionalID(left, right *int64) bool {
+	return left == nil && right == nil || left != nil && right != nil && *left == *right
 }
 
 func ParseListStatus(value string) (ListStatus, error) {

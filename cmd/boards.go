@@ -275,9 +275,9 @@ func newStageDeleteCommand(options *rootOptions, factory applicationFactory) *co
 					return err
 				}
 				if options.json {
-					return writeJSON(command.OutOrStdout(), result.Stage)
+					return writeJSON(command.OutOrStdout(), result)
 				}
-				return options.presentation.output(command).writeStageMutation(verbDeleted, result)
+				return options.presentation.output(command).writeStageDeletion(result)
 			})
 		},
 	}

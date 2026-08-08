@@ -8,8 +8,8 @@ consolidation. This plan is temporary and is retired at consolidation.
 ## Progress
 
 - [x] Chunk 1 — Boards exist and bend
-- [ ] Chunk 2 — Projects on the board
-- [ ] Chunk 3 — Stage-aware tasks
+- [x] Chunk 2 — Projects on the board
+- [x] Chunk 3 — Stage-aware tasks
 
 There is no chunk 0: the Milestone 10 foundation review scheduled
 nothing; the deferred items carry forward in `MILESTONE_11.md` with
@@ -116,6 +116,9 @@ stories were reconciled to match.
     the stage must belong to that board (`invalid_argument`
     otherwise; unknown names are `not_found`). Comparison is
     reaches-or-passes by stage position, so moving backward re-hides.
+    A task edit that both re-parents and explicitly sets a defer stage
+    resolves the destination first and validates the stage against it;
+    otherwise an actual project change clears the old stage defer.
     Stage-deferred tasks render like date-deferred tasks, and
     `list --deferred` covers both defer axes.
   - `--promotes` is settable on any task and inert without a boarded
@@ -132,10 +135,15 @@ stories were reconciled to match.
   `{"board":{...},"stages":[{...stage row...,"projects":[project row
   + "progress":{"done":N,"total":M}]}]}`; `board delete` returns
   `{"board":{...},"stages":[...]}`. A board-flag `project edit`
-  returns `{"project":{...},"cleared_defers":[task rows]}`; a
-  promoting completion returns
+  returns `{"project":{...},"cleared_defers":[task rows]}`; a task
+  edit carrying any containment flag returns
+  `{"task":{...},"cleared_defers":[task rows]}`, and `stage delete`
+  returns `{"stage":{...},"cleared_defers":[task rows]}`. Those
+  clearing-capable forms always use their envelopes, including empty
+  arrays. A promoting completion returns
   `{"task":{...},"promoted_project":{...}}` with `promoted_project`
-  null on the last-stage no-op. Errors ride the standard coded
+  null when no project moves (the last-stage no-op or an inert
+  off-board marker). Errors ride the standard coded
   envelope; exit codes stay 0/1/2.
 - **Presentation.** Creation echo `+ Board: software (research →
   planning → doing → review)`; `boards list` rows `NAME  stage →
@@ -317,24 +325,24 @@ to promote the whole project — one stroke, whole phase transition.
 
 Implementation:
 
-- [ ] `0001_baseline.sql`: `tasks.defer_stage_id` and
+- [x] `0001_baseline.sql`: `tasks.defer_stage_id` and
       `tasks.promotes` with CHECK and index; the `available` view
       gains the stage-defer clause; snapshot test updated.
-- [ ] Task service: `--defer-stage`/`--no-defer-stage` validation
+- [x] Task service: `--defer-stage`/`--no-defer-stage` validation
       (project on a board, stage of that board) on add and edit;
       `--promotes`/`--no-promotes` on add and edit.
-- [ ] Task service `Done`: promotion composed in the transaction —
+- [x] Task service `Done`: promotion composed in the transaction —
       resolve the project's next stage, advance with column append,
       narrate; reported no-op at the last stage; reopen leaves the
       stage untouched.
-- [ ] Clearing wiring: `--no-board`/board switch (project service),
+- [x] Clearing wiring: `--no-board`/board switch (project service),
       re-parenting a task away (task service), and `stage delete`
       (board service) clear affected stage defers in the same
       transaction and report them (`cleared_defers`).
-- [ ] `cmd`: the four task flags, `↑` in listings and `show`,
+- [x] `cmd`: the four task flags, `↑` in listings and `show`,
       `~ Promoted:` narration, cleared-defer trees, promotion and
       cleared-defers JSON envelopes.
-- [ ] `e2e/boards_test.go`: the six-step workflow below as durable
+- [x] `e2e/boards_test.go`: the six-step workflow below as durable
       subprocess coverage inside `make check`.
 
 Verification (primary owners: store tests for view semantics; service
@@ -342,23 +350,23 @@ tests for validation, composition, and atomicity via the transaction
 seam; cmd tests for envelopes and glyphs; e2e for cross-invocation
 persistence):
 
-- [ ] Store: `available` hides a stage-deferred task until the
+- [x] Store: `available` hides a stage-deferred task until the
       project's stage reaches or passes the target; moving backward
       re-hides; date and stage defer gate independently; both-clear
       visibility.
-- [ ] Service: defer-stage refused off-board (`invalid_argument`) and
+- [x] Service: defer-stage refused off-board (`invalid_argument`) and
       for unknown stages (`not_found`); promotion advances exactly
       one stage, appends to the destination column, no-ops with a
       report at the last stage, is inert off-board, and rolls back
       atomically when the stage write fails (fake-injected error);
       reopen never demotes; each clearing path reports its cleared
       set.
-- [ ] cmd: `--defer-stage` with `--no-defer-stage` (and promotes
+- [x] cmd: `--defer-stage` with `--no-defer-stage` (and promotes
       pair) usage errors; promotion envelope; `↑` rendering; deferred
       rendering matches date-deferred tasks; `list --deferred`
       includes stage-deferred rows.
-- [ ] e2e: the six-step workflow passes against the real binary.
-- [ ] `make check` green.
+- [x] e2e: the six-step workflow passes against the real binary.
+- [x] `make check` green.
 
 Human proof (chunk demo `.sandbox/demos/11-chunk-3.html`), exact
 commands:
@@ -384,7 +392,7 @@ gsd --db .sandbox/demo3.db add "Retro notes" --project 1 --defer-stage shipping
 gsd --db .sandbox/demo3.db project edit 1 --no-board
 ```
 
-- [ ] Agent verification before review: build the real binary, run
+- [x] Agent verification before review: build the real binary, run
       the demo command list against a fresh temporary database,
       capture the verbatim output into the deck, and pass local
       `make check`.

@@ -635,11 +635,16 @@ func TestProjectBoardFlagsAdaptMembershipIntentAndOutput(t *testing.T) {
 		t.Errorf("human board edit = %#v, want exact destination mutation", human)
 	}
 
-	cleared := project.Edition{Project: project.Project{ID: 1, Title: "Kitchen"}, ClearedDefers: []task.Task{}}
+	cleared := project.Edition{
+		Project:       project.Project{ID: 1, Title: "Kitchen"},
+		ClearedDefers: []task.Task{{ID: 9, Title: "Waiting for Review"}},
+	}
 	clearApplication := &fakeProjectApplication{editResult: cleared}
 	clearResult := runProjectCommand(t, clearApplication, "project", "edit", "1", "--no-board")
+	wantClearOutput := "~ Edited: ◆ 1  Kitchen → (no board)\n" +
+		"  └ Cleared stage defer: 9  Waiting for Review\n"
 	if clearResult.exitCode != 0 || clearResult.stderr != "" ||
-		clearResult.stdout != "~ Edited: ◆ 1  Kitchen → (no board)\n" ||
+		clearResult.stdout != wantClearOutput ||
 		!clearApplication.editFields.Board.Clear || clearApplication.editFields.Board.Set != nil {
 		t.Errorf("clear board result/call = %#v/%#v, want cleared destination", clearResult, clearApplication.editFields.Board)
 	}

@@ -11,6 +11,13 @@ plan-gate decision: boards are areas-shaped (note, manual position,
 `edit`-based mutation, the singular/plural noun split), not
 tag-shaped.
 
+Two follow-up user decisions on 2026-08-08 settled Chunk 3. First,
+combined task re-parenting and an explicit stage defer is destination-first,
+and invalidated stage defers clear automatically on task re-parenting,
+project board removal or switching, and stage deletion. Second, task
+containment edits and stage deletes always return `{task,cleared_defers}` and
+`{stage,cleared_defers}` envelopes; `cleared_defers` is always an array.
+
 ## Capability
 
 Boards make the pipeline a first-class concept: a **board** is a
@@ -72,10 +79,12 @@ deferred tasks in the same stroke).
 - **Defer until stage.** A task may name a stage of its project's
   board (`--defer-stage STAGE | --no-defer-stage`); it is hidden from
   `available` until the project's stage is at or past that stage.
-  Composes with date defer — both must clear. Renders like deferred
-  tasks today, and `list --deferred` covers both defer axes. On
-  re-parenting away, `--no-board`, a board switch, or `stage delete`,
-  the stage defer clears, with narration.
+  Composes with date defer — both must clear. Moving backward below the
+  deferred stage hides the task again. Renders like deferred tasks today,
+  and `list --deferred` covers both defer axes. On a combined re-parent and
+  explicit defer, validation uses the destination project and board. On
+  re-parenting away, `--no-board`, a board switch, or `stage delete`, the
+  stage defer clears in the same operation, with narration.
 - **Promotes marker.** A task may be marked as promoting
   (`--promotes | --no-promotes`). Completing it transactionally moves
   its project one stage forward, narrated in the same envelope like
@@ -95,9 +104,11 @@ deferred tasks in the same stroke).
   defer-stage reference and the promotes marker. The stored stage is
   the schema's first genuine state column — justified because a stage
   is a position in a user-defined order, not a lifecycle flag; the
-  promotes marker is declared intent, not an event. Existing live
-  databases predate any users and are recreated by hand — documented,
-  deliberate, once.
+  promotes marker is declared intent, not an event. The available-stage gate
+  compares project and deferred-stage positions independently of the date
+  gate. Stage references use indexed `RESTRICT` FKs; services clear invalid
+  defers before membership changes or stage deletion. Existing live databases
+  predate any users and are recreated by hand — documented, deliberate, once.
 - **Boundaries per `AGENTS.md`**: services own semantic validation
   (unknown board/stage is `not_found`, occupied deletes are
   `conflict`, promotion composes in the service transaction); cmd
@@ -119,8 +130,8 @@ gsd stage delete BOARD NAME
 gsd projects add "TITLE" ... [--board NAME]
 gsd project edit ID [--board NAME | --no-board] ...
 gsd project move ID STAGE [--first | --last | --after M | --before M]
-gsd add|edit ... --defer-stage STAGE | --no-defer-stage
-gsd add|edit ... --promotes | --no-promotes
+gsd add|edit ... [--defer-stage STAGE | --no-defer-stage]
+                 [--promotes | --no-promotes]
 ```
 
 Settled at the 2026-08-07 plan gate under the grammar rule recorded
@@ -138,7 +149,8 @@ NAME).
    `--board`/`--no-board`, `move` with placement, within-stage
    ordering, `board show` with grouped projects and progress counts.
 3. **Stage-aware tasks** — `--defer-stage` composed into `available`,
-   the promotes marker, and transactional promotion with narration.
+   destination-first validation and automatic clearing, the promotes marker,
+   transactional promotion, stable result envelopes, and narration.
 
 ## Carried from Milestone 10
 
@@ -167,8 +179,11 @@ forward here with their revisit triggers:
 - **Genericizing the intentionally-parallel tag service flows** —
   carried from Milestone 6: revisit on the first sibling-divergence bug
   or a post-v1 attach-semantics change.
-- **Typed transition spec for `applyTransition`** — carried from
-  Milestone 6: revisit if post-v1 work adds transitions.
+- **Typed transition spec for `applyTransition`** — explicitly re-deferred.
+  Board movement and promotion do not add an action case to the task store's
+  transition switch, so this milestone does not trip the old generic
+  "new transition" trigger. Revisit when a new action case enters that
+  switch.
 - **`search.Hit` constructors and accessors** — the hand-rolled sum
   type's invariant (exactly one entity pointer, matching `Kind`) is
   enforced at its consumers: revisit on the first new `Hit` consumer or
@@ -188,6 +203,27 @@ forward here with their revisit triggers:
 - **bm25 weight tuning** — the 4/3/2/1 values are a starting point:
   revisit after real-data use; tests pin ordering properties only, so a
   retune is a one-line change.
+
+## Result and presentation contract
+
+Entity JSON remains the complete table row plus tags. Projects add
+`stage_id` and `stage_position`; tasks add `defer_stage_id` and boolean
+`promotes`. Board names are resolved in board envelopes rather than embedded
+in entity rows. `boards list` carries an ordered `stages` array per board;
+`board show` groups projects by stage and adds `{done,total}` progress;
+`board delete` returns the board and its stages. A board-changing project edit
+returns `{project,cleared_defers}`. A task containment edit returns
+`{task,cleared_defers}` and stage deletion returns
+`{stage,cleared_defers}`; every cleared set is an array even when empty. A
+promoting completion returns `{task,promoted_project}`, with
+`promoted_project: null` whenever no project moves: the final-stage no-op or
+an inert off-board marker.
+
+Human output uses `~ Moved:` and `~ Promoted:` mutation lines. Cleared defers
+are `├`/`└ Cleared stage defer:` children. Promoting tasks carry a faint `↑`
+beside the title and a `promotes` row in `show`; project `show` adds its
+`board/stage`, task `show` adds its defer stage, and board views show empty
+columns without truncation.
 
 ## User stories
 

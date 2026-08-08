@@ -8,7 +8,10 @@ import (
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/board"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
+	"github.com/jmcampanini/gsd/internal/search"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -225,6 +228,23 @@ func TestProjectBoardEditUsesResolvedStatusGlyph(t *testing.T) {
 	}
 }
 
+func TestProjectBoardEditNarratesClearedStageDefersAfterMovement(t *testing.T) {
+	t.Parallel()
+
+	got := renderHuman(t, colorprofile.NoTTY, func(output humanOutput) error {
+		return output.writeProjectBoardEdit(project.Edition{
+			Project:       project.Project{ID: 7, Title: "Milestone"},
+			Location:      &project.Location{BoardTitle: "Software", StageTitle: "Doing"},
+			ClearedDefers: []task.Task{{ID: 18, Title: "Waiting"}},
+		})
+	})
+	want := "~ Edited: ◆ 7  Milestone → Software/Doing\n" +
+		"  └ Cleared stage defer: 18  Waiting\n"
+	if got != want {
+		t.Errorf("board edit = %q, want movement followed by clear narration %q", got, want)
+	}
+}
+
 func TestCascadeUsesStandardTreeBranches(t *testing.T) {
 	t.Parallel()
 
@@ -245,6 +265,98 @@ func TestCascadeUsesStandardTreeBranches(t *testing.T) {
 		"  └ 21  Third\n"
 	if got != want {
 		t.Errorf("cascade = %q, want %q", got, want)
+	}
+}
+
+func TestStageAwareTaskPresentationShowsMarkersDefersAndDetails(t *testing.T) {
+	t.Parallel()
+
+	stage := "Review"
+	promoting := task.Task{ID: 7, Title: "Capstone", Status: "open", Promotes: true, DeferStageTitle: &stage}
+	plainList := renderHuman(t, colorprofile.NoTTY, func(output humanOutput) error {
+		return output.writeTaskList([]task.Task{promoting})
+	})
+	if !strings.Contains(plainList, "Capstone ↑") || !strings.Contains(plainList, "defer Review") {
+		t.Errorf("task list = %q, want promotion marker and stage defer", plainList)
+	}
+	openList := renderHuman(t, colorprofile.NoTTY, func(output humanOutput) error {
+		return output.writeOpenTaskList([]task.ViewTask{{Task: promoting}})
+	})
+	if !strings.Contains(openList, "Capstone ↑") || !strings.Contains(openList, "defer Review") {
+		t.Errorf("open list = %q, want promotion marker and stage defer", openList)
+	}
+	shown := renderHuman(t, colorprofile.NoTTY, func(output humanOutput) error {
+		return output.writeTask(promoting)
+	})
+	for _, fragment := range []string{"• 7  Capstone ↑\n", "defer stage   Review\n", "promotes      true\n"} {
+		if !strings.Contains(shown, fragment) {
+			t.Errorf("task show = %q, want fragment %q", shown, fragment)
+		}
+	}
+	searched := renderHuman(t, colorprofile.NoTTY, func(output humanOutput) error {
+		return output.writeSearchHits([]search.Hit{{Kind: search.KindTask, Task: &promoting}})
+	})
+	if !strings.Contains(searched, "Capstone ↑") {
+		t.Errorf("search = %q, want promotion marker", searched)
+	}
+	styled := renderHuman(t, colorprofile.TrueColor, func(output humanOutput) error {
+		return output.writeTask(promoting)
+	})
+	if !strings.Contains(styled, "\x1b[2m↑") || ansi.Strip(styled) != shown {
+		t.Errorf("styled show = %q, want faint marker with stable stripped structure", styled)
+	}
+}
+
+func TestStageAwareMutationNarrationUsesStableTreesAndPromotionMovement(t *testing.T) {
+	t.Parallel()
+
+	edition := renderHuman(t, colorprofile.NoTTY, func(output humanOutput) error {
+		return output.writeTaskEdition(task.Edition{
+			Task:          task.Task{ID: 7, Title: "Capstone"},
+			ClearedDefers: []task.Task{{ID: 18, Title: "First"}, {ID: 19, Title: "Second"}},
+		})
+	})
+	wantEdition := "~ Edited: 7  Capstone\n" +
+		"  ├ Cleared stage defer: 18  First\n" +
+		"  └ Cleared stage defer: 19  Second\n"
+	if edition != wantEdition {
+		t.Errorf("edition = %q, want %q", edition, wantEdition)
+	}
+
+	deletion := renderHuman(t, colorprofile.NoTTY, func(output humanOutput) error {
+		return output.writeStageDeletion(board.StageDeletion{
+			Board: board.Board{Title: "Software"}, Stage: board.Stage{Title: "Review"},
+			ClearedDefers: []task.Task{{ID: 20, Title: "Waiting"}},
+		})
+	})
+	wantDeletion := "− Deleted: stage Software/Review\n" +
+		"  └ Cleared stage defer: 20  Waiting\n"
+	if deletion != wantDeletion {
+		t.Errorf("stage deletion = %q, want %q", deletion, wantDeletion)
+	}
+
+	project := domain.Project{ID: 12, Title: "Milestone"}
+	for _, test := range []struct {
+		name      string
+		promotion *task.Promotion
+		want      string
+	}{
+		{name: "moved", promotion: &task.Promotion{Project: project, StageTitle: "Doing"}, want: "~ Promoted: ◆ 12  Milestone → Doing\n"},
+		{name: "last stage", promotion: &task.Promotion{Project: project, StageTitle: "Review", LastStage: true}, want: "~ Promoted: ◆ 12  Milestone → Review (already at last stage)\n"},
+		{name: "off board"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got := renderHuman(t, colorprofile.NoTTY, func(output humanOutput) error {
+				return output.writeTaskCompletion(task.Completion{
+					Task: task.Task{ID: 7, Title: "Capstone", Promotes: true}, Promotion: test.promotion,
+				})
+			})
+			want := "✓ Done: 7  Capstone\n" + test.want
+			if got != want {
+				t.Errorf("completion = %q, want %q", got, want)
+			}
+		})
 	}
 }
 
