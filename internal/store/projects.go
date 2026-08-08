@@ -16,7 +16,10 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-const projectColumns = `id, area_id, title, note, done_at, cancelled_at, status, position, created_at, updated_at, stage_id, stage_position`
+const (
+	projectColumns               = `id, area_id, title, note, done_at, cancelled_at, status, position, created_at, updated_at, stage_id, stage_position`
+	projectStageReferenceColumns = `s.id, s.board_id, b.title, s.title, s.position`
+)
 
 type Projects struct {
 	database *DB
@@ -325,20 +328,13 @@ func (s *projectsCore) FindFirstStage(
 	ctx context.Context,
 	boardID int64,
 ) (*project.StageReference, error) {
-	var found project.StageReference
-	err := s.executor.QueryRowContext(ctx, `
-SELECT s.id, s.board_id, b.title, s.title, s.position
+	found, err := scanProjectStageReference(s.executor.QueryRowContext(ctx, `
+SELECT `+projectStageReferenceColumns+`
 FROM stages s
 JOIN boards b ON b.id = s.board_id
 WHERE s.board_id = ?
 ORDER BY s.position, s.id
-LIMIT 1`, boardID).Scan(
-		&found.ID,
-		&found.BoardID,
-		&found.BoardTitle,
-		&found.Title,
-		&found.Position,
-	)
+LIMIT 1`, boardID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -353,18 +349,11 @@ func (s *projectsCore) FindStage(
 	boardID int64,
 	title string,
 ) (project.StageReference, error) {
-	var found project.StageReference
-	err := s.executor.QueryRowContext(ctx, `
-SELECT s.id, s.board_id, b.title, s.title, s.position
+	found, err := scanProjectStageReference(s.executor.QueryRowContext(ctx, `
+SELECT `+projectStageReferenceColumns+`
 FROM stages s
 JOIN boards b ON b.id = s.board_id
-WHERE s.board_id = ? AND s.title = ? COLLATE NOCASE`, boardID, title).Scan(
-		&found.ID,
-		&found.BoardID,
-		&found.BoardTitle,
-		&found.Title,
-		&found.Position,
-	)
+WHERE s.board_id = ? AND s.title = ? COLLATE NOCASE`, boardID, title))
 	if errors.Is(err, sql.ErrNoRows) {
 		return project.StageReference{}, apperr.New(
 			apperr.NotFound,
@@ -382,18 +371,11 @@ func (s *projectsCore) FindStageByID(
 	ctx context.Context,
 	id int64,
 ) (project.StageReference, error) {
-	var found project.StageReference
-	err := s.executor.QueryRowContext(ctx, `
-SELECT s.id, s.board_id, b.title, s.title, s.position
+	found, err := scanProjectStageReference(s.executor.QueryRowContext(ctx, `
+SELECT `+projectStageReferenceColumns+`
 FROM stages s
 JOIN boards b ON b.id = s.board_id
-WHERE s.id = ?`, id).Scan(
-		&found.ID,
-		&found.BoardID,
-		&found.BoardTitle,
-		&found.Title,
-		&found.Position,
-	)
+WHERE s.id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return project.StageReference{}, apperr.New(
 			apperr.NotFound,
@@ -436,7 +418,7 @@ func (s *projectsCore) Edit(
 	} else if fields.Area.Clear {
 		areaDestination = nil
 	}
-	areaMovement := !sameProjectArea(current.AreaID, areaDestination)
+	areaMovement := !sameOptionalID(current.AreaID, areaDestination)
 
 	stageDestination := current.StageID
 	if fields.Stage.Set != nil {
@@ -444,7 +426,7 @@ func (s *projectsCore) Edit(
 	} else if fields.Stage.Clear {
 		stageDestination = nil
 	}
-	stageMovement := !sameProjectArea(current.StageID, stageDestination)
+	stageMovement := !sameOptionalID(current.StageID, stageDestination)
 	if !contentChanged && !areaMovement && !stageMovement {
 		return current, nil
 	}
@@ -605,7 +587,7 @@ func (s *projectsCore) Reorder(
 				nil,
 			)
 		}
-		if !sameProjectArea(moved.AreaID, reference.AreaID) {
+		if !sameOptionalID(moved.AreaID, reference.AreaID) {
 			return project.Project{}, apperr.New(
 				apperr.InvalidArgument,
 				fmt.Sprintf("project %d is in a different container", placement.ReferenceID),
@@ -907,7 +889,19 @@ func (s *projectsCore) findArea(ctx context.Context, id int64) (area.Area, error
 	return (&areasCore{executor: s.executor}).Find(ctx, id)
 }
 
-func sameProjectArea(left *int64, right *int64) bool {
+func scanProjectStageReference(scanner rowScanner) (project.StageReference, error) {
+	var value project.StageReference
+	err := scanner.Scan(
+		&value.ID,
+		&value.BoardID,
+		&value.BoardTitle,
+		&value.Title,
+		&value.Position,
+	)
+	return value, err
+}
+
+func sameOptionalID(left *int64, right *int64) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}

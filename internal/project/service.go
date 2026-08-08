@@ -70,16 +70,9 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Project, error) {
 			if err != nil {
 				return err
 			}
-			firstStage, err := store.FindFirstStage(ctx, foundBoard.ID)
+			firstStage, err := requireFirstStage(ctx, store, foundBoard)
 			if err != nil {
 				return err
-			}
-			if firstStage == nil {
-				return apperr.New(
-					apperr.Conflict,
-					fmt.Sprintf("board %s has no stages", foundBoard.Title),
-					nil,
-				)
 			}
 			create.StageID = &firstStage.ID
 		}
@@ -257,19 +250,12 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Editio
 				result.Location = locationForStage(*currentStage)
 				break
 			}
-			firstStage, err := store.FindFirstStage(ctx, foundBoard.ID)
+			firstStage, err := requireFirstStage(ctx, store, foundBoard)
 			if err != nil {
 				return err
 			}
-			if firstStage == nil {
-				return apperr.New(
-					apperr.Conflict,
-					fmt.Sprintf("board %s has no stages", foundBoard.Title),
-					nil,
-				)
-			}
 			updated.Stage.Set = &firstStage.ID
-			result.Location = locationForStage(*firstStage)
+			result.Location = locationForStage(firstStage)
 			boardMovement = true
 		case fields.Board.Clear && currentStage != nil:
 			updated.Stage.Clear = true
@@ -648,6 +634,25 @@ func containmentConflict(action string, current Project, areas ...AreaReference)
 		fmt.Sprintf("cannot %s while %s", action, strings.Join(blockers, " and ")),
 		errors.Join(causes...),
 	)
+}
+
+func requireFirstStage(
+	ctx context.Context,
+	store Transaction,
+	currentBoard BoardReference,
+) (StageReference, error) {
+	stage, err := store.FindFirstStage(ctx, currentBoard.ID)
+	if err != nil {
+		return StageReference{}, err
+	}
+	if stage == nil {
+		return StageReference{}, apperr.New(
+			apperr.Conflict,
+			fmt.Sprintf("board %s has no stages", currentBoard.Title),
+			nil,
+		)
+	}
+	return *stage, nil
 }
 
 func locationForStage(stage StageReference) *Location {
