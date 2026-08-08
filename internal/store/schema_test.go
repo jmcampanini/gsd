@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestMilestoneFiveSchemaColumnsConstraintsAndIndexes(t *testing.T) {
+func TestSchemaColumnsConstraintsAndIndexes(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -21,6 +21,12 @@ func TestMilestoneFiveSchemaColumnsConstraintsAndIndexes(t *testing.T) {
 	columns := map[string][]string{
 		"areas": {
 			"id", "title", "note", "archived_at", "position", "created_at", "updated_at",
+		},
+		"boards": {
+			"id", "title", "note", "position", "created_at", "updated_at",
+		},
+		"stages": {
+			"id", "board_id", "title", "position", "created_at", "updated_at",
 		},
 		"projects": {
 			"id", "area_id", "title", "note", "done_at", "cancelled_at", "status", "position", "created_at", "updated_at",
@@ -40,6 +46,7 @@ func TestMilestoneFiveSchemaColumnsConstraintsAndIndexes(t *testing.T) {
 	}
 
 	for tableName, indexNames := range map[string][]string{
+		"stages":       {"idx_stages_board"},
 		"projects":     {"idx_projects_area"},
 		"tasks":        {"idx_tasks_project", "idx_tasks_area"},
 		"task_tags":    {"idx_task_tags_tag"},
@@ -62,34 +69,59 @@ WHERE name = ?
 	}
 
 	for _, relationship := range []struct {
-		table  string
-		parent string
-		column string
+		table    string
+		parent   string
+		column   string
+		onDelete string
 	}{
-		{table: "projects", parent: "areas", column: "area_id"},
-		{table: "tasks", parent: "projects", column: "project_id"},
-		{table: "tasks", parent: "areas", column: "area_id"},
+		{table: "stages", parent: "boards", column: "board_id", onDelete: "CASCADE"},
+		{table: "projects", parent: "areas", column: "area_id", onDelete: "RESTRICT"},
+		{table: "tasks", parent: "projects", column: "project_id", onDelete: "RESTRICT"},
+		{table: "tasks", parent: "areas", column: "area_id", onDelete: "RESTRICT"},
 	} {
 		var count int
 		if err := storage.database.QueryRowContext(ctx, `
 SELECT COUNT(*)
 FROM pragma_foreign_key_list(?)
-WHERE "table" = ? AND "from" = ? AND on_delete = 'RESTRICT'
-`, relationship.table, relationship.parent, relationship.column).Scan(&count); err != nil {
+WHERE "table" = ? AND "from" = ? AND on_delete = ?
+`, relationship.table, relationship.parent, relationship.column, relationship.onDelete).Scan(&count); err != nil {
 			t.Fatalf("inspect %s.%s foreign key: %v", relationship.table, relationship.column, err)
 		}
 		if count != 1 {
-			t.Errorf("%s.%s RESTRICT foreign key count = %d, want 1", relationship.table, relationship.column, count)
+			t.Errorf("%s.%s %s foreign key count = %d, want 1", relationship.table, relationship.column, relationship.onDelete, count)
 		}
 	}
 
 	for _, statement := range []string{
 		"INSERT INTO areas (position) VALUES (0)",
 		"INSERT INTO areas (title) VALUES ('missing position')",
+		"INSERT INTO boards (position) VALUES (0)",
+		"INSERT INTO boards (title) VALUES ('missing position')",
+		"INSERT INTO stages (board_id, title) VALUES (1, 'missing position')",
 	} {
 		if _, err := storage.database.ExecContext(ctx, statement); err == nil {
 			t.Errorf("%s error = nil, want required-column failure", statement)
 		}
+	}
+
+	boardID := insertFixture(t, storage.database, `
+INSERT INTO boards (title, position) VALUES ('Delivery', 0)
+`)
+	if _, err := storage.database.ExecContext(ctx, `
+INSERT INTO stages (board_id, title, position) VALUES (?, 'Ready', 0)
+`, boardID); err != nil {
+		t.Fatalf("insert board stage: %v", err)
+	}
+	if _, err := storage.database.ExecContext(ctx, `
+INSERT INTO stages (board_id, title, position) VALUES (99, 'orphan', 0)
+`); err == nil {
+		t.Error("insert stage for missing board error = nil, want FK failure")
+	}
+	if _, err := storage.database.ExecContext(ctx, "DELETE FROM boards WHERE id = ?", boardID); err != nil {
+		t.Fatalf("delete board: %v", err)
+	}
+	if count := fixtureCount(t, storage.database, "SELECT COUNT(*) FROM stages WHERE board_id = ?", boardID); count != 0 {
+		t.Errorf("stage count after board deletion = %d, want cascade to 0", count)
 	}
 
 	areaID := insertFixture(t, storage.database, `
@@ -317,7 +349,7 @@ func TestAutomaticallyAllocatedEntityIDsAreNotReusedAfterDeletion(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = storage.Close() })
 
-	entities := []string{"areas", "projects", "tasks"}
+	entities := []string{"areas", "boards", "projects", "tasks"}
 	firstIDs := make([]int64, len(entities))
 	for index, tableName := range entities {
 		firstIDs[index] = insertFixture(
@@ -350,6 +382,16 @@ func TestAutomaticallyAllocatedEntityIDsAreNotReusedAfterDeletion(t *testing.T) 
 				firstIDs[index],
 			)
 		}
+	}
+
+	stageBoardID := insertFixture(t, storage.database, "INSERT INTO boards (title, position) VALUES ('stage parent', 1)")
+	firstStageID := insertFixture(t, storage.database, "INSERT INTO stages (board_id, title, position) VALUES (?, 'first', 0)", stageBoardID)
+	if _, err := storage.database.ExecContext(ctx, "DELETE FROM stages WHERE id = ?", firstStageID); err != nil {
+		t.Fatalf("delete first stage: %v", err)
+	}
+	secondStageID := insertFixture(t, storage.database, "INSERT INTO stages (board_id, title, position) VALUES (?, 'second', 0)", stageBoardID)
+	if secondStageID <= firstStageID {
+		t.Errorf("stage ID after deletion = %d, want greater than %d", secondStageID, firstStageID)
 	}
 
 	firstTagID := insertFixture(t, storage.database, "INSERT INTO tags (title) VALUES ('first')")

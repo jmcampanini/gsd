@@ -45,7 +45,7 @@ func TestOpenAppliesBaselineMigrationAndConfiguresConnections(t *testing.T) {
 	}
 
 	for _, tableName := range []string{
-		"areas", "projects", "tasks", "tags", "task_tags", "project_tags", "area_tags",
+		"areas", "boards", "stages", "projects", "tasks", "tags", "task_tags", "project_tags", "area_tags",
 	} {
 		var strict int
 		if err := storage.database.QueryRowContext(

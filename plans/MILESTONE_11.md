@@ -201,6 +201,7 @@ $ gsd project move 12 doing
 ~ Moved: ◆ 12 gsd boards milestone → doing
 $ gsd board show software
 software  research → planning → doing → review
+  research  (empty)
   planning  ◆ 14  homelab backups        2/6
   doing     ◆ 12  gsd boards milestone   5/8
             ◆ 9   blog rewrite           1/3

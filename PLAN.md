@@ -7,7 +7,7 @@ consolidation. This plan is temporary and is retired at consolidation.
 
 ## Progress
 
-- [ ] Chunk 1 — Boards exist and bend
+- [x] Chunk 1 — Boards exist and bend
 - [ ] Chunk 2 — Projects on the board
 - [ ] Chunk 3 — Stage-aware tasks
 
@@ -169,21 +169,22 @@ arrive (proven in chunk 2).
 
 Implementation:
 
-- [ ] `0001_baseline.sql`: `boards` and `stages` tables with
+- [x] `0001_baseline.sql`: `boards` and `stages` tables with
       uniqueness, FK, and index definitions above; contract-snapshot
       test updated to the new end state.
-- [ ] `internal/store/boards.go`: board and stage CRUD, name
+- [x] `internal/store/boards.go`: board and stage CRUD, name
       resolution (`NOCASE`, stored spelling), position renumbering
-      via the shared reorder helpers, stage-occupancy count, board
-      delete returning the board with its stages.
-- [ ] `internal/board`: entities plus service — `boards add`
+      via the shared reorder helpers, and ordered stage snapshots for
+      the board-delete result. Occupancy queries land with project
+      stage storage in chunk 2.
+- [x] `internal/board`: entities plus service — `boards add`
       (≥1 stage, transactional), `list`, `show` (empty board renders
       all stages), `edit`, `reorder` (name-referenced placement),
       `delete`; `stages add` (placement, default `--last`),
       `stage rename`, `stage reorder`, `stage delete`; semantic
-      validation (`not_found` unknown names, `conflict` duplicates
-      and occupied deletes).
-- [ ] `cmd/boards.go`: the eight commands wired through an injected
+      validation (`not_found` unknown names and `conflict` duplicates).
+      Occupied-delete conflicts become reachable and land in chunk 2.
+- [x] `cmd/boards.go`: the ten commands wired through an injected
       board application factory; shared writers for JSON and errors;
       usage errors for missing/duplicate placement flags, matching
       the reorder precedent.
@@ -192,16 +193,16 @@ Verification (primary owners: store tests on a real temp database for
 schema and query semantics; service tests with store fakes for
 validation; cmd tests for envelopes and exits):
 
-- [ ] Store: uniqueness (`NOCASE` global for boards, per-board for
+- [x] Store: uniqueness (`NOCASE` global for boards, per-board for
       stages), stage cascade on board delete, contiguous renumber on
       stage/board reorder, snapshot test green.
-- [ ] Service: creation requires a stage; duplicate names conflict
+- [x] Service: creation requires a stage; duplicate names conflict
       naming stored spelling; case-insensitive lookup; unknown board
       or stage `not_found`; empty-board `show` carries every stage.
-- [ ] cmd: envelope shapes (`boards list` rows with `stages` arrays,
+- [x] cmd: envelope shapes (`boards list` rows with `stages` arrays,
       `board show` envelope, delete envelope), exit codes, and zero
       factory opens for `--help`.
-- [ ] `make check` green.
+- [x] `make check` green.
 
 Human proof (chunk demo `.sandbox/demos/11-chunk-1.html`), exact
 commands:
@@ -223,7 +224,7 @@ gsd --db .sandbox/demo1.db board delete life
 gsd --db .sandbox/demo1.db board show software
 ```
 
-- [ ] Agent verification before review: build the real binary, run
+- [x] Agent verification before review: build the real binary, run
       the demo command list against a fresh temporary database,
       capture the verbatim output into the deck, and pass local
       `make check`.
@@ -240,9 +241,9 @@ Implementation:
 - [ ] `0001_baseline.sql`: `projects.stage_id`/`stage_position` with
       the pair CHECK and index; snapshot test updated.
 - [ ] `internal/store`: project stage assignment (append on entry),
-      clearing, within-stage splice reorder, stage-occupancy queries,
-      and the grouped `board show` read with per-project done/total
-      counts (cancelled excluded).
+      clearing, within-stage splice reorder, board and stage occupancy
+      queries, and the grouped `board show` read with per-project
+      done/total counts (cancelled excluded).
 - [ ] Project service: `--board`/`--no-board` orchestration on add
       and edit — first-stage entry, board switch re-entry, stage
       clearing, containment guards, stageless-board `conflict` —

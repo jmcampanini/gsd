@@ -13,6 +13,7 @@ import (
 	"charm.land/lipgloss/v2/table"
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/board"
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/search"
@@ -126,12 +127,6 @@ func writeJSON(writer io.Writer, value any) error {
 	return nil
 }
 
-// writeCommandOutput is the JSON/human dispatch point for every site whose two
-// modes share one payload; only tagging, recursive delete, and tag rename
-// branch by hand because their JSON payloads differ. If a cross-cutting output
-// policy lands (--quiet, another machine surface such as CSV), the next
-// refactor is moving dispatch into the with*Application wrappers so it exists
-// in exactly one place.
 func writeCommandOutput[T any](
 	command *cobra.Command,
 	options *rootOptions,
@@ -165,6 +160,12 @@ func projectResolutionWriter(verb mutationVerb) func(humanOutput, project.Resolu
 func areaMutationWriter(verb mutationVerb) func(humanOutput, area.Area) error {
 	return func(output humanOutput, current area.Area) error {
 		return output.writeAreaMutation(verb, current)
+	}
+}
+
+func boardMutationWriter(verb mutationVerb) func(humanOutput, board.Board) error {
+	return func(output humanOutput, current board.Board) error {
+		return output.writeBoardMutation(verb, current)
 	}
 }
 
@@ -212,6 +213,57 @@ func (o humanOutput) addedTagSuffix(titles []string) string {
 		return ""
 	}
 	return "  " + o.humanTagTitles(titles)
+}
+
+func (o humanOutput) writeAddedBoard(addition board.Addition) error {
+	stages := make([]string, len(addition.Stages))
+	for index, stage := range addition.Stages {
+		stages[index] = text.Human(stage.Title, false)
+	}
+	_, err := fmt.Fprintf(
+		o.writer,
+		"%s Board: %s (%s)\n",
+		o.styles.green.Render(glyphAdded),
+		text.Human(addition.Board.Title, false),
+		strings.Join(stages, " → "),
+	)
+	return err
+}
+
+func (o humanOutput) writeAddedStage(result board.StageResult) error {
+	_, err := fmt.Fprintf(
+		o.writer,
+		"%s Added stage %s/%s\n",
+		o.styles.green.Render(glyphAdded),
+		text.Human(result.Board.Title, false),
+		text.Human(result.Stage.Title, false),
+	)
+	return err
+}
+
+func (o humanOutput) writeRenamedStage(result board.StageRenameResult) error {
+	_, err := fmt.Fprintf(
+		o.writer,
+		"%s Renamed stage %s/%s to %s/%s\n",
+		glyphNeutral,
+		text.Human(result.Board.Title, false),
+		text.Human(result.PreviousTitle, false),
+		text.Human(result.Board.Title, false),
+		text.Human(result.Stage.Title, false),
+	)
+	return err
+}
+
+func (o humanOutput) writeStageMutation(verb mutationVerb, result board.StageResult) error {
+	_, err := fmt.Fprintf(
+		o.writer,
+		"%s %s: stage %s/%s\n",
+		o.verbGlyph(verb),
+		verb.label,
+		text.Human(result.Board.Title, false),
+		text.Human(result.Stage.Title, false),
+	)
+	return err
 }
 
 func (o humanOutput) writeAddedTag(created tag.Tag) error {
@@ -287,6 +339,21 @@ func (o humanOutput) writeAreaMutation(verb mutationVerb, current area.Area) err
 		text.Human(current.Title, false),
 	)
 	return err
+}
+
+func (o humanOutput) writeBoardMutation(verb mutationVerb, current board.Board) error {
+	_, err := fmt.Fprintf(
+		o.writer,
+		"%s %s: board %s\n",
+		o.verbGlyph(verb),
+		verb.label,
+		text.Human(current.Title, false),
+	)
+	return err
+}
+
+func (o humanOutput) writeBoardDeletion(deletion board.Deletion) error {
+	return o.writeBoardMutation(verbDeleted, deletion.Board)
 }
 
 func (o humanOutput) writeAreaDeletion(deletion area.Deletion) error {
@@ -442,6 +509,74 @@ func (o humanOutput) writeProjectList(projects []project.Project) error {
 		0,
 		0,
 	)
+}
+
+func (o humanOutput) writeBoardList(boards []board.ListedBoard) error {
+	rows := make([][]string, 0, len(boards))
+	for _, current := range boards {
+		stages := make([]string, len(current.Stages))
+		for index, stage := range current.Stages {
+			stages[index] = text.Human(stage.Title, false)
+		}
+		rows = append(rows, []string{
+			text.Human(current.Title, false),
+			strings.Join(stages, " → "),
+		})
+	}
+	return o.writeCollection([]string{"board", "stages"}, rows, -1, 1)
+}
+
+func (o humanOutput) writeBoard(shown board.Show) error {
+	stageTitles := make([]string, len(shown.Stages))
+	stageWidth := 0
+	projectIDWidth := 0
+	projectTitleWidth := 0
+	for index, stage := range shown.Stages {
+		stageTitles[index] = text.Human(stage.Title, false)
+		stageWidth = max(stageWidth, lipgloss.Width(stageTitles[index]))
+		for _, current := range stage.Projects {
+			projectIDWidth = max(projectIDWidth, len(strconv.FormatInt(current.ID, 10)))
+			projectTitleWidth = max(projectTitleWidth, lipgloss.Width(text.Human(current.Title, false)))
+		}
+	}
+
+	headline := "(no stages)"
+	if len(stageTitles) > 0 {
+		headline = strings.Join(stageTitles, " → ")
+	}
+	if _, err := fmt.Fprintf(o.writer, "%s  %s\n", text.Human(shown.Board.Title, false), headline); err != nil {
+		return err
+	}
+	for index, stage := range shown.Stages {
+		stageTitle := padRight(stageTitles[index], stageWidth)
+		if len(stage.Projects) == 0 {
+			if _, err := fmt.Fprintf(o.writer, "  %s  %s\n", stageTitle, o.styles.faint.Render("(empty)")); err != nil {
+				return err
+			}
+			continue
+		}
+		for projectIndex, current := range stage.Projects {
+			visibleStage := strings.Repeat(" ", stageWidth)
+			if projectIndex == 0 {
+				visibleStage = stageTitle
+			}
+			id := padRight(strconv.FormatInt(current.ID, 10), projectIDWidth)
+			title := padRight(text.Human(current.Title, false), projectTitleWidth)
+			if _, err := fmt.Fprintf(
+				o.writer,
+				"  %s  %s %s  %s  %d/%d\n",
+				visibleStage,
+				glyphProjectOpen,
+				o.styles.faint.Render(id),
+				title,
+				current.Progress.Done,
+				current.Progress.Total,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (o humanOutput) writeTagList(tags []tag.ListedTag) error {

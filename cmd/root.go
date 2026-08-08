@@ -12,6 +12,7 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/board"
 	"github.com/jmcampanini/gsd/internal/config"
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/project"
@@ -37,6 +38,7 @@ type applications struct {
 	tasks    task.Application
 	projects project.Application
 	areas    area.Application
+	boards   board.Application
 	tags     tag.Application
 	logbook  logbook.Application
 	search   search.Application
@@ -148,6 +150,8 @@ func newRootCommandWithCaptureRunner(
 		newAreaCommand(options, factory),
 		newAreasCommand(options, factory),
 		newAvailableCommand(options, factory),
+		newBoardCommand(options, factory),
+		newBoardsCommand(options, factory),
 		newCancelCommand(options, factory),
 		newCaptureCommand(options, factory, runCapture),
 		newConfigCommand(options, loadConfiguration),
@@ -163,6 +167,8 @@ func newRootCommandWithCaptureRunner(
 		newReorderCommand(options, factory),
 		newSearchCommand(options, factory),
 		newShowCommand(options, factory),
+		newStageCommand(options, factory),
+		newStagesCommand(options, factory),
 		newTagCommand(options, factory),
 		newTagsCommand(options, factory),
 		newUntagCommand(options, factory),
@@ -191,6 +197,7 @@ func defaultApplicationFactory(
 		tasks:    task.NewService(store.NewTasks(database)),
 		projects: project.NewService(store.NewProjects(database)),
 		areas:    area.NewService(store.NewAreas(database)),
+		boards:   board.NewService(store.NewBoards(database)),
 		tags:     tag.NewService(store.NewTags(database)),
 		logbook:  logbook.NewService(store.NewLogbook(database)),
 		search:   search.NewService(store.NewSearch(database)),
@@ -250,6 +257,17 @@ func withAreaApplication(
 ) error {
 	return withApplications(command, options, factory, func(available applications) error {
 		return run(available.areas)
+	})
+}
+
+func withBoardApplication(
+	command *cobra.Command,
+	options *rootOptions,
+	factory applicationFactory,
+	run func(board.Application) error,
+) error {
+	return withApplications(command, options, factory, func(available applications) error {
+		return run(available.boards)
 	})
 }
 
