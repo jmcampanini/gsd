@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
@@ -19,6 +18,8 @@ import (
 	"github.com/jmcampanini/gsd/internal/search"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
+	"github.com/jmcampanini/gsd/internal/text"
+	"github.com/jmcampanini/gsd/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -101,18 +102,16 @@ type humanOutput struct {
 }
 
 func newHumanOutput(writer io.Writer, dark bool, today string) humanOutput {
-	lightDark := lipgloss.LightDark(dark)
-	green := lightDark(lipgloss.Color("#40a02b"), lipgloss.Color("#a6d189"))
-	red := lightDark(lipgloss.Color("#d20f39"), lipgloss.Color("#e78284"))
+	theme := tui.ThemeForBackground(dark)
 	return humanOutput{
 		writer: writer,
 		styles: humanStyles{
 			faint:      lipgloss.NewStyle().Faint(true),
-			green:      lipgloss.NewStyle().Foreground(green),
-			red:        lipgloss.NewStyle().Foreground(red),
-			faintGreen: lipgloss.NewStyle().Faint(true).Foreground(green),
-			faintRed:   lipgloss.NewStyle().Faint(true).Foreground(red),
-			boldRed:    lipgloss.NewStyle().Bold(true).Foreground(red),
+			green:      lipgloss.NewStyle().Foreground(theme.Green),
+			red:        lipgloss.NewStyle().Foreground(theme.Red),
+			faintGreen: lipgloss.NewStyle().Faint(true).Foreground(theme.Green),
+			faintRed:   lipgloss.NewStyle().Faint(true).Foreground(theme.Red),
+			boldRed:    lipgloss.NewStyle().Bold(true).Foreground(theme.Red),
 		},
 		today: today,
 	}
@@ -179,7 +178,7 @@ func writeCommandError(writer io.Writer, jsonMode bool, err error) error {
 	if code, ok := apperr.CodeOf(err); ok && jsonMode {
 		return writeJSON(writer, errorEnvelope{Error: errorPayload{Code: code, Message: err.Error()}})
 	}
-	_, writeErr := fmt.Fprintf(writer, "Error: %s\n", humanText(err.Error(), false))
+	_, writeErr := fmt.Fprintf(writer, "Error: %s\n", text.Human(err.Error(), false))
 	return writeErr
 }
 
@@ -202,7 +201,7 @@ func (o humanOutput) writeAddedEntity(noun string, id int64, title string, tags 
 		o.styles.green.Render(glyphAdded),
 		noun,
 		o.styles.faint.Render(strconv.FormatInt(id, 10)),
-		humanText(title, false),
+		text.Human(title, false),
 		o.addedTagSuffix(tags),
 	)
 	return err
@@ -220,7 +219,7 @@ func (o humanOutput) writeAddedTag(created tag.Tag) error {
 		o.writer,
 		"%s Added tag %s\n",
 		o.styles.green.Render(glyphAdded),
-		humanText(created.Title, false),
+		text.Human(created.Title, false),
 	)
 	return err
 }
@@ -230,8 +229,8 @@ func (o humanOutput) writeRenamedTag(oldName, newName string) error {
 		o.writer,
 		"%s Renamed tag %s to %s\n",
 		glyphNeutral,
-		humanText(oldName, false),
-		humanText(newName, false),
+		text.Human(oldName, false),
+		text.Human(newName, false),
 	)
 	return err
 }
@@ -245,7 +244,7 @@ func (o humanOutput) writeTagDeletion(deletion tag.Deletion) error {
 		o.writer,
 		"%s Deleted tag %s (detached from %s item%s)\n",
 		o.styles.red.Render(glyphDeleted),
-		humanText(deletion.Tag.Title, false),
+		text.Human(deletion.Tag.Title, false),
 		o.styles.faint.Render(strconv.FormatInt(deletion.Detached, 10)),
 		plural,
 	)
@@ -285,7 +284,7 @@ func (o humanOutput) writeAreaMutation(verb mutationVerb, current area.Area) err
 		o.verbGlyph(verb),
 		verb.label,
 		o.styles.faint.Render(strconv.FormatInt(current.ID, 10)),
-		humanText(current.Title, false),
+		text.Human(current.Title, false),
 	)
 	return err
 }
@@ -313,7 +312,7 @@ func (o humanOutput) writeOpenTaskList(tasks []task.ViewTask) error {
 	for _, current := range tasks {
 		rows = append(rows, []string{
 			strconv.FormatInt(current.ID, 10),
-			humanText(current.Title, false),
+			text.Human(current.Title, false),
 			o.taskDateTokens(current.Task, true),
 		})
 	}
@@ -330,7 +329,7 @@ func (o humanOutput) writeTaskList(tasks []task.Task) error {
 	for _, current := range tasks {
 		rows = append(rows, []string{
 			strconv.FormatInt(current.ID, 10),
-			humanText(current.Title, false),
+			text.Human(current.Title, false),
 			o.statusWord(current.Status),
 			o.taskDateTokens(current, current.Status == string(task.ListStatusOpen)),
 		})
@@ -350,7 +349,7 @@ func (o humanOutput) writeTaskMutation(verb mutationVerb, current task.Task) err
 		o.verbGlyph(verb),
 		verb.label,
 		o.styles.faint.Render(strconv.FormatInt(current.ID, 10)),
-		humanText(current.Title, false),
+		text.Human(current.Title, false),
 	)
 	return err
 }
@@ -362,7 +361,7 @@ func (o humanOutput) writeProjectMutation(verb mutationVerb, current project.Pro
 		o.verbGlyph(verb),
 		verb.label,
 		o.styles.faint.Render(strconv.FormatInt(current.ID, 10)),
-		humanText(current.Title, false),
+		text.Human(current.Title, false),
 	)
 	return err
 }
@@ -420,7 +419,7 @@ func (o humanOutput) writeNarration(action, noun string, rows []narratedRow) err
 			"  %s %s  %s\n",
 			o.styles.faint.Render(branch),
 			o.styles.faint.Render(id),
-			humanText(row.Title, false),
+			text.Human(row.Title, false),
 		); err != nil {
 			return err
 		}
@@ -433,7 +432,7 @@ func (o humanOutput) writeProjectList(projects []project.Project) error {
 	for _, current := range projects {
 		rows = append(rows, []string{
 			strconv.FormatInt(current.ID, 10),
-			humanText(current.Title, false),
+			text.Human(current.Title, false),
 			o.statusWord(current.Status),
 		})
 	}
@@ -449,7 +448,7 @@ func (o humanOutput) writeTagList(tags []tag.ListedTag) error {
 	nameWidth := 0
 	visible := make([]string, len(tags))
 	for index, current := range tags {
-		visible[index] = humanText(current.Title, false)
+		visible[index] = text.Human(current.Title, false)
 		nameWidth = max(nameWidth, lipgloss.Width(visible[index]))
 	}
 	for index, current := range tags {
@@ -475,7 +474,7 @@ func (o humanOutput) writeAreaList(areas []area.Area) error {
 		}
 		rows = append(rows, []string{
 			strconv.FormatInt(current.ID, 10),
-			humanText(current.Title, false),
+			text.Human(current.Title, false),
 			state,
 		})
 	}
@@ -523,15 +522,15 @@ func (o humanOutput) writeSearchHits(hits []search.Hit) error {
 
 		contextTitles := make([]string, 0, 2)
 		if hit.ProjectTitle != nil {
-			contextTitles = append(contextTitles, humanText(*hit.ProjectTitle, false))
+			contextTitles = append(contextTitles, text.Human(*hit.ProjectTitle, false))
 		}
 		if hit.GoverningAreaTitle != nil {
-			contextTitles = append(contextTitles, humanText(*hit.GoverningAreaTitle, false))
+			contextTitles = append(contextTitles, text.Human(*hit.GoverningAreaTitle, false))
 		}
 		rows = append(rows, []string{
-			humanText(hit.Kind, false),
+			text.Human(hit.Kind, false),
 			strconv.FormatInt(id, 10),
-			humanText(title, false),
+			text.Human(title, false),
 			status,
 			strings.Join(contextTitles, " · "),
 		})
@@ -553,9 +552,9 @@ func (o humanOutput) writeLogbook(entries []logbook.Entry, location *time.Locati
 			return fmt.Errorf("parse logbook resolved_at for %s %d: %w", entry.Kind, entry.ID, err)
 		}
 		rows = append(rows, []string{
-			humanText(entry.Kind, false),
+			text.Human(entry.Kind, false),
 			strconv.FormatInt(entry.ID, 10),
-			humanText(entry.Title, false),
+			text.Human(entry.Title, false),
 			o.statusWord(entry.Status),
 			resolvedAt.In(location).Format(time.DateOnly),
 		})
@@ -579,15 +578,15 @@ func (o humanOutput) writeTask(current task.Task) error {
 	fields := []detailField{
 		{Label: "project", Value: o.metadata(nullableInt64(current.ProjectID))},
 		{Label: "area", Value: o.metadata(nullableInt64(current.AreaID))},
-		{Label: "note", Value: humanText(current.Note, true)},
+		{Label: "note", Value: text.Human(current.Note, true)},
 		{Label: "due on", Value: o.detailDueDate(current)},
-		{Label: "defer until", Value: o.metadata(humanText(nullableString(current.DeferUntil), false))},
-		{Label: "done at", Value: o.metadata(humanText(nullableString(current.DoneAt), false))},
-		{Label: "cancelled at", Value: o.metadata(humanText(nullableString(current.CancelledAt), false))},
+		{Label: "defer until", Value: o.metadata(text.Human(nullableString(current.DeferUntil), false))},
+		{Label: "done at", Value: o.metadata(text.Human(nullableString(current.DoneAt), false))},
+		{Label: "cancelled at", Value: o.metadata(text.Human(nullableString(current.CancelledAt), false))},
 		{Label: "status", Value: o.statusWord(current.Status)},
 		{Label: "position", Value: o.metadata(strconv.FormatInt(current.Position, 10))},
-		{Label: "created at", Value: o.metadata(humanText(current.CreatedAt, false))},
-		{Label: "updated at", Value: o.metadata(humanText(current.UpdatedAt, false))},
+		{Label: "created at", Value: o.metadata(text.Human(current.CreatedAt, false))},
+		{Label: "updated at", Value: o.metadata(text.Human(current.UpdatedAt, false))},
 		{Label: "tags", Value: o.humanTagTitles(current.Tags)},
 	}
 	return o.writeDetail(glyph, current.ID, current.Title, fields)
@@ -602,13 +601,13 @@ func (o humanOutput) writeProject(current project.Project) error {
 	}
 	fields := []detailField{
 		{Label: "area", Value: o.metadata(nullableInt64(current.AreaID))},
-		{Label: "note", Value: humanText(current.Note, true)},
-		{Label: "done at", Value: o.metadata(humanText(nullableString(current.DoneAt), false))},
-		{Label: "cancelled at", Value: o.metadata(humanText(nullableString(current.CancelledAt), false))},
+		{Label: "note", Value: text.Human(current.Note, true)},
+		{Label: "done at", Value: o.metadata(text.Human(nullableString(current.DoneAt), false))},
+		{Label: "cancelled at", Value: o.metadata(text.Human(nullableString(current.CancelledAt), false))},
 		{Label: "status", Value: o.statusWord(current.Status)},
 		{Label: "position", Value: o.metadata(strconv.FormatInt(current.Position, 10))},
-		{Label: "created at", Value: o.metadata(humanText(current.CreatedAt, false))},
-		{Label: "updated at", Value: o.metadata(humanText(current.UpdatedAt, false))},
+		{Label: "created at", Value: o.metadata(text.Human(current.CreatedAt, false))},
+		{Label: "updated at", Value: o.metadata(text.Human(current.UpdatedAt, false))},
 		{Label: "tags", Value: o.humanTagTitles(current.Tags)},
 	}
 	return o.writeDetail(glyph, current.ID, current.Title, fields)
@@ -620,11 +619,11 @@ func (o humanOutput) writeArea(current area.Area) error {
 		glyph = o.styles.red.Render(glyphCancelled)
 	}
 	fields := []detailField{
-		{Label: "note", Value: humanText(current.Note, true)},
-		{Label: "archived at", Value: o.metadata(humanText(nullableString(current.ArchivedAt), false))},
+		{Label: "note", Value: text.Human(current.Note, true)},
+		{Label: "archived at", Value: o.metadata(text.Human(nullableString(current.ArchivedAt), false))},
 		{Label: "position", Value: o.metadata(strconv.FormatInt(current.Position, 10))},
-		{Label: "created at", Value: o.metadata(humanText(current.CreatedAt, false))},
-		{Label: "updated at", Value: o.metadata(humanText(current.UpdatedAt, false))},
+		{Label: "created at", Value: o.metadata(text.Human(current.CreatedAt, false))},
+		{Label: "updated at", Value: o.metadata(text.Human(current.UpdatedAt, false))},
 		{Label: "tags", Value: o.humanTagTitles(current.Tags)},
 	}
 	return o.writeDetail(glyph, current.ID, current.Title, fields)
@@ -641,7 +640,7 @@ func (o humanOutput) writeDetail(glyph string, id int64, title string, fields []
 		"%s %s  %s\n",
 		glyph,
 		o.styles.faint.Render(strconv.FormatInt(id, 10)),
-		humanText(title, false),
+		text.Human(title, false),
 	); err != nil {
 		return err
 	}
@@ -686,13 +685,13 @@ func (o humanOutput) writeDetail(glyph string, id int64, title string, fields []
 func (o humanOutput) humanTagTitles(titles []string) string {
 	visible := make([]string, len(titles))
 	for index := range titles {
-		visible[index] = o.styles.faint.Render(glyphTag) + humanText(titles[index], false)
+		visible[index] = o.styles.faint.Render(glyphTag) + text.Human(titles[index], false)
 	}
 	return strings.Join(visible, " ")
 }
 
 func (o humanOutput) statusWord(status string) string {
-	visible := humanText(status, false)
+	visible := text.Human(status, false)
 	switch status {
 	case string(task.ListStatusDone):
 		return o.styles.faintGreen.Render(visible)
@@ -711,7 +710,7 @@ func (o humanOutput) metadata(value string) string {
 }
 
 func (o humanOutput) detailDueDate(current task.Task) string {
-	value := humanText(nullableString(current.DueOn), false)
+	value := text.Human(nullableString(current.DueOn), false)
 	if value == "" {
 		return ""
 	}
@@ -769,7 +768,7 @@ func (o humanOutput) writeCollection(
 func (o humanOutput) taskDateTokens(current task.Task, urgent bool) string {
 	tokens := make([]string, 0, 2)
 	if current.DueOn != nil {
-		value := "due " + humanText(*current.DueOn, false)
+		value := "due " + text.Human(*current.DueOn, false)
 		if urgent && *current.DueOn <= o.today {
 			tokens = append(tokens, o.styles.boldRed.Render(value))
 		} else {
@@ -777,7 +776,7 @@ func (o humanOutput) taskDateTokens(current task.Task, urgent bool) string {
 		}
 	}
 	if current.DeferUntil != nil {
-		tokens = append(tokens, o.styles.faint.Render("defer "+humanText(*current.DeferUntil, false)))
+		tokens = append(tokens, o.styles.faint.Render("defer "+text.Human(*current.DeferUntil, false)))
 	}
 	return strings.Join(tokens, " ")
 }
@@ -801,22 +800,4 @@ func padRight(value string, width int) string {
 		return value + strings.Repeat(" ", padding)
 	}
 	return value
-}
-
-func humanText(value string, preserveLineFeeds bool) string {
-	var visible strings.Builder
-	visible.Grow(len(value))
-	for _, character := range value {
-		if character == '\n' && preserveLineFeeds {
-			visible.WriteRune(character)
-			continue
-		}
-		if unicode.IsControl(character) {
-			quoted := strconv.QuoteRune(character)
-			visible.WriteString(quoted[1 : len(quoted)-1])
-			continue
-		}
-		visible.WriteRune(character)
-	}
-	return visible.String()
 }

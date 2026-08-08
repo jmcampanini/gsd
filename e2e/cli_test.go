@@ -21,6 +21,7 @@ import (
 var (
 	binaryPath      string
 	expectedVersion string
+	tmuxPath        string
 	workDir         string
 )
 
@@ -32,6 +33,12 @@ func runTests(m *testing.M) int {
 	repositoryRoot, err := filepath.Abs("..")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "resolve repository root: %v\n", err)
+		return 1
+	}
+
+	tmuxPath, err = exec.LookPath("tmux")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tmux is required to run the e2e tests: %v\n", err)
 		return 1
 	}
 

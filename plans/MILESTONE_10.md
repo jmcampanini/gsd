@@ -144,7 +144,7 @@ popup-sized tmux pane with send-keys:
 
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
-- [ ] `COMMANDS.md` documents `capture` as a shipped command.
+- [x] `COMMANDS.md` documents `capture` as a shipped command.
 
 ## Standards
 

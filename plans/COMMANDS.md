@@ -1,7 +1,8 @@
 # Command Spec (v1)
 
 The CLI is the canonical v1 surface; agents consume entity operations
-through `--json` and configuration through TOML. A post-v1 TUI is planned to
+through `--json` and configuration through TOML. A post-v1 TUI is arriving
+incrementally — `gsd capture` is its first shipped surface — and will
 embed the same grammar and call the same parser and core. This document
 specifies the canonical v1 target; the roadmap in `MILESTONES.md` delivers
 it incrementally.
@@ -116,6 +117,43 @@ gsd search "EXPR" [--related]
   index is internal and virtual — built per invocation, nothing
   persists, results always reflect current data.
 
+## Capture
+
+```
+gsd capture
+```
+
+- `capture` is the first TUI surface: a popup-sized single-input
+  program built to live inside `tmux display-popup` (recommended
+  invocation: `tmux display-popup -w 64 -h 4 -E 'gsd capture'`). It
+  runs in the terminal's alternate screen and is keyboard-only.
+- Enter with a non-blank title creates an open task with exactly
+  `gsd add TITLE` semantics — the title verbatim, untrimmed, no other
+  fields — then exits `0` with no output; the popup just vanishes.
+  Enter on blank input (empty or whitespace-only) is a no-op. Esc and
+  Ctrl+C cancel: exit `0`, nothing written. A cancel during an
+  in-flight write waits for the write to settle, and a write that wins
+  the cancellation race keeps the normal success path.
+- Interactive-only: `capture` takes no arguments, and `--json` and
+  non-TTY invocation (checked per stream) are usage errors (exit `2`)
+  whose messages name `gsd add` as the noninteractive path.
+- The full configuration chain applies (`--config`, `--db`, `GSD_DB`,
+  TOML, defaults); the database opens only when the program starts, so
+  help and parse failures never touch it.
+- A failed write renders its application error inline behind the red
+  accent; any key dismisses, and the command exits `1` with the
+  standard stderr diagnostic.
+- Chrome: a `gsd` badge as the input prompt, a continuous input band,
+  and a faint `enter add · esc cancel` footer that reports transient
+  `adding` / `canceling` statuses while an in-flight write settles.
+  Color follows
+  CLI-OUTPUT-001 (`--color` > nonempty `NO_COLOR` > per-stream auto);
+  light/dark accents are detected in-program from the terminal
+  background, the cursor stays terminal-default, and structure is
+  identical uncolored.
+- The capture e2e drives a real tmux session, making tmux a
+  development and CI prerequisite (documented in the README).
+
 ## Semantics
 
 - **Mutual exclusion**: `--project` and `--area` together is
@@ -206,9 +244,10 @@ gsd search "EXPR" [--related]
 ## Output contract
 
 - `--json` is a global persistent complete-output-mode flag for commands that
-  support JSON. `gsd config` is the one exception: combining it with
-  `--json` is a usage error (exit `2`), and TOML is its machine-readable
-  format. Successful entity output is its table row — the same column names
+  support JSON. `gsd config` and `gsd capture` are the exceptions:
+  combining either with `--json` is a usage error (exit `2`) — TOML is
+  `config`'s machine-readable format, and `capture` is
+  interactive-only. Successful entity output is its table row — the same column names
   and formats, including derived `status` — plus `tags`, an array of stored
   tag names in alphabetical
   (`NOCASE`) order, matching `tags list`.
@@ -362,7 +401,8 @@ open (all refusals are `conflict`-coded, exit 1):
 ## TUI (post-v1)
 
 The TUI arrives as Milestones 10 and 12–15 and targets full parity
-with the CLI, achieved structurally:
+with the CLI, achieved structurally. Milestone 10 shipped the
+substrate and the first surface; the rest remains planned:
 
 - **Full-screen views, no panes**: exactly one view at a time — a root
   tree (Inbox, Available, Logbook, loose projects, then areas with
@@ -372,9 +412,9 @@ with the CLI, achieved structurally:
   detail. Navigation replaces the whole screen, so the same structure
   works in a full terminal and a tmux popup. Pane and split layouts,
   mouse support, and markdown note rendering are parked explorations.
-- **`gsd capture` is a popup-sized capture surface**: one input whose
-  text becomes an inbox task title; Enter writes and exits, Esc
-  cancels. It later grows inline syntax and a command-runner mode.
+- **`gsd capture` shipped as the first surface** — specified in the
+  Capture section above. It later grows inline syntax and a
+  command-runner mode.
 - **`:` opens a command line that accepts the CLI grammar verbatim**,
   minus the binary name (`:projects add "Kitchen reno" --area 3`). It
   calls the same parser and core — parity is shared code, not discipline.

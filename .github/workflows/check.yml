@@ -27,5 +27,8 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install e2e prerequisites
+        run: sudo apt-get update && sudo apt-get install --yes tmux
+
       - name: Check
         run: make check

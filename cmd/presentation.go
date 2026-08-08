@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/term"
+	"github.com/jmcampanini/gsd/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -47,56 +48,52 @@ func (colorValue) Type() string {
 	return "color"
 }
 
-type colorDecision uint8
-
-const (
-	colorDisabled colorDecision = iota
-	colorDetected
-	colorForced
-)
-
 func resolveColor(
 	mode colorMode,
 	explicit bool,
 	noColor string,
 	isTerminal bool,
 	terminalName string,
-) colorDecision {
+) tui.ColorMode {
 	if explicit {
 		switch mode {
 		case colorAlways:
-			return colorForced
+			return tui.ColorForced
 		case colorNever:
-			return colorDisabled
+			return tui.ColorDisabled
 		case colorAuto:
 			if !isTerminal || terminalName == "dumb" {
-				return colorDisabled
+				return tui.ColorDisabled
 			}
-			return colorDetected
+			return tui.ColorDetected
 		}
 	}
 	if noColor != "" || !isTerminal || terminalName == "dumb" {
-		return colorDisabled
+		return tui.ColorDisabled
 	}
-	return colorDetected
+	return tui.ColorDetected
 }
 
 type presentationDependencies struct {
 	environment       func() []string
-	isTerminal        func(io.Writer) bool
+	isTerminalReader  func(io.Reader) bool
+	isTerminalWriter  func(io.Writer) bool
 	detectProfile     func(io.Writer, []string) colorprofile.Profile
 	hasDarkBackground func(io.Reader, io.Writer) bool
 	now               func() time.Time
 }
 
+func fileIsTerminal(stream any) bool {
+	file, ok := stream.(interface{ Fd() uintptr })
+	return ok && term.IsTerminal(file.Fd())
+}
+
 func defaultPresentationDependencies() presentationDependencies {
 	return presentationDependencies{
-		environment: os.Environ,
-		isTerminal: func(writer io.Writer) bool {
-			file, ok := writer.(interface{ Fd() uintptr })
-			return ok && term.IsTerminal(file.Fd())
-		},
-		detectProfile: colorprofile.Detect,
+		environment:      os.Environ,
+		isTerminalReader: func(reader io.Reader) bool { return fileIsTerminal(reader) },
+		isTerminalWriter: func(writer io.Writer) bool { return fileIsTerminal(writer) },
+		detectProfile:    colorprofile.Detect,
 		hasDarkBackground: func(input io.Reader, output io.Writer) bool {
 			in, inputOK := input.(term.File)
 			out, outputOK := output.(term.File)
@@ -115,25 +112,43 @@ type presentation struct {
 	location     *time.Location
 }
 
-func (p presentation) profile(writer io.Writer, explicit bool) (colorprofile.Profile, bool) {
+type colorResolution struct {
+	decision    tui.ColorMode
+	terminal    bool
+	environment []string
+}
+
+func (p presentation) isTerminalInput(reader io.Reader) bool {
+	return p.dependencies.isTerminalReader(reader)
+}
+
+func (p presentation) resolve(writer io.Writer, explicit bool) colorResolution {
 	environment := p.dependencies.environment()
-	terminal := p.dependencies.isTerminal(writer)
-	decision := resolveColor(
-		*p.mode,
-		explicit,
-		environmentValue(environment, "NO_COLOR"),
-		terminal,
-		environmentValue(environment, "TERM"),
-	)
-	switch decision {
-	case colorDisabled:
-		return colorprofile.NoTTY, terminal
-	case colorForced:
-		return colorprofile.TrueColor, terminal
-	case colorDetected:
-		return p.dependencies.detectProfile(writer, scrubColorEnvironment(environment)), terminal
+	terminal := p.dependencies.isTerminalWriter(writer)
+	return colorResolution{
+		decision: resolveColor(
+			*p.mode,
+			explicit,
+			environmentValue(environment, "NO_COLOR"),
+			terminal,
+			environmentValue(environment, "TERM"),
+		),
+		terminal:    terminal,
+		environment: scrubColorEnvironment(environment),
+	}
+}
+
+func (p presentation) profile(writer io.Writer, explicit bool) (colorprofile.Profile, bool) {
+	resolution := p.resolve(writer, explicit)
+	switch resolution.decision {
+	case tui.ColorDisabled:
+		return colorprofile.NoTTY, resolution.terminal
+	case tui.ColorForced:
+		return colorprofile.TrueColor, resolution.terminal
+	case tui.ColorDetected:
+		return p.dependencies.detectProfile(writer, resolution.environment), resolution.terminal
 	default:
-		return colorprofile.NoTTY, terminal
+		return colorprofile.NoTTY, resolution.terminal
 	}
 }
 

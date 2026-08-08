@@ -94,11 +94,14 @@ may rerun any command by hand. Review-only chunks produce no demo.
    3. build the real product and, when the chunk has a human proof, capture
       it as the chunk demo;
    4. run `make check` locally;
-   5. open a pull request targeting the milestone branch and require green CI;
-   6. have Javier watch the chunk demo when one exists and code-review the
-      pull request, codify any lasting review guardrail, and squash-merge it;
-      then
-   7. start the next chunk from the resulting milestone-branch tip.
+   5. stop and hand control to Javier — agents must not commit, push, open or
+      update a pull request, or merge unless Javier explicitly requests that
+      specific action;
+   6. Javier commits the chunk, opens a pull request targeting the milestone
+      branch, and requires green CI;
+   7. Javier watches the chunk demo when one exists, reviews the pull request,
+      codifies any lasting review guardrail, and squash-merges it; then
+   8. the next chunk starts from the resulting milestone-branch tip.
 4. **Review the complete milestone end to end.** After every chunk is merged,
    run the real built binary through root `PLAN.md`'s documented workflow and
    retain a clean transcript. The equivalent durable subprocess coverage

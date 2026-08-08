@@ -9,6 +9,7 @@ import (
 	"github.com/jmcampanini/go-config-loader/configloader"
 	"github.com/jmcampanini/go-config-loader/configreporter"
 	"github.com/jmcampanini/gsd/internal/config"
+	"github.com/jmcampanini/gsd/internal/text"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -99,7 +100,7 @@ func configSourceDescription(source string) string {
 	case config.SourceKindFlag:
 		return "flag: --db"
 	case config.SourceKindFile:
-		return "file: " + humanText(path, false)
+		return "file: " + text.Human(path, false)
 	default:
 		return "default"
 	}

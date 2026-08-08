@@ -114,6 +114,14 @@ All spellings (**proposed**); the plural/singular noun grammar and
 3. **Stage-aware tasks** — `--defer-stage` composed into `available`,
    the promotes marker, and transactional promotion with narration.
 
+## Carried from Milestone 10
+
+- **Truncation idiom consolidation** — `ansi.Truncate` with an `…`
+  tail has one production call site (the capture error footer). On the
+  second truncate-with-ellipsis call site — a `board show` column is a
+  likely candidate — promote an `Ellipsize` helper into
+  `internal/text` beside the escaping helper.
+
 ## User stories
 
 ### The strategic view
