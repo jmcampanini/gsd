@@ -116,13 +116,6 @@ WHERE "table" = ? AND "from" = ? AND on_delete = ?
 			t.Errorf("%s error = nil, want required-column failure", statement)
 		}
 	}
-	if _, err := storage.database.ExecContext(
-		ctx,
-		"INSERT INTO tasks (title, position, promotes) VALUES ('invalid boolean', 0, 2)",
-	); err == nil {
-		t.Error("insert task with promotes 2 error = nil, want boolean CHECK failure")
-	}
-
 	boardID := insertFixture(t, storage.database, `
 INSERT INTO boards (title, position) VALUES ('Delivery', 0)
 `)

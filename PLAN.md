@@ -357,9 +357,10 @@ persistence):
 - [x] Service: defer-stage refused off-board (`invalid_argument`) and
       for unknown stages (`not_found`); promotion advances exactly
       one stage, appends to the destination column, no-ops with a
-      report at the last stage, is inert off-board, and rolls back
-      atomically when the stage write fails (fake-injected error);
-      reopen never demotes; each clearing path reports its cleared
+      report at the last stage, and is inert off-board; a fake-injected
+      stage write failure proves one-transaction composition and error
+      propagation, while real-SQLite transaction-seam coverage proves
+      rollback; reopen never demotes; each clearing path reports its cleared
       set.
 - [x] cmd: `--defer-stage` with `--no-defer-stage` (and promotes
       pair) usage errors; promotion envelope; `↑` rendering; deferred

@@ -821,8 +821,12 @@ func TestInboxJSONIncludesExactViewTaskEnrichment(t *testing.T) {
 	areaID := int64(3)
 	projectTitle := "Kitchen"
 	areaTitle := "Home"
+	deferStageTitle := "Review"
 	view := task.ViewTask{
-		Task:               task.Task{ID: 1, ProjectID: &projectID, Title: "Get quotes", Status: "open", Tags: []string{}},
+		Task: task.Task{
+			ID: 1, ProjectID: &projectID, Title: "Get quotes", Status: "open", Tags: []string{},
+			DeferStageTitle: &deferStageTitle,
+		},
 		ProjectTitle:       &projectTitle,
 		GoverningAreaID:    &areaID,
 		GoverningAreaTitle: &areaTitle,
@@ -853,6 +857,9 @@ func TestInboxJSONIncludesExactViewTaskEnrichment(t *testing.T) {
 		string(fields[0]["governing_area_id"]) != "3" ||
 		string(fields[0]["governing_area_title"]) != `"Home"` {
 		t.Errorf("enrichment = %v, want project and governing area", fields[0])
+	}
+	if _, ok := fields[0]["defer_stage_title"]; ok {
+		t.Errorf("fields = %v, want resolved stage title omitted", fields[0])
 	}
 }
 
@@ -984,14 +991,18 @@ func TestTaskFlagConflictsAreUsageErrorsWithoutOpeningDatabase(t *testing.T) {
 	}
 }
 
-func TestStageAwareBooleanFlagsRejectExplicitFalseBeforeOpeningApplication(t *testing.T) {
+func TestTaskMarkerBooleanFlagsRejectExplicitFalseBeforeOpeningApplication(t *testing.T) {
 	t.Parallel()
 
 	for _, args := range [][]string{
 		{"add", "task", "--no-defer-stage=false", "--json"},
 		{"add", "task", "--promotes=false", "--json"},
 		{"add", "task", "--no-promotes=false", "--json"},
+		{"edit", "7", "--no-due=false", "--json"},
+		{"edit", "7", "--no-defer=false", "--json"},
 		{"edit", "7", "--no-defer-stage=false", "--json"},
+		{"edit", "7", "--no-project=false", "--json"},
+		{"edit", "7", "--no-area=false", "--json"},
 		{"edit", "7", "--promotes=false", "--json"},
 		{"edit", "7", "--no-promotes=false", "--json"},
 	} {

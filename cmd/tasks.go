@@ -166,7 +166,10 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 		Short: "Edit a task",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := rejectFalseBooleanFlags(command, "no-defer-stage", "promotes", "no-promotes"); err != nil {
+			if err := rejectFalseBooleanFlags(
+				command,
+				"no-due", "no-defer", "no-defer-stage", "no-project", "no-area", "promotes", "no-promotes",
+			); err != nil {
 				return err
 			}
 			id, err := task.ParseID(args[0])

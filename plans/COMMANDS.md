@@ -206,8 +206,9 @@ gsd capture
   as `list` filters. Pairing a set flag with its own clear
   (`--area N --no-area`, `--defer-stage S --no-defer-stage`,
   `--promotes --no-promotes`, or `--board B --no-board`) is a usage error.
-  The stage/promotes boolean marker and clear flags must be meaningfully true;
-  explicitly false values are usage errors rather than alternate spellings.
+  On task `add` and `edit`, boolean marker and clear flags must be
+  meaningfully true; explicitly false values are usage errors rather than
+  alternate spellings.
   Neither task container = inbox.
 - **Re-parenting appends** to the end of the destination container;
   re-stating the current container is a no-op and does not move the entity.
@@ -334,7 +335,11 @@ gsd capture
   - stage: `id`, `board_id`, `title`, `position`, `created_at`, `updated_at`.
   Nullable values are `null`; collections are arrays, including `[]`.
   `promotes` is a JSON boolean although SQLite stores its constrained integer
-  representation.
+  representation. Resolved board and stage names are presentation metadata:
+  task JSON exposes `defer_stage_id` but not `defer_stage_title`, and project
+  JSON exposes `stage_id` and `stage_position` but not board or stage titles.
+  View-task JSON still includes its established project and governing-area
+  enrichment.
 - JSON output is exactly one compact value followed by a newline. Tags
   complete the v1 entity field set, but field order remains unstable; field
   names, types, and error codes are stable, while message wording is not.
@@ -358,10 +363,12 @@ gsd capture
   `{"project":{...},"cleared_defers":[...]}`. A task containment edit
   returns `{"task":{...},"cleared_defers":[...]}`, and stage deletion returns
   `{"stage":{...},"cleared_defers":[...]}`. These `cleared_defers` values
-  are always arrays, including when empty. Completing a promoting task returns
-  `{"task":{...},"promoted_project":{...}}`; `promoted_project` is `null`
-  when no project moves, either at the last stage or because the task's
-  project is off-board.
+  are always arrays, including when empty. For a task containment edit, the
+  array reports the stage defer cleared by an actual re-parent, including when
+  `--no-defer-stage` also requested that clear. Completing a promoting
+  task returns `{"task":{...},"promoted_project":{...}}`;
+  `promoted_project` is `null` when no project moves because the task has no
+  project, the project is off-board, or it is already at the last stage.
 - **Cascades report what they touched**:
   `{"project":{...},"cancelled_tasks":[{...},...]}`; recursive deletion
   mirrors it as `{"project":{...},"deleted_tasks":[...]}` and, for areas,

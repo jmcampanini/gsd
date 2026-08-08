@@ -2,9 +2,7 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/jmcampanini/gsd/internal/board"
@@ -23,6 +21,7 @@ func TestAvailableStageGateReactsToForwardAndBackwardProjectMovementIndependentl
 	pipeline := addStoredBoard(t, boards, board.AddFields{Title: "pipeline"}, "2026-01-01T00:00:00.000Z")
 	backlog := addStoredStage(t, boards, pipeline.ID, "Backlog", "2026-01-01T00:00:00.000Z")
 	active := addStoredStage(t, boards, pipeline.ID, "ActiveSecret", "2026-01-01T00:00:00.000Z")
+	complete := addStoredStage(t, boards, pipeline.ID, "Complete", "2026-01-01T00:00:00.000Z")
 	otherBoard := addStoredBoard(t, boards, board.AddFields{Title: "other"}, "2026-01-01T00:00:00.000Z")
 	foreign := addStoredStage(t, boards, otherBoard.ID, "Foreign", "2026-01-01T00:00:00.000Z")
 	contained := addStoredProject(t, projects, project.CreateFields{StageID: &backlog.ID, Title: "contained"})
@@ -52,14 +51,7 @@ func TestAvailableStageGateReactsToForwardAndBackwardProjectMovementIndependentl
 	}
 	if found.DeferStageID == nil || *found.DeferStageID != active.ID ||
 		found.DeferStageTitle == nil || *found.DeferStageTitle != active.Title || !found.Promotes || found.Tags == nil {
-		t.Errorf("stage-deferred task = %#v, want new fields, hidden title, and non-nil tags", found)
-	}
-	encoded, err := json.Marshal(found)
-	if err != nil {
-		t.Fatalf("marshal task: %v", err)
-	}
-	if strings.Contains(string(encoded), active.Title) || strings.Contains(string(encoded), "defer_stage_title") {
-		t.Errorf("task JSON = %s, want hidden stage title omitted", encoded)
+		t.Errorf("stage-deferred task = %#v, want new fields, resolved title, and non-nil tags", found)
 	}
 
 	if _, err := projects.MoveStage(ctx, contained.ID, active.ID, domain.Placement{}, "2026-01-02T00:00:00.000Z"); err != nil {
@@ -75,7 +67,21 @@ func TestAvailableStageGateReactsToForwardAndBackwardProjectMovementIndependentl
 		t.Errorf("available after independent date and stage gates = %v, want all same-board tasks", got)
 	}
 
-	if _, err := projects.MoveStage(ctx, contained.ID, backlog.ID, domain.Placement{}, "2026-01-03T00:00:00.000Z"); err != nil {
+	if _, err := projects.MoveStage(ctx, contained.ID, complete.ID, domain.Placement{}, "2026-01-03T00:00:00.000Z"); err != nil {
+		t.Fatalf("MoveStage(past target) error = %v", err)
+	}
+	if got := availableTaskIDs(t, tasks); !reflect.DeepEqual(got, []int64{plain.ID, stageOnly.ID, dateOnly.ID, both.ID}) {
+		t.Errorf("available past stage gate = %v, want all same-board tasks", got)
+	}
+	deferredPastTarget, err := tasks.List(ctx, task.ListFilter{Status: task.ListStatusAll, Date: task.DateSelectorDeferred})
+	if err != nil {
+		t.Fatalf("List(deferred past target) error = %v", err)
+	}
+	if got := taskIDs(deferredPastTarget); !reflect.DeepEqual(got, []int64{foreignDeferred.ID}) {
+		t.Errorf("deferred list IDs past target = %v, want only foreign-stage task", got)
+	}
+
+	if _, err := projects.MoveStage(ctx, contained.ID, backlog.ID, domain.Placement{}, "2026-01-04T00:00:00.000Z"); err != nil {
 		t.Fatalf("MoveStage(backward) error = %v", err)
 	}
 	if got := availableTaskIDs(t, tasks); !reflect.DeepEqual(got, []int64{plain.ID, dateOnly.ID}) {

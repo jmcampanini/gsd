@@ -59,8 +59,8 @@ type recordingStore struct {
 	stageExistsResult      bool
 	stageExistsError       error
 	findNextStageCalls     int
-	findNextStageProjectID int64
-	findNextStageCurrentID int64
+	nextStageLookupBoardID int64
+	nextStageLookupFromPos int64
 	findNextStageResult    *StageReference
 	findNextStageError     error
 	moveProjectStageCalls  int
@@ -209,10 +209,10 @@ func (r *recordingStore) StageExists(_ context.Context, title string) (bool, err
 	return r.stageExistsResult, r.stageExistsError
 }
 
-func (r *recordingStore) FindNextStage(_ context.Context, projectID, currentStageID int64) (*StageReference, error) {
+func (r *recordingStore) FindNextStage(_ context.Context, boardID, currentPosition int64) (*StageReference, error) {
 	r.findNextStageCalls++
-	r.findNextStageProjectID = projectID
-	r.findNextStageCurrentID = currentStageID
+	r.nextStageLookupBoardID = boardID
+	r.nextStageLookupFromPos = currentPosition
 	return r.findNextStageResult, r.findNextStageError
 }
 
@@ -1306,31 +1306,42 @@ func TestEditClearsStageOnlyForAnActualReparentWithoutExplicitStage(t *testing.T
 
 	currentProjectID := int64(3)
 	destinationProjectID := int64(7)
+	destinationAreaID := int64(8)
 	deferStageID := int64(11)
 	tests := []struct {
-		name        string
-		destination int64
-		wantClear   bool
+		name      string
+		request   EditRequest
+		edited    Task
+		wantClear bool
 	}{
-		{name: "actual reparent clears", destination: destinationProjectID, wantClear: true},
-		{name: "redundant project restatement preserves", destination: currentProjectID},
+		{
+			name:      "project reparent clears",
+			request:   EditRequest{Project: ProjectChange{Set: &destinationProjectID}},
+			edited:    Task{ID: 5, ProjectID: &destinationProjectID},
+			wantClear: true,
+		},
+		{
+			name:      "area reparent clears",
+			request:   EditRequest{Area: AreaChange{Set: &destinationAreaID}},
+			edited:    Task{ID: 5, AreaID: &destinationAreaID},
+			wantClear: true,
+		},
+		{
+			name:    "redundant project restatement preserves",
+			request: EditRequest{Project: ProjectChange{Set: &currentProjectID}},
+			edited:  Task{ID: 5, ProjectID: &currentProjectID, DeferStageID: &deferStageID},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			editedTask := Task{ID: 5, ProjectID: &test.destination}
-			if !test.wantClear {
-				editedTask.DeferStageID = &deferStageID
-			}
 			transaction := &recordingStore{
 				findResults: []Task{{ID: 5, ProjectID: &currentProjectID, DeferStageID: &deferStageID}},
-				editResult:  &editedTask,
+				editResult:  &test.edited,
 			}
 			outer := &recordingStore{transactionStore: transaction}
-			result, err := NewService(outer).Edit(context.Background(), 5, EditRequest{
-				Project: ProjectChange{Set: &test.destination},
-			})
+			result, err := NewService(outer).Edit(context.Background(), 5, test.request)
 			if err != nil {
 				t.Fatalf("Edit() error = %v", err)
 			}
@@ -1339,7 +1350,7 @@ func TestEditClearsStageOnlyForAnActualReparentWithoutExplicitStage(t *testing.T
 				t.Errorf("transaction/edit/stage clear = %d/%d/%t, want 1/1/%t", outer.transactionCalls, transaction.editCalls, transaction.editFields.DeferStageID.Clear, test.wantClear)
 			}
 			if test.wantClear {
-				if !reflect.DeepEqual(result.ClearedDefers, []Task{editedTask}) {
+				if !reflect.DeepEqual(result.ClearedDefers, []Task{test.edited}) {
 					t.Errorf("cleared defers = %#v, want edited task", result.ClearedDefers)
 				}
 			} else if len(result.ClearedDefers) != 0 {
@@ -1671,8 +1682,8 @@ func TestDonePromotesMarkedProjectExactlyOneStage(t *testing.T) {
 	if outer.transactionCalls != 1 || outer.doneCalls != 0 || transaction.doneCalls != 1 ||
 		transaction.findProjectCalls != 1 || transaction.findProjectID != projectID ||
 		transaction.findStageByIDCalls != 1 || transaction.findStageByIDID != currentStageID ||
-		transaction.findNextStageCalls != 1 || transaction.findNextStageProjectID != currentStage.BoardID ||
-		transaction.findNextStageCurrentID != currentStage.Position || transaction.moveProjectStageCalls != 1 ||
+		transaction.findNextStageCalls != 1 || transaction.nextStageLookupBoardID != currentStage.BoardID ||
+		transaction.nextStageLookupFromPos != currentStage.Position || transaction.moveProjectStageCalls != 1 ||
 		transaction.moveProjectID != projectID || transaction.moveProjectStageID != nextStageID {
 		t.Errorf("promotion orchestration = %#v, want exactly one next-stage move in one transaction", transaction)
 	}
