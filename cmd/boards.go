@@ -29,16 +29,13 @@ func newBoardsAddCommand(options *rootOptions, factory applicationFactory) *cobr
 				return err
 			}
 			fields := board.AddFields{Title: args[0], Note: resolvedNote, Stages: stages}
-			return withBoardApplication(command, options, factory, func(application board.Application) error {
-				addition, addErr := application.Add(command.Context(), fields)
-				if addErr != nil {
-					return addErr
-				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), addition.Board)
-				}
-				return options.presentation.output(command).writeAddedBoard(addition)
-			})
+			return withBoardOutput(command, options, factory,
+				func(application board.Application) (board.Addition, error) {
+					return application.Add(command.Context(), fields)
+				},
+				func(addition board.Addition) any { return addition.Board },
+				humanOutput.writeAddedBoard,
+			)
 		},
 	}
 	command.Flags().StringArrayVar(&stages, "stage", nil, "stage name (repeatable)")
@@ -139,7 +136,7 @@ func newBoardReorderCommand(options *rootOptions, factory applicationFactory) *c
 		Short: "Reorder a board",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			placement, err := flags.placement(command, true)
+			placement, err := flags.placement(command)
 			if err != nil {
 				return err
 			}
@@ -186,20 +183,17 @@ func newStagesAddCommand(options *rootOptions, factory applicationFactory) *cobr
 		Short: "Add a stage",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, args []string) error {
-			placement, err := flags.placement(command, false)
+			placement, err := flags.optionalPlacement(command)
 			if err != nil {
 				return err
 			}
-			return withBoardApplication(command, options, factory, func(application board.Application) error {
-				result, err := application.AddStage(command.Context(), args[0], args[1], placement)
-				if err != nil {
-					return err
-				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), result.Stage)
-				}
-				return options.presentation.output(command).writeAddedStage(result)
-			})
+			return withBoardOutput(command, options, factory,
+				func(application board.Application) (board.StageResult, error) {
+					return application.AddStage(command.Context(), args[0], args[1], placement)
+				},
+				func(result board.StageResult) any { return result.Stage },
+				humanOutput.writeAddedStage,
+			)
 		},
 	}
 	flags.register(command, "stage", false)
@@ -222,16 +216,13 @@ func newStageRenameCommand(options *rootOptions, factory applicationFactory) *co
 		Short: "Rename a stage",
 		Args:  cobra.ExactArgs(3),
 		RunE: func(command *cobra.Command, args []string) error {
-			return withBoardApplication(command, options, factory, func(application board.Application) error {
-				renaming, err := application.RenameStage(command.Context(), args[0], args[1], args[2])
-				if err != nil {
-					return err
-				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), renaming.Stage)
-				}
-				return options.presentation.output(command).writeRenamedStage(renaming)
-			})
+			return withBoardOutput(command, options, factory,
+				func(application board.Application) (board.StageRenameResult, error) {
+					return application.RenameStage(command.Context(), args[0], args[1], args[2])
+				},
+				func(renaming board.StageRenameResult) any { return renaming.Stage },
+				humanOutput.writeRenamedStage,
+			)
 		},
 	}
 }
@@ -243,20 +234,17 @@ func newStageReorderCommand(options *rootOptions, factory applicationFactory) *c
 		Short: "Reorder a stage",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, args []string) error {
-			placement, err := flags.placement(command, true)
+			placement, err := flags.placement(command)
 			if err != nil {
 				return err
 			}
-			return withBoardApplication(command, options, factory, func(application board.Application) error {
-				result, err := application.ReorderStage(command.Context(), args[0], args[1], placement)
-				if err != nil {
-					return err
-				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), result.Stage)
-				}
-				return options.presentation.output(command).writeStageMutation(verbReordered, result)
-			})
+			return withBoardOutput(command, options, factory,
+				func(application board.Application) (board.StageResult, error) {
+					return application.ReorderStage(command.Context(), args[0], args[1], placement)
+				},
+				func(result board.StageResult) any { return result.Stage },
+				stageMutationWriter(verbReordered),
+			)
 		},
 	}
 	flags.register(command, "stage", true)
@@ -274,10 +262,7 @@ func newStageDeleteCommand(options *rootOptions, factory applicationFactory) *co
 				if err != nil {
 					return err
 				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), result)
-				}
-				return options.presentation.output(command).writeStageDeletion(result)
+				return writeCommandOutput(command, options, result, humanOutput.writeStageDeletion)
 			})
 		},
 	}
@@ -312,12 +297,9 @@ func (f *namedPlacementFlags) register(command *cobra.Command, entity string, re
 	}
 }
 
-func (f namedPlacementFlags) placement(command *cobra.Command, required bool) (board.Placement, error) {
-	if command.Flags().Changed("first") && !f.first {
-		return board.Placement{}, usageError("--first cannot be false")
-	}
-	if command.Flags().Changed("last") && !f.last {
-		return board.Placement{}, usageError("--last cannot be false")
+func (f namedPlacementFlags) placement(command *cobra.Command) (board.Placement, error) {
+	if err := rejectFalseBooleanFlags(command, "first", "last"); err != nil {
+		return board.Placement{}, err
 	}
 
 	switch {
@@ -327,11 +309,18 @@ func (f namedPlacementFlags) placement(command *cobra.Command, required bool) (b
 		return board.Placement{Anchor: domain.PlacementBefore, Reference: f.before}, nil
 	case command.Flags().Changed("first"):
 		return board.Placement{Anchor: domain.PlacementFirst}, nil
-	case command.Flags().Changed("last"):
-		return board.Placement{Anchor: domain.PlacementLast}, nil
-	case required:
-		return board.Placement{}, usageError("a placement flag is required")
 	default:
-		return board.Placement{}, nil
+		return board.Placement{Anchor: domain.PlacementLast}, nil
 	}
+}
+
+func (f namedPlacementFlags) optionalPlacement(command *cobra.Command) (*board.Placement, error) {
+	if !anyFlagChanged(command, "after", "before", "first", "last") {
+		return nil, nil
+	}
+	placement, err := f.placement(command)
+	if err != nil {
+		return nil, err
+	}
+	return &placement, nil
 }

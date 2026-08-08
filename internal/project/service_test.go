@@ -18,7 +18,7 @@ import (
 type recordingStore struct {
 	calls                []string
 	addCalls             int
-	addFields            CreateFields
+	addFields            AddFields
 	addTimestamp         string
 	addError             error
 	findCalls            int
@@ -58,7 +58,7 @@ type recordingStore struct {
 	findStageByIDError   error
 	editCalls            int
 	editID               int64
-	editFields           UpdateFields
+	editFields           EditFields
 	editTimestamp        string
 	editResult           Project
 	editError            error
@@ -126,7 +126,7 @@ type recordingStore struct {
 
 func (r *recordingStore) Add(
 	_ context.Context,
-	fields CreateFields,
+	fields AddFields,
 	timestamp string,
 ) (Project, error) {
 	r.addCalls++
@@ -226,7 +226,7 @@ func (r *recordingStore) FindStageByID(_ context.Context, id int64) (StageRefere
 func (r *recordingStore) Edit(
 	_ context.Context,
 	id int64,
-	fields UpdateFields,
+	fields EditFields,
 	timestamp string,
 ) (Project, error) {
 	r.calls = append(r.calls, "edit")
@@ -426,13 +426,13 @@ func TestStoreErrorsPassThroughUnchanged(t *testing.T) {
 		name  string
 		apply func() error
 	}{
-		{name: "add", apply: func() error { _, err := service.Add(context.Background(), AddFields{Title: title}); return err }},
+		{name: "add", apply: func() error { _, err := service.Add(context.Background(), AddRequest{Title: title}); return err }},
 		{name: "list", apply: func() error {
 			_, err := service.List(context.Background(), ListOptions{Status: ListStatusOpen})
 			return err
 		}},
 		{name: "show", apply: func() error { _, err := service.Show(context.Background(), 1); return err }},
-		{name: "edit", apply: func() error { _, err := service.Edit(context.Background(), 1, EditFields{Title: &title}); return err }},
+		{name: "edit", apply: func() error { _, err := service.Edit(context.Background(), 1, EditRequest{Title: &title}); return err }},
 	}
 	for _, operation := range operations {
 		if err := operation.apply(); !errors.Is(err, storeError) {
@@ -461,7 +461,7 @@ func TestAddPreservesTextAndDelegatesOneNormalizedTimestamp(t *testing.T) {
 		)
 	}
 
-	fields := AddFields{
+	fields := AddRequest{
 		Title: "  Keep surrounding space  ",
 		Note:  "line one\nline two\n",
 	}
@@ -491,7 +491,7 @@ func TestAddValidatesAreaWithinTransaction(t *testing.T) {
 	t.Parallel()
 
 	areaID := int64(3)
-	fields := AddFields{AreaID: &areaID, Title: "area project"}
+	fields := AddRequest{AreaID: &areaID, Title: "area project"}
 	transaction := &recordingStore{}
 	store := &recordingStore{transactionStore: transaction}
 	created, err := NewService(store).Add(context.Background(), fields)
@@ -519,7 +519,7 @@ func TestAddValidatesAreaWithinTransaction(t *testing.T) {
 
 	invalidAreaID := int64(0)
 	store = &recordingStore{}
-	_, err = NewService(store).Add(context.Background(), AddFields{AreaID: &invalidAreaID, Title: "valid"})
+	_, err = NewService(store).Add(context.Background(), AddRequest{AreaID: &invalidAreaID, Title: "valid"})
 	if errorCode(err) != apperr.InvalidArgument {
 		t.Errorf("Add() error = %v, want invalid_argument", err)
 	}
@@ -538,7 +538,7 @@ func TestAddRejectsArchivedAreaBeforePersistence(t *testing.T) {
 	}
 	store := &recordingStore{transactionStore: transaction}
 
-	_, err := NewService(store).Add(context.Background(), AddFields{AreaID: &areaID, Title: "project"})
+	_, err := NewService(store).Add(context.Background(), AddRequest{AreaID: &areaID, Title: "project"})
 	if errorCode(err) != apperr.Conflict {
 		t.Fatalf("Add() error = %v, want conflict", err)
 	}
@@ -560,7 +560,7 @@ func TestAddRejectsUnknownAreaBeforePersistence(t *testing.T) {
 	}
 	store := &recordingStore{transactionStore: transaction}
 
-	_, err := NewService(store).Add(context.Background(), AddFields{AreaID: &areaID, Title: "project"})
+	_, err := NewService(store).Add(context.Background(), AddRequest{AreaID: &areaID, Title: "project"})
 	if errorCode(err) != apperr.NotFound {
 		t.Fatalf("Add() error = %v, want not_found", err)
 	}
@@ -574,14 +574,14 @@ func TestAddRejectsInvalidTextBeforePersistence(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		fields AddFields
+		fields AddRequest
 	}{
-		{name: "blank title", fields: AddFields{Title: " \t\n"}},
-		{name: "invalid title UTF-8", fields: AddFields{Title: string([]byte{0xff})}},
-		{name: "invalid note UTF-8", fields: AddFields{Title: "valid", Note: string([]byte{0xff})}},
-		{name: "blank board", fields: AddFields{Title: "valid", Board: func() *string { value := "\t"; return &value }()}},
-		{name: "blank tag", fields: AddFields{Title: "valid", Tags: []string{"work", "\t"}}},
-		{name: "invalid tag UTF-8", fields: AddFields{Title: "valid", Tags: []string{string([]byte{0xff})}}},
+		{name: "blank title", fields: AddRequest{Title: " \t\n"}},
+		{name: "invalid title UTF-8", fields: AddRequest{Title: string([]byte{0xff})}},
+		{name: "invalid note UTF-8", fields: AddRequest{Title: "valid", Note: string([]byte{0xff})}},
+		{name: "blank board", fields: AddRequest{Title: "valid", Board: func() *string { value := "\t"; return &value }()}},
+		{name: "blank tag", fields: AddRequest{Title: "valid", Tags: []string{"work", "\t"}}},
+		{name: "invalid tag UTF-8", fields: AddRequest{Title: "valid", Tags: []string{string([]byte{0xff})}}},
 	}
 
 	for _, test := range tests {
@@ -610,7 +610,7 @@ func TestAddWithTagsNormalizesAndRefreshesWithinOneTransaction(t *testing.T) {
 		findResult:        refreshed,
 	}
 	store := &recordingStore{transactionStore: transactionStore}
-	fields := AddFields{Title: "tagged", Tags: []string{"Work", "work", "É", "é"}}
+	fields := AddRequest{Title: "tagged", Tags: []string{"Work", "work", "É", "é"}}
 
 	created, err := NewService(store).Add(context.Background(), fields)
 	if err != nil {
@@ -659,7 +659,7 @@ func TestAddResolvesBoardAndCreatesInItsFirstStage(t *testing.T) {
 	}
 	store := &recordingStore{transactionStore: transaction}
 
-	created, err := NewService(store).Add(context.Background(), AddFields{
+	created, err := NewService(store).Add(context.Background(), AddRequest{
 		Board: &boardTitle,
 		Title: "Boarded project",
 	})
@@ -712,7 +712,7 @@ func TestAddRejectsUnknownAndStagelessBoardsBeforeCreating(t *testing.T) {
 			test.configure(transaction)
 			store := &recordingStore{transactionStore: transaction}
 			boardTitle := "missing"
-			_, err := NewService(store).Add(context.Background(), AddFields{Board: &boardTitle, Title: "project"})
+			_, err := NewService(store).Add(context.Background(), AddRequest{Board: &boardTitle, Title: "project"})
 			if errorCode(err) != test.wantCode {
 				t.Errorf("Add() error = %v, want %s", err, test.wantCode)
 			}
@@ -939,7 +939,7 @@ func TestEditValidatesAndDelegatesOneNormalizedTimestamp(t *testing.T) {
 
 	title := "  Revised title  "
 	note := "line one\nline two\n"
-	fields := EditFields{Title: &title, Note: &note}
+	fields := EditRequest{Title: &title, Note: &note}
 	edited, err := service.Edit(context.Background(), 7, fields)
 	if err != nil {
 		t.Fatalf("Edit() error = %v", err)
@@ -974,19 +974,19 @@ func TestEditValidatesAreaIntentWithinTransaction(t *testing.T) {
 	tests := []struct {
 		name    string
 		current Project
-		fields  EditFields
+		fields  EditRequest
 	}{
 		{
 			name:    "set",
 			current: Project{ID: 7, Status: string(ListStatusOpen)},
-			fields:  EditFields{Area: AreaChange{Set: &areaID}},
+			fields:  EditRequest{Area: AreaChange{Set: &areaID}},
 		},
 		{
 			name: "clear",
 			current: Project{
 				ID: 7, AreaID: &areaID, StageID: &stageID, Status: string(ListStatusOpen),
 			},
-			fields: EditFields{Area: AreaChange{Clear: true}},
+			fields: EditRequest{Area: AreaChange{Clear: true}},
 		},
 	}
 	for _, test := range tests {
@@ -1021,7 +1021,7 @@ func TestEditValidatesAreaIntentWithinTransaction(t *testing.T) {
 
 	invalidAreaID := int64(0)
 	boardTitle := "software"
-	invalid := []EditFields{
+	invalid := []EditRequest{
 		{Area: AreaChange{Set: &invalidAreaID}},
 		{Area: AreaChange{Set: &areaID, Clear: true}},
 		{Board: BoardChange{Set: &boardTitle, Clear: true}},
@@ -1047,7 +1047,7 @@ func TestEditRejectsArchivedSourceAndDestinationAreasBeforePersistence(t *testin
 	tests := []struct {
 		name        string
 		current     Project
-		fields      EditFields
+		fields      EditRequest
 		areas       map[int64]AreaReference
 		wantAreaIDs []int64
 	}{
@@ -1056,7 +1056,7 @@ func TestEditRejectsArchivedSourceAndDestinationAreasBeforePersistence(t *testin
 			current: Project{
 				ID: 7, AreaID: &sourceID, Status: string(ListStatusOpen),
 			},
-			fields: EditFields{Area: AreaChange{Set: &destinationID}},
+			fields: EditRequest{Area: AreaChange{Set: &destinationID}},
 			areas: map[int64]AreaReference{
 				sourceID:      {ID: sourceID, ArchivedAt: &archivedAt},
 				destinationID: {ID: destinationID},
@@ -1066,7 +1066,7 @@ func TestEditRejectsArchivedSourceAndDestinationAreasBeforePersistence(t *testin
 		{
 			name:    "archived destination",
 			current: Project{ID: 7, Status: string(ListStatusOpen)},
-			fields:  EditFields{Area: AreaChange{Set: &destinationID}},
+			fields:  EditRequest{Area: AreaChange{Set: &destinationID}},
 			areas: map[int64]AreaReference{
 				destinationID: {ID: destinationID, ArchivedAt: &archivedAt},
 			},
@@ -1077,7 +1077,7 @@ func TestEditRejectsArchivedSourceAndDestinationAreasBeforePersistence(t *testin
 			current: Project{
 				ID: 7, AreaID: &sourceID, Status: string(ListStatusOpen),
 			},
-			fields: EditFields{Area: AreaChange{Set: &destinationID}},
+			fields: EditRequest{Area: AreaChange{Set: &destinationID}},
 			areas: map[int64]AreaReference{
 				sourceID:      {ID: sourceID, ArchivedAt: &archivedAt},
 				destinationID: {ID: destinationID, ArchivedAt: &archivedAt},
@@ -1126,7 +1126,7 @@ func TestEditAllowsContentWithRestatedArchivedArea(t *testing.T) {
 	}
 	store := &recordingStore{transactionStore: transaction}
 
-	got, err := NewService(store).Edit(context.Background(), current.ID, EditFields{
+	got, err := NewService(store).Edit(context.Background(), current.ID, EditRequest{
 		Area:  AreaChange{Set: &areaID},
 		Title: &title,
 	})
@@ -1163,7 +1163,7 @@ func TestEditRejectsUnknownDestinationBeforeArchivedSource(t *testing.T) {
 	_, err := NewService(store).Edit(
 		context.Background(),
 		7,
-		EditFields{Area: AreaChange{Set: &areaID}},
+		EditRequest{Area: AreaChange{Set: &areaID}},
 	)
 	if errorCode(err) != apperr.NotFound {
 		t.Fatalf("Edit() error = %v, want not_found", err)
@@ -1189,13 +1189,13 @@ func TestEditRejectsInvalidRequestBeforePersistence(t *testing.T) {
 	tests := []struct {
 		name   string
 		id     int64
-		fields EditFields
+		fields EditRequest
 	}{
-		{name: "nonpositive ID", fields: EditFields{Title: &validTitle}},
+		{name: "nonpositive ID", fields: EditRequest{Title: &validTitle}},
 		{name: "no fields", id: 1},
-		{name: "blank title", id: 1, fields: EditFields{Title: &blankTitle}},
-		{name: "invalid title UTF-8", id: 1, fields: EditFields{Title: &invalidTitle}},
-		{name: "invalid note UTF-8", id: 1, fields: EditFields{Note: &invalidNote}},
+		{name: "blank title", id: 1, fields: EditRequest{Title: &blankTitle}},
+		{name: "invalid title UTF-8", id: 1, fields: EditRequest{Title: &invalidTitle}},
+		{name: "invalid note UTF-8", id: 1, fields: EditRequest{Note: &invalidNote}},
 	}
 
 	for _, test := range tests {
@@ -1239,7 +1239,7 @@ func TestEditBoardMembershipSwitchesRestatesAndClears(t *testing.T) {
 			return time.Date(2026, time.August, 9, 1, 2, 3, 456000000, time.UTC)
 		}
 
-		got, err := service.Edit(context.Background(), 7, EditFields{Board: BoardChange{Set: &boardTitle}})
+		got, err := service.Edit(context.Background(), 7, EditRequest{Board: BoardChange{Set: &boardTitle}})
 		if err != nil {
 			t.Fatalf("Edit() error = %v", err)
 		}
@@ -1274,7 +1274,7 @@ func TestEditBoardMembershipSwitchesRestatesAndClears(t *testing.T) {
 		store := &recordingStore{transactionStore: transaction}
 		boardTitle := "SOFTWARE"
 
-		got, err := NewService(store).Edit(context.Background(), 7, EditFields{Board: BoardChange{Set: &boardTitle}})
+		got, err := NewService(store).Edit(context.Background(), 7, EditRequest{Board: BoardChange{Set: &boardTitle}})
 		if err != nil {
 			t.Fatalf("Edit() error = %v", err)
 		}
@@ -1306,7 +1306,7 @@ func TestEditBoardMembershipSwitchesRestatesAndClears(t *testing.T) {
 		store := &recordingStore{transactionStore: transaction}
 		boardTitle := "software"
 
-		got, err := NewService(store).Edit(context.Background(), current.ID, EditFields{
+		got, err := NewService(store).Edit(context.Background(), current.ID, EditRequest{
 			Board: BoardChange{Set: &boardTitle},
 		})
 		if err != nil {
@@ -1336,7 +1336,7 @@ func TestEditBoardMembershipSwitchesRestatesAndClears(t *testing.T) {
 		store := &recordingStore{transactionStore: transaction}
 		boardTitle := "missing"
 
-		_, err := NewService(store).Edit(context.Background(), 7, EditFields{
+		_, err := NewService(store).Edit(context.Background(), 7, EditRequest{
 			Board: BoardChange{Set: &boardTitle},
 		})
 		if errorCode(err) != apperr.NotFound || !errors.Is(err, missing) {
@@ -1361,7 +1361,7 @@ func TestEditBoardMembershipSwitchesRestatesAndClears(t *testing.T) {
 		store := &recordingStore{transactionStore: transaction}
 		boardTitle := "empty"
 
-		_, err := NewService(store).Edit(context.Background(), 7, EditFields{Board: BoardChange{Set: &boardTitle}})
+		_, err := NewService(store).Edit(context.Background(), 7, EditRequest{Board: BoardChange{Set: &boardTitle}})
 		if errorCode(err) != apperr.Conflict {
 			t.Errorf("Edit() error = %v, want conflict", err)
 		}
@@ -1385,7 +1385,7 @@ func TestEditBoardMembershipSwitchesRestatesAndClears(t *testing.T) {
 		}
 		store := &recordingStore{transactionStore: transaction}
 
-		got, err := NewService(store).Edit(context.Background(), 7, EditFields{Board: BoardChange{Clear: true}})
+		got, err := NewService(store).Edit(context.Background(), 7, EditRequest{Board: BoardChange{Clear: true}})
 		if err != nil {
 			t.Fatalf("Edit() error = %v", err)
 		}
@@ -1413,7 +1413,7 @@ func TestEditBoardMembershipSwitchesRestatesAndClears(t *testing.T) {
 		}
 		store := &recordingStore{transactionStore: transaction}
 
-		got, err := NewService(store).Edit(context.Background(), 7, EditFields{Board: BoardChange{Clear: true}})
+		got, err := NewService(store).Edit(context.Background(), 7, EditRequest{Board: BoardChange{Clear: true}})
 		if !errors.Is(err, clearError) {
 			t.Fatalf("Edit() error = %v, want preserved clear error %v", err, clearError)
 		}
@@ -1476,7 +1476,7 @@ func TestBoardMembershipRejectsResolvedAndArchivedProjects(t *testing.T) {
 				test.configure(transaction)
 			}
 			store := &recordingStore{transactionStore: transaction}
-			_, err := NewService(store).Edit(context.Background(), 7, EditFields{Board: BoardChange{Clear: true}})
+			_, err := NewService(store).Edit(context.Background(), 7, EditRequest{Board: BoardChange{Clear: true}})
 			if errorCode(err) != apperr.Conflict {
 				t.Fatalf("Edit() error = %v, want conflict", err)
 			}
@@ -1640,7 +1640,7 @@ func TestMoveRejectsUnknownStageAndForeignPlacementReference(t *testing.T) {
 		transaction := &recordingStore{
 			findResult:          current,
 			findStageByIDResult: currentStage,
-			findStageError:      apperr.New(apperr.NotFound, "no stage shipping", nil),
+			findStageError:      apperr.New(apperr.NotFound, "no stage shipping on board Software", nil),
 		}
 		store := &recordingStore{transactionStore: transaction}
 		_, err := NewService(store).Move(context.Background(), 7, "shipping", nil)
@@ -2142,7 +2142,7 @@ func TestTaggedProjectStoreErrorsPassThroughUnchanged(t *testing.T) {
 				transactionStore.addError = storeError
 			},
 			apply: func(service *Service) error {
-				_, err := service.Add(context.Background(), AddFields{Title: "project", Tags: []string{"work"}})
+				_, err := service.Add(context.Background(), AddRequest{Title: "project", Tags: []string{"work"}})
 				return err
 			},
 		},
@@ -2152,7 +2152,7 @@ func TestTaggedProjectStoreErrorsPassThroughUnchanged(t *testing.T) {
 				transactionStore.resolveTagsError = storeError
 			},
 			apply: func(service *Service) error {
-				_, err := service.Add(context.Background(), AddFields{Title: "project", Tags: []string{"work"}})
+				_, err := service.Add(context.Background(), AddRequest{Title: "project", Tags: []string{"work"}})
 				return err
 			},
 		},
@@ -2162,7 +2162,7 @@ func TestTaggedProjectStoreErrorsPassThroughUnchanged(t *testing.T) {
 				transactionStore.attachTagsError = storeError
 			},
 			apply: func(service *Service) error {
-				_, err := service.Add(context.Background(), AddFields{Title: "project", Tags: []string{"work"}})
+				_, err := service.Add(context.Background(), AddRequest{Title: "project", Tags: []string{"work"}})
 				return err
 			},
 		},
@@ -2172,7 +2172,7 @@ func TestTaggedProjectStoreErrorsPassThroughUnchanged(t *testing.T) {
 				transactionStore.findErrors = []error{storeError}
 			},
 			apply: func(service *Service) error {
-				_, err := service.Add(context.Background(), AddFields{Title: "project", Tags: []string{"work"}})
+				_, err := service.Add(context.Background(), AddRequest{Title: "project", Tags: []string{"work"}})
 				return err
 			},
 		},
@@ -2400,7 +2400,7 @@ func TestLifecycleStoreErrorsPassThroughUnchanged(t *testing.T) {
 	}
 }
 
-func equalCreateFields(left CreateFields, right AddFields) bool {
+func equalCreateFields(left AddFields, right AddRequest) bool {
 	return left.AreaID == right.AreaID && left.StageID == nil && left.Title == right.Title && left.Note == right.Note
 }
 

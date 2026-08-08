@@ -30,13 +30,7 @@ func (f *reorderFlags) registerFlags(command *cobra.Command, entity string) {
 }
 
 func (f reorderFlags) validate(command *cobra.Command) error {
-	if command.Flags().Changed("first") && !f.first {
-		return usageError("--first cannot be false")
-	}
-	if command.Flags().Changed("last") && !f.last {
-		return usageError("--last cannot be false")
-	}
-	return nil
+	return rejectFalseBooleanFlags(command, "first", "last")
 }
 
 func (f reorderFlags) optionalPlacement(

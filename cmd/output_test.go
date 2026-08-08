@@ -276,13 +276,13 @@ func TestStageAwareTaskPresentationShowsMarkersDefersAndDetails(t *testing.T) {
 	plainList := renderHuman(t, colorprofile.NoTTY, func(output humanOutput) error {
 		return output.writeTaskList([]task.Task{promoting})
 	})
-	if !strings.Contains(plainList, "Capstone ↑") || !strings.Contains(plainList, "defer Review") {
+	if !strings.Contains(plainList, "Capstone ↑") || !strings.Contains(plainList, "defer→Review") {
 		t.Errorf("task list = %q, want promotion marker and stage defer", plainList)
 	}
 	openList := renderHuman(t, colorprofile.NoTTY, func(output humanOutput) error {
 		return output.writeOpenTaskList([]task.ViewTask{{Task: promoting}})
 	})
-	if !strings.Contains(openList, "Capstone ↑") || !strings.Contains(openList, "defer Review") {
+	if !strings.Contains(openList, "Capstone ↑") || !strings.Contains(openList, "defer→Review") {
 		t.Errorf("open list = %q, want promotion marker and stage defer", openList)
 	}
 	shown := renderHuman(t, colorprofile.NoTTY, func(output humanOutput) error {

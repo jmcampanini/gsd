@@ -49,7 +49,7 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 				AreaID:    areaID,
 				Title:     args[0],
 				Note:      resolvedNote,
-				Promotes:  promotes && !noPromotes,
+				Promotes:  promotes,
 				Tags:      tags,
 			}
 			if command.Flags().Changed("due") {
@@ -60,9 +60,6 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 			}
 			if command.Flags().Changed("defer-stage") {
 				fields.DeferStage = &deferStage
-			}
-			if noDeferStage {
-				fields.DeferStage = nil
 			}
 
 			return withTaskApplication(command, options, factory, func(application task.Application) error {
@@ -234,19 +231,18 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 			}
 			containmentEdit := anyFlagChanged(command, "project", "no-project", "area", "no-area")
 
-			return withTaskApplication(command, options, factory, func(application task.Application) error {
-				edited, editErr := application.Edit(command.Context(), id, fields)
-				if editErr != nil {
-					return editErr
-				}
-				if options.json {
+			return withTaskOutput(command, options, factory,
+				func(application task.Application) (task.Edition, error) {
+					return application.Edit(command.Context(), id, fields)
+				},
+				func(edited task.Edition) any {
 					if containmentEdit {
-						return writeJSON(command.OutOrStdout(), edited)
+						return edited
 					}
-					return writeJSON(command.OutOrStdout(), edited.Task)
-				}
-				return options.presentation.output(command).writeTaskEdition(edited)
-			})
+					return edited.Task
+				},
+				humanOutput.writeTaskEdition,
+			)
 		},
 	}
 	command.Flags().StringVar(&title, "title", "", "task title")
@@ -346,19 +342,18 @@ func newDoneCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 			if err != nil {
 				return err
 			}
-			return withTaskApplication(command, options, factory, func(application task.Application) error {
-				completion, err := application.Done(command.Context(), id)
-				if err != nil {
-					return err
-				}
-				if options.json {
+			return withTaskOutput(command, options, factory,
+				func(application task.Application) (task.Completion, error) {
+					return application.Done(command.Context(), id)
+				},
+				func(completion task.Completion) any {
 					if completion.Task.Promotes {
-						return writeJSON(command.OutOrStdout(), completion)
+						return completion
 					}
-					return writeJSON(command.OutOrStdout(), completion.Task)
-				}
-				return options.presentation.output(command).writeTaskCompletion(completion)
-			})
+					return completion.Task
+				},
+				humanOutput.writeTaskCompletion,
+			)
 		},
 	}
 }
@@ -551,17 +546,15 @@ func newTaskTaggingCommand(
 				return err
 			}
 
-			return withTaskApplication(command, options, factory, func(application task.Application) error {
-				tagging, err := mutate(command.Context(), application, id, args[1:])
-				if err != nil {
-					return err
-				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), tagging.Task)
-				}
-
-				return options.presentation.output(command).writeTaskTagging(verb, tagging)
-			})
+			return withTaskOutput(command, options, factory,
+				func(application task.Application) (task.Tagging, error) {
+					return mutate(command.Context(), application, id, args[1:])
+				},
+				func(tagging task.Tagging) any { return tagging.Task },
+				func(output humanOutput, tagging task.Tagging) error {
+					return output.writeTaskTagging(verb, tagging)
+				},
+			)
 		},
 	}
 }

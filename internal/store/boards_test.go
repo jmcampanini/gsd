@@ -331,13 +331,13 @@ func TestBoardShownProjectsGroupOrderAndExcludeCancelledFromProgress(t *testing.
 	firstStage := addStoredStage(t, boards, pipeline.ID, "first", "2026-01-01T00:00:00.000Z")
 	secondStage := addStoredStage(t, boards, pipeline.ID, "second", "2026-01-01T00:00:00.000Z")
 
-	secondStageProject := addStoredProject(t, projects, project.CreateFields{
+	secondStageProject := addStoredProject(t, projects, project.AddFields{
 		StageID: &secondStage.ID,
 		Title:   "second stage",
 	})
-	firstA := addStoredProject(t, projects, project.CreateFields{StageID: &firstStage.ID, Title: "first A"})
-	firstB := addStoredProject(t, projects, project.CreateFields{StageID: &firstStage.ID, Title: "first B"})
-	resolved := addStoredProject(t, projects, project.CreateFields{StageID: &firstStage.ID, Title: "resolved"})
+	firstA := addStoredProject(t, projects, project.AddFields{StageID: &firstStage.ID, Title: "first A"})
+	firstB := addStoredProject(t, projects, project.AddFields{StageID: &firstStage.ID, Title: "first B"})
+	resolved := addStoredProject(t, projects, project.AddFields{StageID: &firstStage.ID, Title: "resolved"})
 	if _, err := projects.Resolve(ctx, resolved.ID, project.ExitDone, "2026-01-02T00:00:00.000Z"); err != nil {
 		t.Fatalf("Resolve(board project) error = %v", err)
 	}
@@ -394,22 +394,24 @@ func TestBoardOccupancyIncludesResolvedProjects(t *testing.T) {
 	occupiedStage := addStoredStage(t, boards, pipeline.ID, "occupied", "2026-01-01T00:00:00.000Z")
 	emptyStage := addStoredStage(t, boards, pipeline.ID, "empty", "2026-01-01T00:00:00.000Z")
 
-	if occupied, err := boards.BoardOccupied(ctx, pipeline.ID); err != nil || occupied {
-		t.Fatalf("BoardOccupied(empty) = %t, %v; want false, nil", occupied, err)
+	if occupancy, err := boards.BoardOccupancy(ctx, pipeline.ID); err != nil || occupancy.Any() {
+		t.Fatalf("BoardOccupancy(empty) = %+v, %v; want empty, nil", occupancy, err)
 	}
-	resolved := addStoredProject(t, projects, project.CreateFields{StageID: &occupiedStage.ID, Title: "resolved"})
+	resolved := addStoredProject(t, projects, project.AddFields{StageID: &occupiedStage.ID, Title: "resolved"})
 	if _, err := projects.Resolve(ctx, resolved.ID, project.ExitCancelled, "2026-01-02T00:00:00.000Z"); err != nil {
 		t.Fatalf("Resolve(occupant) error = %v", err)
 	}
 
-	if occupied, err := boards.BoardOccupied(ctx, pipeline.ID); err != nil || !occupied {
-		t.Errorf("BoardOccupied(resolved) = %t, %v; want true, nil", occupied, err)
+	if occupancy, err := boards.BoardOccupancy(ctx, pipeline.ID); err != nil ||
+		occupancy != (board.Occupancy{Resolved: 1}) {
+		t.Errorf("BoardOccupancy(resolved) = %+v, %v; want {Resolved: 1}, nil", occupancy, err)
 	}
-	if occupied, err := boards.StageOccupied(ctx, occupiedStage.ID); err != nil || !occupied {
-		t.Errorf("StageOccupied(resolved) = %t, %v; want true, nil", occupied, err)
+	if occupancy, err := boards.StageOccupancy(ctx, occupiedStage.ID); err != nil ||
+		occupancy != (board.Occupancy{Resolved: 1}) {
+		t.Errorf("StageOccupancy(resolved) = %+v, %v; want {Resolved: 1}, nil", occupancy, err)
 	}
-	if occupied, err := boards.StageOccupied(ctx, emptyStage.ID); err != nil || occupied {
-		t.Errorf("StageOccupied(empty) = %t, %v; want false, nil", occupied, err)
+	if occupancy, err := boards.StageOccupancy(ctx, emptyStage.ID); err != nil || occupancy.Any() {
+		t.Errorf("StageOccupancy(empty) = %+v, %v; want empty, nil", occupancy, err)
 	}
 }
 

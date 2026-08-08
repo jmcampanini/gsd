@@ -131,6 +131,8 @@ The consolidation pull request:
   implementation/specification mismatch. This reconciliation audit is scoped
   to the consolidating milestone's own surface; earlier milestones' behavior
   is re-audited only when a discovered contradiction implicates it.
+  Full-surface re-audits scale with milestone count, while earlier surfaces
+  are stable — the contradiction trigger reopens exactly the ones that need it.
 - Resolve every temporary divergence due at this boundary. Update the relevant
   milestone file while it is still useful, update the canonical specification,
   and remove the intake entry from `DIVERGENCES.md`. That file is temporary

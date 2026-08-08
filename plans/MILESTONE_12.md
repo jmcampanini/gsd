@@ -60,7 +60,9 @@ TUI verb, reorder, and command-line milestone acts on.
 
 The Milestone 10 foundation review kept these substrate pieces
 concrete under the one-consumer convention; Navigator is the expected
-second consumer, so revisit each at this milestone's plan gate:
+second consumer, so revisit each at this milestone's plan gate. Milestone
+11's deliberately deferred item carries forward here with its own revisit
+trigger:
 
 - **In-flight write lifecycle** — `captureSubmission` (child context,
   cancel-and-wait shutdown, synthesized cancellation for a
@@ -73,6 +75,12 @@ second consumer, so revisit each at this milestone's plan gate:
   status-file helpers live in `e2e/capture_test.go` under capture
   names: promote them to shared e2e helpers on the second tmux-driven
   test.
+- **Stage-gate predicate spellings** — carried from Milestone 11: the
+  stage-defer gate exists in two places, the `available` view in
+  `internal/store/migrations/0001_baseline.sql` and the `list --deferred`
+  selector in `internal/store/tasks.go`, with a store test pinning their
+  agreement. Revisit trigger: the first change to stage-gate semantics
+  must touch both sites.
 
 ## User stories
 

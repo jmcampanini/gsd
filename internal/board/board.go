@@ -8,23 +8,9 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-type Board struct {
-	ID        int64  `json:"id"`
-	Title     string `json:"title"`
-	Note      string `json:"note"`
-	Position  int64  `json:"position"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-}
+type Board = domain.Board
 
-type Stage struct {
-	ID        int64  `json:"id"`
-	BoardID   int64  `json:"board_id"`
-	Title     string `json:"title"`
-	Position  int64  `json:"position"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-}
+type Stage = domain.Stage
 
 type AddFields struct {
 	Title  string
@@ -94,6 +80,15 @@ type StageRenameResult struct {
 	PreviousTitle string
 }
 
+type Occupancy struct {
+	Open     int64
+	Resolved int64
+}
+
+func (o Occupancy) Any() bool {
+	return o.Open > 0 || o.Resolved > 0
+}
+
 type Transaction interface {
 	AddBoard(context.Context, AddFields, string) (Board, error)
 	FindBoard(context.Context, string) (Board, error)
@@ -105,8 +100,8 @@ type Transaction interface {
 	FindStage(context.Context, int64, string) (Stage, error)
 	ListStages(context.Context, int64) ([]Stage, error)
 	ListShownProjects(context.Context, int64) ([]ShownProject, error)
-	BoardOccupied(context.Context, int64) (bool, error)
-	StageOccupied(context.Context, int64) (bool, error)
+	BoardOccupancy(context.Context, int64) (Occupancy, error)
+	StageOccupancy(context.Context, int64) (Occupancy, error)
 	ClearTaskStageDefers(context.Context, int64, string) ([]task.Task, error)
 	RenameStage(context.Context, int64, int64, string, string) (Stage, error)
 	ReorderStage(context.Context, int64, int64, domain.Placement, string) (Stage, error)
@@ -126,7 +121,7 @@ type Application interface {
 	Edit(context.Context, string, EditFields) (Board, error)
 	Reorder(context.Context, string, Placement) (Board, error)
 	Delete(context.Context, string) (Deletion, error)
-	AddStage(context.Context, string, string, Placement) (StageResult, error)
+	AddStage(context.Context, string, string, *Placement) (StageResult, error)
 	RenameStage(context.Context, string, string, string) (StageRenameResult, error)
 	ReorderStage(context.Context, string, string, Placement) (StageResult, error)
 	DeleteStage(context.Context, string, string) (StageDeletion, error)

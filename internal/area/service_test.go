@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,6 +54,10 @@ type recordingStore struct {
 	unarchiveTimestamp   string
 	unarchiveResult      Area
 	unarchiveError       error
+	occupiedCalls        int
+	occupiedID           int64
+	occupied             bool
+	occupiedError        error
 	deleteCalls          int
 	deleteID             int64
 	deleteResult         Area
@@ -150,6 +155,12 @@ func (r *recordingStore) Unarchive(_ context.Context, id int64, timestamp string
 	r.unarchiveID = id
 	r.unarchiveTimestamp = timestamp
 	return r.unarchiveResult, r.unarchiveError
+}
+
+func (r *recordingStore) Occupied(_ context.Context, id int64) (bool, error) {
+	r.occupiedCalls++
+	r.occupiedID = id
+	return r.occupied, r.occupiedError
 }
 
 func (r *recordingStore) Delete(_ context.Context, id int64) (Area, error) {
@@ -801,7 +812,7 @@ func TestTaggingErrorsPassThrough(t *testing.T) {
 	}
 }
 
-func TestNonrecursiveDeleteReturnsNormalizedEnvelopeWithoutTransaction(t *testing.T) {
+func TestNonrecursiveDeleteChecksOccupancyBeforeDeletingInOneTransaction(t *testing.T) {
 	t.Parallel()
 
 	deletedArea := Area{ID: 7, Title: "Empty", Tags: domain.TagNames{}}
@@ -810,13 +821,28 @@ func TestNonrecursiveDeleteReturnsNormalizedEnvelopeWithoutTransaction(t *testin
 	if err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
-	if store.deleteCalls != 1 || store.deleteID != 7 || store.transactionCalls != 0 ||
+	if store.transactionCalls != 1 || store.occupiedCalls != 1 || store.occupiedID != 7 ||
+		store.deleteCalls != 1 || store.deleteID != 7 ||
 		store.deleteProjectsCalls != 0 || store.deleteTasksCalls != 0 {
-		t.Errorf("delete delegation = %#v, want one direct area delete", store)
+		t.Errorf("delete delegation = %#v, want occupancy check then delete in one transaction", store)
 	}
 	if !reflect.DeepEqual(deletion.Area, deletedArea) || deletion.DeletedProjects == nil ||
 		len(deletion.DeletedProjects) != 0 || deletion.DeletedTasks == nil || len(deletion.DeletedTasks) != 0 {
 		t.Errorf("Delete() = %#v, want area and non-nil empty arrays", deletion)
+	}
+}
+
+func TestNonrecursiveDeleteRefusesOccupiedAreaWithoutDeleting(t *testing.T) {
+	t.Parallel()
+
+	store := &recordingStore{occupied: true}
+	_, err := NewService(store).Delete(context.Background(), 7, false)
+	if code, _ := apperr.CodeOf(err); code != apperr.Conflict ||
+		!strings.Contains(err.Error(), "cannot delete area 7 while it contains projects or tasks") {
+		t.Fatalf("Delete() error = %v, want occupied conflict", err)
+	}
+	if store.deleteCalls != 0 {
+		t.Errorf("Delete() store deletes = %d, want 0", store.deleteCalls)
 	}
 }
 

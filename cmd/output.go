@@ -128,16 +128,37 @@ func writeJSON(writer io.Writer, value any) error {
 	return nil
 }
 
+// renderResult is the single JSON/human dispatch point. Sites whose two modes
+// share one payload route here through writeCommandOutput; commands whose JSON
+// payload differs from the human model (flag-keyed envelopes, bare-row echoes)
+// route through the with*Output wrappers in root.go, which pair this dispatch
+// with a per-command payload selector. capture and config are not dispatch
+// sites: both reject --json outright. If another cross-cutting output surface
+// lands (--quiet, CSV), extend renderResult — dispatch exists only here.
+func renderResult[T any](
+	command *cobra.Command,
+	options *rootOptions,
+	value T,
+	jsonPayload func(T) any,
+	writeHuman func(humanOutput, T) error,
+) error {
+	if options.json {
+		return writeJSON(command.OutOrStdout(), jsonPayload(value))
+	}
+	return writeHuman(options.presentation.output(command), value)
+}
+
 func writeCommandOutput[T any](
 	command *cobra.Command,
 	options *rootOptions,
 	value T,
 	writeHuman func(humanOutput, T) error,
 ) error {
-	if options.json {
-		return writeJSON(command.OutOrStdout(), value)
-	}
-	return writeHuman(options.presentation.output(command), value)
+	return renderResult(command, options, value, samePayload[T], writeHuman)
+}
+
+func samePayload[T any](value T) any {
+	return value
 }
 
 func taskMutationWriter(verb mutationVerb) func(humanOutput, task.Task) error {
@@ -167,6 +188,12 @@ func areaMutationWriter(verb mutationVerb) func(humanOutput, area.Area) error {
 func boardMutationWriter(verb mutationVerb) func(humanOutput, board.Board) error {
 	return func(output humanOutput, current board.Board) error {
 		return output.writeBoardMutation(verb, current)
+	}
+}
+
+func stageMutationWriter(verb mutationVerb) func(humanOutput, board.StageResult) error {
+	return func(output humanOutput, result board.StageResult) error {
+		return output.writeStageMutation(verb, result)
 	}
 }
 
@@ -1042,7 +1069,7 @@ func (o humanOutput) taskDateTokens(current task.Task, urgent bool) string {
 		tokens = append(tokens, o.styles.faint.Render("defer "+text.Human(*current.DeferUntil, false)))
 	}
 	if current.DeferStageTitle != nil {
-		tokens = append(tokens, o.styles.faint.Render("defer "+text.Human(*current.DeferStageTitle, false)))
+		tokens = append(tokens, o.styles.faint.Render("defer→"+text.Human(*current.DeferStageTitle, false)))
 	}
 	return strings.Join(tokens, " ")
 }

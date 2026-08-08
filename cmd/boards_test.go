@@ -46,7 +46,7 @@ type fakeBoardApplication struct {
 	deleteName         string
 	addStageBoard      string
 	addStageName       string
-	addStagePlacement  board.Placement
+	addStagePlacement  *board.Placement
 	renameStageBoard   string
 	renameStageOld     string
 	renameStageNew     string
@@ -100,7 +100,7 @@ func (f *fakeBoardApplication) AddStage(
 	_ context.Context,
 	boardName string,
 	stageName string,
-	placement board.Placement,
+	placement *board.Placement,
 ) (board.StageResult, error) {
 	f.addStageBoard = boardName
 	f.addStageName = stageName
@@ -447,7 +447,7 @@ func TestBoardAndStagePlacementsAdaptNamesExactly(t *testing.T) {
 	added := runBoardCommand(t, addApplication, "stages", "add", "software", "intake")
 	if added.exitCode != 0 || added.stdout != "+ Added stage Software/Intake\n" || added.stderr != "" ||
 		addApplication.addStageBoard != "software" || addApplication.addStageName != "intake" ||
-		addApplication.addStagePlacement != (board.Placement{}) {
+		addApplication.addStagePlacement != nil {
 		t.Errorf("stage add = %#v/call %#v, want optional empty placement", added, addApplication)
 	}
 	addedJSON := runBoardCommand(t, &fakeBoardApplication{addStageResult: addApplication.addStageResult},
@@ -510,10 +510,16 @@ func TestStageRenameWritesBareJSONAndStageDeleteWritesClearedDefersEnvelope(t *t
 	}
 	deletedJSON := runBoardCommand(t, &fakeBoardApplication{deleteStageResult: deletedResult},
 		"stage", "delete", "software", "triage", "--json")
-	if got := decodeBoardJSON[board.StageDeletion](t, deletedJSON.stdout); !reflect.DeepEqual(got, board.StageDeletion{
-		Stage: deletedResult.Stage, ClearedDefers: []task.Task{},
-	}) {
-		t.Errorf("delete JSON = %#v, want stage deletion envelope", got)
+	shape := decodeBoardJSON[map[string]json.RawMessage](t, deletedJSON.stdout)
+	if len(shape) != 2 || string(shape["cleared_defers"]) != "[]" || shape["stage"] == nil {
+		t.Errorf("delete JSON = %s, want stage and empty cleared_defers", deletedJSON.stdout)
+	}
+	var deletedStage board.Stage
+	if err := json.Unmarshal(shape["stage"], &deletedStage); err != nil {
+		t.Fatalf("decode deleted stage: %v", err)
+	}
+	if !reflect.DeepEqual(deletedStage, deletedResult.Stage) {
+		t.Errorf("delete JSON stage = %#v, want %#v", deletedStage, deletedResult.Stage)
 	}
 }
 

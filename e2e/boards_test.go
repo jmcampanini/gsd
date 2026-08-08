@@ -16,11 +16,8 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-func TestBoardWorkflowAcrossBinaryInvocations(t *testing.T) {
-	databasePath := filepath.Join(workDir, "boards", "gsd.db")
-	runJSON := func(args ...string) processResult {
-		return runGSD(t, append(args, "--db", databasePath, "--json")...)
-	}
+func TestBoardAdministrationAcrossBinaryInvocations(t *testing.T) {
+	_, runJSON := boardWorkspace(t, "board-administration")
 
 	software := decodeJSON[board.Board](t, runJSON(
 		"boards", "add", "Software",
@@ -62,6 +59,55 @@ func TestBoardWorkflowAcrossBinaryInvocations(t *testing.T) {
 	decodeJSON[board.Stage](t, runJSON(
 		"stages", "add", "Software", "Later", "--last",
 	), "added stage")
+	extended := decodeJSON[board.Show](t, runJSON("board", "show", "Software"), "extended board")
+	assertShownStageTitles(t, "extended board", extended, "Research", "Design", "Doing", "Review", "Later")
+
+	occupant := decodeProject(t, runJSON("projects", "add", "Occupant", "--board", "Software"))
+	decodeProject(t, runJSON("project", "move", fmt.Sprint(occupant.ID), "Design"))
+	assertJSONError(t, runJSON("stage", "delete", "Software", "Design"), apperr.Conflict)
+	assertJSONError(t, runJSON("board", "delete", "Software"), apperr.Conflict)
+
+	laterDeferred := decodeTask(t, runJSON(
+		"add", "Delete clears this defer", "--project", fmt.Sprint(occupant.ID), "--defer-stage", "Later",
+	))
+	laterDeletion := decodeJSON[board.StageDeletion](t, runJSON(
+		"stage", "delete", "Software", "Later",
+	), "stage deletion")
+	if laterDeletion.Stage.Title != "Later" || len(laterDeletion.ClearedDefers) != 1 ||
+		laterDeletion.ClearedDefers[0].ID != laterDeferred.ID ||
+		laterDeletion.ClearedDefers[0].DeferStageID != nil {
+		t.Errorf("stage deletion = %#v, want deleted Later and one cleared task", laterDeletion)
+	}
+	if persisted := decodeTask(t, runJSON("show", fmt.Sprint(laterDeferred.ID))); persisted.DeferStageID != nil {
+		t.Errorf("task after stage deletion = %#v, want persisted cleared stage defer", persisted)
+	}
+
+	reorderedBoard := decodeJSON[board.Board](t, runJSON("board", "reorder", "Other", "--first"), "reordered board")
+	if reorderedBoard.ID != other.ID {
+		t.Fatalf("reordered board = %#v, want Other", reorderedBoard)
+	}
+	afterReorder := decodeJSON[[]board.ListedBoard](t, runJSON("boards", "list"), "boards after reorder")
+	if len(afterReorder) != 2 || afterReorder[0].ID != other.ID || afterReorder[1].ID != software.ID {
+		t.Errorf("boards after reorder = %#v, want Other then Software", afterReorder)
+	}
+	deletion := decodeJSON[board.Deletion](t, runJSON("board", "delete", "Other"), "board deletion")
+	if deletion.Board.ID != other.ID || len(deletion.Stages) != 2 {
+		t.Errorf("board deletion = %#v, want Other with its two stages", deletion)
+	}
+	afterDelete := decodeJSON[[]board.ListedBoard](t, runJSON("boards", "list"), "boards after delete")
+	if len(afterDelete) != 1 || afterDelete[0].ID != software.ID {
+		t.Errorf("boards after delete = %#v, want only Software", afterDelete)
+	}
+	assertJSONError(t, runJSON("board", "show", "Other"), apperr.NotFound)
+}
+
+func TestBoardMembershipAndMovement(t *testing.T) {
+	databasePath, runJSON := boardWorkspace(t, "board-membership")
+	decodeJSON[board.Board](t, runJSON(
+		"boards", "add", "Software",
+		"--stage", "Research", "--stage", "Design", "--stage", "Doing",
+		"--stage", "Review", "--stage", "Later",
+	), "board")
 
 	planned := decodeProject(t, runJSON("projects", "add", "Planned project"))
 	plannedEdition := decodeJSON[project.Edition](t, runJSON(
@@ -120,37 +166,6 @@ func TestBoardWorkflowAcrossBinaryInvocations(t *testing.T) {
 		!strings.Contains(humanBoard.stdout, planned.Title) || !strings.Contains(humanBoard.stdout, boarded.Title) {
 		t.Errorf("human board show = %#v, want ordered populated board", humanBoard)
 	}
-	assertJSONError(t, runJSON("stage", "delete", "Software", "Design"), apperr.Conflict)
-	assertJSONError(t, runJSON("board", "delete", "Software"), apperr.Conflict)
-
-	laterDeferred := decodeTask(t, runJSON(
-		"add", "Delete clears this defer", "--project", fmt.Sprint(planned.ID), "--defer-stage", "Later",
-	))
-	laterDeletion := decodeJSON[board.StageDeletion](t, runJSON(
-		"stage", "delete", "Software", "Later",
-	), "stage deletion")
-	if laterDeletion.Stage.Title != "Later" || len(laterDeletion.ClearedDefers) != 1 ||
-		laterDeletion.ClearedDefers[0].ID != laterDeferred.ID ||
-		laterDeletion.ClearedDefers[0].DeferStageID != nil {
-		t.Errorf("stage deletion = %#v, want deleted Later and one cleared task", laterDeletion)
-	}
-	if persisted := decodeTask(t, runJSON("show", fmt.Sprint(laterDeferred.ID))); persisted.DeferStageID != nil {
-		t.Errorf("task after stage deletion = %#v, want persisted cleared stage defer", persisted)
-	}
-
-	reparentDeferred := decodeTask(t, runJSON(
-		"add", "Reparent clears this defer", "--project", fmt.Sprint(planned.ID), "--defer-stage", "Doing",
-	))
-	reparented := decodeTaskEdition(t, runJSON(
-		"edit", fmt.Sprint(reparentDeferred.ID), "--no-project",
-	))
-	if reparented.Task.ProjectID != nil || reparented.Task.DeferStageID != nil ||
-		len(reparented.ClearedDefers) != 1 || reparented.ClearedDefers[0].ID != reparentDeferred.ID {
-		t.Errorf("task containment edition = %#v, want task and reported defer clear", reparented)
-	}
-	if persisted := decodeTask(t, runJSON("show", fmt.Sprint(reparentDeferred.ID))); persisted.ProjectID != nil || persisted.DeferStageID != nil {
-		t.Errorf("reparented task = %#v, want persisted containment and defer clear", persisted)
-	}
 
 	projectDeferred := decodeTask(t, runJSON(
 		"add", "Board clear clears this defer", "--project", fmt.Sprint(planned.ID), "--defer-stage", "Doing",
@@ -166,10 +181,41 @@ func TestBoardWorkflowAcrossBinaryInvocations(t *testing.T) {
 	if persisted := decodeTask(t, runJSON("show", fmt.Sprint(projectDeferred.ID))); persisted.DeferStageID != nil {
 		t.Errorf("task after project board clear = %#v, want persisted cleared stage defer", persisted)
 	}
+	afterClear := decodeJSON[board.Show](t, runJSON("board", "show", "Software"), "board after clear")
+	if boardHasProject(afterClear, planned.ID) {
+		t.Errorf("board after board clear = %#v, want off-board project hidden", afterClear)
+	}
 	decodeJSON[project.Edition](t, runJSON(
 		"project", "edit", fmt.Sprint(planned.ID), "--board", "Software",
 	), "project board restoration")
+	restored := decodeJSON[board.Show](t, runJSON("board", "show", "Software"), "board after restoration")
+	assertShownProjectIDs(t, restored, "Research", boarded.ID, humanMember.ID, planned.ID)
+}
+
+func TestBoardStageDefers(t *testing.T) {
+	databasePath, runJSON := boardWorkspace(t, "board-stage-defers")
+	decodeJSON[board.Board](t, runJSON(
+		"boards", "add", "Software",
+		"--stage", "Research", "--stage", "Design", "--stage", "Doing", "--stage", "Review",
+	), "board")
+	planned := decodeProject(t, runJSON(
+		"projects", "add", "Planned project", "--board", "Software",
+	))
 	decodeProject(t, runJSON("project", "move", fmt.Sprint(planned.ID), "Design"))
+
+	reparentDeferred := decodeTask(t, runJSON(
+		"add", "Reparent clears this defer", "--project", fmt.Sprint(planned.ID), "--defer-stage", "Doing",
+	))
+	reparented := decodeTaskEdition(t, runJSON(
+		"edit", fmt.Sprint(reparentDeferred.ID), "--no-project",
+	))
+	if reparented.Task.ProjectID != nil || reparented.Task.DeferStageID != nil ||
+		len(reparented.ClearedDefers) != 1 || reparented.ClearedDefers[0].ID != reparentDeferred.ID {
+		t.Errorf("task containment edition = %#v, want task and reported defer clear", reparented)
+	}
+	if persisted := decodeTask(t, runJSON("show", fmt.Sprint(reparentDeferred.ID))); persisted.ProjectID != nil || persisted.DeferStageID != nil {
+		t.Errorf("reparented task = %#v, want persisted containment and defer clear", persisted)
+	}
 
 	stageDeferred := decodeTask(t, runJSON(
 		"add", "Visible at Doing", "--project", fmt.Sprint(planned.ID), "--defer-stage", "Doing",
@@ -186,17 +232,50 @@ func TestBoardWorkflowAcrossBinaryInvocations(t *testing.T) {
 	availableInDesign := decodeJSON[[]task.ViewTask](t, runJSON("available"), "available in Design")
 	assertTaskVisibility(t, availableInDesign, stageDeferred.ID, false)
 	assertTaskVisibility(t, availableInDesign, futureDeferred.ID, false)
+	deferredInDesign := decodeJSON[[]task.ViewTask](t, runJSON("list", "--deferred"), "deferred in Design")
+	assertTaskVisibility(t, deferredInDesign, stageDeferred.ID, true)
+	assertTaskVisibility(t, deferredInDesign, futureDeferred.ID, true)
+	humanDeferred := runGSD(t, "list", "--deferred", "--db", databasePath)
+	if humanDeferred.exitCode != 0 || humanDeferred.stderr != "" ||
+		!strings.Contains(humanDeferred.stdout, "defer→Doing") {
+		t.Errorf("human deferred list = %#v, want stage defer token", humanDeferred)
+	}
 
 	decodeProject(t, runJSON("project", "move", fmt.Sprint(planned.ID), "Doing"))
 	availableInDoing := decodeJSON[[]task.ViewTask](t, runJSON("available"), "available in Doing")
 	assertTaskVisibility(t, availableInDoing, stageDeferred.ID, true)
 	assertTaskVisibility(t, availableInDoing, futureDeferred.ID, false)
+	deferredInDoing := decodeJSON[[]task.ViewTask](t, runJSON("list", "--deferred"), "deferred in Doing")
+	assertTaskVisibility(t, deferredInDoing, stageDeferred.ID, false)
+	assertTaskVisibility(t, deferredInDoing, futureDeferred.ID, true)
 	decodeProject(t, runJSON("project", "move", fmt.Sprint(planned.ID), "Review"))
 	availableInReview := decodeJSON[[]task.ViewTask](t, runJSON("available"), "available in Review")
 	assertTaskVisibility(t, availableInReview, stageDeferred.ID, true)
 	decodeProject(t, runJSON("project", "move", fmt.Sprint(planned.ID), "Design"))
 	availableBackInDesign := decodeJSON[[]task.ViewTask](t, runJSON("available"), "available back in Design")
 	assertTaskVisibility(t, availableBackInDesign, stageDeferred.ID, false)
+}
+
+func TestBoardPromotionAndOrthogonality(t *testing.T) {
+	databasePath, runJSON := boardWorkspace(t, "board-promotion")
+	decodeJSON[board.Board](t, runJSON(
+		"boards", "add", "Software",
+		"--stage", "Research", "--stage", "Design", "--stage", "Doing", "--stage", "Review",
+	), "board")
+	decodeJSON[board.Board](t, runJSON(
+		"boards", "add", "Other", "--stage", "Queue", "--stage", "Shipping",
+	), "other board")
+	planned := decodeProject(t, runJSON(
+		"projects", "add", "Planned project", "--board", "Software",
+	))
+	decodeProject(t, runJSON("project", "move", fmt.Sprint(planned.ID), "Design"))
+	stageDeferred := decodeTask(t, runJSON(
+		"add", "Visible at Doing", "--project", fmt.Sprint(planned.ID), "--defer-stage", "Doing",
+	))
+	futureDeferred := decodeTask(t, runJSON(
+		"add", "Future date still gates", "--project", fmt.Sprint(planned.ID),
+		"--defer-stage", "Doing", "--defer", "2999-12-31",
+	))
 
 	promoting := decodeTask(t, runJSON(
 		"add", "Promote to Doing", "--project", fmt.Sprint(planned.ID), "--promotes",
@@ -312,6 +391,15 @@ func TestBoardWorkflowAcrossBinaryInvocations(t *testing.T) {
 		if _, err := os.Stat(unusedPath); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("non-behavioral command database stat error = %v, want not exist", err)
 		}
+	}
+}
+
+func boardWorkspace(t *testing.T, name string) (string, func(args ...string) processResult) {
+	t.Helper()
+	databasePath := filepath.Join(workDir, name, "gsd.db")
+	return databasePath, func(args ...string) processResult {
+		t.Helper()
+		return runGSD(t, append(args, "--db", databasePath, "--json")...)
 	}
 }
 

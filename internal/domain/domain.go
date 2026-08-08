@@ -10,22 +10,6 @@ import (
 	"github.com/jmcampanini/gsd/internal/apperr"
 )
 
-type Project struct {
-	ID            int64    `json:"id"`
-	AreaID        *int64   `json:"area_id"`
-	Title         string   `json:"title"`
-	Note          string   `json:"note"`
-	DoneAt        *string  `json:"done_at"`
-	CancelledAt   *string  `json:"cancelled_at"`
-	Status        string   `json:"status"`
-	Position      int64    `json:"position"`
-	CreatedAt     string   `json:"created_at"`
-	UpdatedAt     string   `json:"updated_at"`
-	StageID       *int64   `json:"stage_id"`
-	StagePosition *int64   `json:"stage_position"`
-	Tags          TagNames `json:"tags"`
-}
-
 func ValidateTitle(title string) error {
 	return ValidateRequiredText("title", title)
 }

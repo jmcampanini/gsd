@@ -283,7 +283,7 @@ func (s *Service) Edit(ctx context.Context, id int64, request EditRequest) (Edit
 			return err
 		}
 		destinationProjectID := projectAfterEdit(current.ProjectID, current.AreaID, request)
-		projectChanged := !sameOptionalID(current.ProjectID, destinationProjectID)
+		projectChanged := !domain.SameOptionalID(current.ProjectID, destinationProjectID)
 
 		switch {
 		case request.DeferStage.Set != nil:
@@ -525,10 +525,6 @@ func projectAfterEdit(currentProjectID, currentAreaID *int64, request EditReques
 	default:
 		return currentProjectID
 	}
-}
-
-func sameOptionalID(left, right *int64) bool {
-	return left == nil && right == nil || left != nil && right != nil && *left == *right
 }
 
 func ParseListStatus(value string) (ListStatus, error) {

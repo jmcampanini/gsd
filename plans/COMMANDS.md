@@ -113,8 +113,9 @@ changes inherit the resolved-project and archived-area guards.
 `project move` owns the board axis. A cross-stage move appends unless an
 explicit placement positions it among projects in the destination stage; a
 same-stage placement reorders that column, while a bare same-stage move is a
-no-op. Movement may go in either direction, does not enforce sequence, and is
-not gated by tasks. It is a transition verb guarded like one: moving a
+no-op that still narrates `~ Moved:`. Moving a project that is on no board is
+a `conflict`. Movement may go in either direction, does not enforce sequence,
+and is not gated by tasks. It is a transition verb guarded like one: moving a
 resolved project, or any project under an archived governing area, is a
 `conflict`, checked before the same-stage no-op. Placement references are
 project IDs in the destination stage, including resolved projects that
@@ -415,13 +416,17 @@ gsd capture
   Task, project, and area `show` include a `tags` row of `#`-prefixed stored
   names, blank when untagged; project `show` also names `board/stage`, and task
   `show` names its defer stage and promoting intent. Collection rows gain no
-  tags column. A promoting task carries a faint `↑` beside its title.
+  tags column. A promoting task carries a faint `↑` beside its title wherever
+  the title renders, in listings and in the `show` headline alike.
 - Board mutations use `+ Board: NAME (stage → stage)`, `~ Edited:`,
-  `~ Moved:`, and `~ Promoted:` lines. Automatic defer clears are narrated as
-  `├ Cleared stage defer:` / `└ Cleared stage defer:` children of the
-  containment change or stage deletion. `boards list` prints each board with
-  its ordered stage path; `board show` prints every column, including
-  `(empty)`, without truncation.
+  `~ Moved:`, and `~ Promoted:` lines. Stage administration uses
+  `+ Added stage BOARD/STAGE`, `~ Renamed stage BOARD/OLD to BOARD/NEW`,
+  `~ Reordered: stage BOARD/STAGE`, and `− Deleted: stage BOARD/STAGE`.
+  Automatic defer clears are narrated as `├ Cleared stage defer:` /
+  `└ Cleared stage defer:` children of the containment change or stage
+  deletion. `boards list` prints each board with its ordered stage path;
+  `board show` prints every column, including `(empty)`, without truncation,
+  and heads a board with no stages `(no stages)`.
 - Successful tag mutation lines are concise and action-prefixed:
   `Added tag NAME`, `Renamed tag OLD to NEW`,
   `Deleted tag NAME (detached from N items)`, `Tagged: KIND ID  #NAME`, and

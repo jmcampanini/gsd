@@ -10,16 +10,14 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/board"
 	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-const (
-	projectColumns               = `id, area_id, title, note, done_at, cancelled_at, status, position, created_at, updated_at, stage_id, stage_position`
-	projectStageReferenceColumns = `s.id, s.board_id, b.title, s.title, s.position`
-)
+const projectColumns = `id, area_id, title, note, done_at, cancelled_at, status, position, created_at, updated_at, stage_id, stage_position`
 
 type Projects struct {
 	database *DB
@@ -41,7 +39,7 @@ func NewProjects(database *DB) *Projects {
 
 func (s *Projects) Add(
 	ctx context.Context,
-	fields project.CreateFields,
+	fields project.AddFields,
 	timestamp string,
 ) (project.Project, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Transaction) (project.Project, error) {
@@ -88,7 +86,7 @@ func (s *Projects) FindStageByID(ctx context.Context, id int64) (project.StageRe
 func (s *Projects) Edit(
 	ctx context.Context,
 	id int64,
-	fields project.UpdateFields,
+	fields project.EditFields,
 	timestamp string,
 ) (project.Project, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Transaction) (project.Project, error) {
@@ -219,7 +217,7 @@ func (s *Projects) poolCore() *projectsCore {
 
 func (s *projectsCore) Add(
 	ctx context.Context,
-	fields project.CreateFields,
+	fields project.AddFields,
 	timestamp string,
 ) (project.Project, error) {
 	areaID := nullableID(fields.AreaID)
@@ -336,20 +334,12 @@ func (s *projectsCore) FindFirstStage(
 	ctx context.Context,
 	boardID int64,
 ) (*project.StageReference, error) {
-	found, err := scanProjectStageReference(s.executor.QueryRowContext(ctx, `
-SELECT `+projectStageReferenceColumns+`
-FROM stages s
-JOIN boards b ON b.id = s.board_id
-WHERE s.board_id = ?
-ORDER BY s.position, s.id
-LIMIT 1`, boardID))
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+	found, boardTitle, err := (&boardsCore{executor: s.executor}).findFirstStageWithBoard(ctx, boardID)
+	if err != nil || found == nil {
+		return nil, err
 	}
-	if err != nil {
-		return nil, fmt.Errorf("find first project stage: %w", err)
-	}
-	return &found, nil
+	reference := projectStageReference(*found, boardTitle)
+	return &reference, nil
 }
 
 func (s *projectsCore) FindStage(
@@ -357,50 +347,28 @@ func (s *projectsCore) FindStage(
 	boardID int64,
 	title string,
 ) (project.StageReference, error) {
-	found, err := scanProjectStageReference(s.executor.QueryRowContext(ctx, `
-SELECT `+projectStageReferenceColumns+`
-FROM stages s
-JOIN boards b ON b.id = s.board_id
-WHERE s.board_id = ? AND s.title = ? COLLATE NOCASE`, boardID, title))
-	if errors.Is(err, sql.ErrNoRows) {
-		return project.StageReference{}, apperr.New(
-			apperr.NotFound,
-			fmt.Sprintf("no stage %s", title),
-			err,
-		)
-	}
+	found, boardTitle, err := (&boardsCore{executor: s.executor}).findStageWithBoard(ctx, boardID, title)
 	if err != nil {
-		return project.StageReference{}, fmt.Errorf("find project stage: %w", err)
+		return project.StageReference{}, err
 	}
-	return found, nil
+	return projectStageReference(found, boardTitle), nil
 }
 
 func (s *projectsCore) FindStageByID(
 	ctx context.Context,
 	id int64,
 ) (project.StageReference, error) {
-	found, err := scanProjectStageReference(s.executor.QueryRowContext(ctx, `
-SELECT `+projectStageReferenceColumns+`
-FROM stages s
-JOIN boards b ON b.id = s.board_id
-WHERE s.id = ?`, id))
-	if errors.Is(err, sql.ErrNoRows) {
-		return project.StageReference{}, apperr.New(
-			apperr.NotFound,
-			fmt.Sprintf("no stage %d", id),
-			err,
-		)
-	}
+	found, boardTitle, err := (&boardsCore{executor: s.executor}).findStageByIDWithBoard(ctx, id)
 	if err != nil {
-		return project.StageReference{}, fmt.Errorf("find project stage by ID: %w", err)
+		return project.StageReference{}, err
 	}
-	return found, nil
+	return projectStageReference(found, boardTitle), nil
 }
 
 func (s *projectsCore) Edit(
 	ctx context.Context,
 	id int64,
-	fields project.UpdateFields,
+	fields project.EditFields,
 	timestamp string,
 ) (project.Project, error) {
 	if fields.Area.Set != nil && fields.Area.Clear {
@@ -426,7 +394,7 @@ func (s *projectsCore) Edit(
 	} else if fields.Area.Clear {
 		areaDestination = nil
 	}
-	areaMovement := !sameOptionalID(current.AreaID, areaDestination)
+	areaMovement := !domain.SameOptionalID(current.AreaID, areaDestination)
 
 	stageDestination := current.StageID
 	if fields.Stage.Set != nil {
@@ -434,7 +402,7 @@ func (s *projectsCore) Edit(
 	} else if fields.Stage.Clear {
 		stageDestination = nil
 	}
-	stageMovement := !sameOptionalID(current.StageID, stageDestination)
+	stageMovement := !domain.SameOptionalID(current.StageID, stageDestination)
 	if !contentChanged && !areaMovement && !stageMovement {
 		return current, nil
 	}
@@ -594,7 +562,7 @@ func (s *projectsCore) Reorder(
 				nil,
 			)
 		}
-		if !sameOptionalID(moved.AreaID, reference.AreaID) {
+		if !domain.SameOptionalID(moved.AreaID, reference.AreaID) {
 			return project.Project{}, apperr.New(
 				apperr.InvalidArgument,
 				fmt.Sprintf("project %d is in a different container", placement.ReferenceID),
@@ -918,22 +886,12 @@ func (s *projectsCore) findArea(ctx context.Context, id int64) (area.Area, error
 	return (&areasCore{executor: s.executor}).Find(ctx, id)
 }
 
-func scanProjectStageReference(scanner rowScanner) (project.StageReference, error) {
-	var value project.StageReference
-	err := scanner.Scan(
-		&value.ID,
-		&value.BoardID,
-		&value.BoardTitle,
-		&value.Title,
-		&value.Position,
-	)
-	return value, err
-}
-
-func sameOptionalID(left *int64, right *int64) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
+func projectStageReference(stage board.Stage, boardTitle string) project.StageReference {
+	return project.StageReference{
+		ID:         stage.ID,
+		BoardID:    stage.BoardID,
+		BoardTitle: boardTitle,
+		Title:      stage.Title,
+		Position:   stage.Position,
 	}
-
-	return *left == *right
 }

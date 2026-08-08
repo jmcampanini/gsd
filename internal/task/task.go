@@ -41,25 +41,7 @@ type ListFilter struct {
 	TagID     *int64
 }
 
-type Task struct {
-	ID              int64           `json:"id"`
-	ProjectID       *int64          `json:"project_id"`
-	AreaID          *int64          `json:"area_id"`
-	Title           string          `json:"title"`
-	Note            string          `json:"note"`
-	DeferUntil      *string         `json:"defer_until"`
-	DueOn           *string         `json:"due_on"`
-	DoneAt          *string         `json:"done_at"`
-	CancelledAt     *string         `json:"cancelled_at"`
-	Status          string          `json:"status"`
-	Position        int64           `json:"position"`
-	CreatedAt       string          `json:"created_at"`
-	UpdatedAt       string          `json:"updated_at"`
-	DeferStageID    *int64          `json:"defer_stage_id"`
-	Promotes        bool            `json:"promotes"`
-	Tags            domain.TagNames `json:"tags"`
-	DeferStageTitle *string         `json:"-"`
-}
+type Task = domain.Task
 
 type ViewTask struct {
 	Task

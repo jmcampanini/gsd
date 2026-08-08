@@ -14,6 +14,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/board"
 	"github.com/jmcampanini/gsd/internal/config"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/search"
@@ -271,6 +272,94 @@ func withBoardApplication(
 	})
 }
 
+// The with*Output wrappers run one application call and hand the result to
+// renderResult with a per-command JSON payload selector. Commands whose JSON
+// and human modes share one payload use writeCommandOutput instead.
+func withTaskOutput[T any](
+	command *cobra.Command,
+	options *rootOptions,
+	factory applicationFactory,
+	run func(task.Application) (T, error),
+	jsonPayload func(T) any,
+	writeHuman func(humanOutput, T) error,
+) error {
+	return withTaskApplication(command, options, factory, func(application task.Application) error {
+		result, err := run(application)
+		if err != nil {
+			return err
+		}
+		return renderResult(command, options, result, jsonPayload, writeHuman)
+	})
+}
+
+func withProjectOutput[T any](
+	command *cobra.Command,
+	options *rootOptions,
+	factory applicationFactory,
+	run func(project.Application) (T, error),
+	jsonPayload func(T) any,
+	writeHuman func(humanOutput, T) error,
+) error {
+	return withProjectApplication(command, options, factory, func(application project.Application) error {
+		result, err := run(application)
+		if err != nil {
+			return err
+		}
+		return renderResult(command, options, result, jsonPayload, writeHuman)
+	})
+}
+
+func withAreaOutput[T any](
+	command *cobra.Command,
+	options *rootOptions,
+	factory applicationFactory,
+	run func(area.Application) (T, error),
+	jsonPayload func(T) any,
+	writeHuman func(humanOutput, T) error,
+) error {
+	return withAreaApplication(command, options, factory, func(application area.Application) error {
+		result, err := run(application)
+		if err != nil {
+			return err
+		}
+		return renderResult(command, options, result, jsonPayload, writeHuman)
+	})
+}
+
+func withBoardOutput[T any](
+	command *cobra.Command,
+	options *rootOptions,
+	factory applicationFactory,
+	run func(board.Application) (T, error),
+	jsonPayload func(T) any,
+	writeHuman func(humanOutput, T) error,
+) error {
+	return withBoardApplication(command, options, factory, func(application board.Application) error {
+		result, err := run(application)
+		if err != nil {
+			return err
+		}
+		return renderResult(command, options, result, jsonPayload, writeHuman)
+	})
+}
+
+func withTagOutput[T any](
+	command *cobra.Command,
+	options *rootOptions,
+	factory applicationFactory,
+	run func(tag.Application) (T, error),
+	jsonPayload func(T) any,
+	writeHuman func(humanOutput, T) error,
+) error {
+	return withTagApplication(command, options, factory, func(application tag.Application) error {
+		result, err := run(application)
+		if err != nil {
+			return err
+		}
+		return renderResult(command, options, result, jsonPayload, writeHuman)
+	})
+}
+
 func withTagApplication(
 	command *cobra.Command,
 	options *rootOptions,
@@ -311,22 +400,13 @@ func normalizeApplicationError(err error) error {
 	if code, ok := apperr.CodeOf(err); ok {
 		message := err.Error()
 		guided := message
-		var resolvedProjects *project.ResolvedProjectsError
+		var resolvedProjects *domain.ResolvedProjectsError
 		if errors.As(err, &resolvedProjects) {
 			guided = appendRecoveryGuidance(guided, "reopen", "project reopen", resolvedProjects.IDs)
 		}
-		var archivedAreas *area.ArchivedAreasError
+		var archivedAreas *domain.ArchivedAreasError
 		if errors.As(err, &archivedAreas) {
 			guided = appendRecoveryGuidance(guided, "unarchive", "area unarchive", archivedAreas.IDs)
-		}
-		var projectArchivedAreas *project.ArchivedAreasError
-		if errors.As(err, &projectArchivedAreas) {
-			guided = appendRecoveryGuidance(
-				guided,
-				"unarchive",
-				"area unarchive",
-				projectArchivedAreas.IDs,
-			)
 		}
 		if guided != message {
 			return apperr.New(code, guided, err)

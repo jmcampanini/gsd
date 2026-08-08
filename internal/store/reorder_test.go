@@ -9,6 +9,7 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/board"
 	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/tag"
@@ -26,7 +27,7 @@ func TestReorderSupportsEveryPlacementAndPreservesContainerScopes(t *testing.T) 
 		tasks := NewTasks(storage)
 		projects := NewProjects(storage)
 		areas := NewAreas(storage)
-		containerProject := addStoredProject(t, projects, project.CreateFields{Title: "project"})
+		containerProject := addStoredProject(t, projects, project.AddFields{Title: "project"})
 		containerArea := addStoredArea(t, areas, area.AddFields{Title: "area"})
 		values := []task.Task{
 			addStoredTask(t, tasks, task.AddFields{Title: "one"}),
@@ -75,17 +76,22 @@ func TestReorderSupportsEveryPlacementAndPreservesContainerScopes(t *testing.T) 
 		ctx, storage := openTestStorage(t)
 		projects := NewProjects(storage)
 		areas := NewAreas(storage)
+		boards := NewBoards(storage)
 		container := addStoredArea(t, areas, area.AddFields{Title: "container"})
+		pipeline := addStoredBoard(t, boards, board.AddFields{Title: "pipeline"}, "2026-01-01T00:00:00.000Z")
+		stage := addStoredStage(t, boards, pipeline.ID, "stage", "2026-01-01T00:00:00.000Z")
 		values := []project.Project{
-			addStoredProject(t, projects, project.CreateFields{Title: "one"}),
-			addStoredProject(t, projects, project.CreateFields{Title: "two"}),
-			addStoredProject(t, projects, project.CreateFields{Title: "three"}),
-			addStoredProject(t, projects, project.CreateFields{Title: "four"}),
+			addStoredProject(t, projects, project.AddFields{Title: "one"}),
+			addStoredProject(t, projects, project.AddFields{Title: "two"}),
+			addStoredProject(t, projects, project.AddFields{Title: "three"}),
+			addStoredProject(t, projects, project.AddFields{Title: "four"}),
 		}
 		contained := []project.Project{
-			addStoredProject(t, projects, project.CreateFields{AreaID: &container.ID, Title: "area one"}),
-			addStoredProject(t, projects, project.CreateFields{AreaID: &container.ID, Title: "area two"}),
+			addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "area one"}),
+			addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "area two"}),
 		}
+		stageAnchor := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, StageID: &stage.ID, Title: "stage anchor"})
+		boarded := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, StageID: &stage.ID, Title: "area boarded"})
 
 		steps := []struct {
 			placement domain.Placement
@@ -106,8 +112,23 @@ func TestReorderSupportsEveryPlacementAndPreservesContainerScopes(t *testing.T) 
 		if _, err := projects.Reorder(ctx, contained[1].ID, domain.Placement{Anchor: domain.PlacementFirst}, reorderAt); err != nil {
 			t.Fatalf("Reorder(area project) error = %v", err)
 		}
-		assertStoredOrder(t, storage, "projects", "area_id IS ?", []any{container.ID}, []int64{contained[1].ID, contained[0].ID})
+		assertStoredOrder(t, storage, "projects", "area_id IS ?", []any{container.ID}, []int64{
+			contained[1].ID, contained[0].ID, stageAnchor.ID, boarded.ID,
+		})
 		assertStoredOrder(t, storage, "projects", "area_id IS NULL", nil, []int64{values[0].ID, values[1].ID, values[3].ID, values[2].ID})
+
+		movedBoarded, err := projects.Reorder(ctx, boarded.ID, domain.Placement{Anchor: domain.PlacementFirst}, secondReorderAt)
+		if err != nil {
+			t.Fatalf("Reorder(boarded project) error = %v", err)
+		}
+		if movedBoarded.Position != 0 || movedBoarded.StageID == nil || *movedBoarded.StageID != stage.ID ||
+			movedBoarded.StagePosition == nil || *movedBoarded.StagePosition != 1 {
+			t.Errorf("Reorder(boarded project) = %#v, want area position 0 with stage position 1 on stage %d", movedBoarded, stage.ID)
+		}
+		assertStoredOrder(t, storage, "projects", "area_id IS ?", []any{container.ID}, []int64{
+			boarded.ID, contained[1].ID, contained[0].ID, stageAnchor.ID,
+		})
+		assertProjectStageOrder(t, storage, stage.ID, []int64{stageAnchor.ID, boarded.ID})
 	})
 
 	t.Run("areas", func(t *testing.T) {
@@ -176,9 +197,9 @@ func TestReorderRepairsPositionsUsesStatusBlindReferencesAndReturnsTags(t *testi
 		ctx, storage := openTestStorage(t)
 		projects := NewProjects(storage)
 		values := []project.Project{
-			addStoredProject(t, projects, project.CreateFields{Title: "one"}),
-			addStoredProject(t, projects, project.CreateFields{Title: "done reference"}),
-			addStoredProject(t, projects, project.CreateFields{Title: "tagged moved"}),
+			addStoredProject(t, projects, project.AddFields{Title: "one"}),
+			addStoredProject(t, projects, project.AddFields{Title: "done reference"}),
+			addStoredProject(t, projects, project.AddFields{Title: "tagged moved"}),
 		}
 		if _, err := projects.Resolve(ctx, values[1].ID, project.ExitDone, "2026-01-10T00:00:00.000Z"); err != nil {
 			t.Fatalf("Resolve(reference) error = %v", err)
@@ -257,7 +278,7 @@ func TestTaskReorderSupportsRelativeAndSingleElementNoOps(t *testing.T) {
 	assertStoredOrder(t, storage, "tasks", "project_id IS NULL AND area_id IS NULL", nil, []int64{first.ID, second.ID})
 	assertMovedOnlyTimestamp(t, storage, "tasks", before, second.ID, reorderAt)
 
-	container := addStoredProject(t, projects, project.CreateFields{Title: "container"})
+	container := addStoredProject(t, projects, project.AddFields{Title: "container"})
 	single := addStoredTask(t, tasks, task.AddFields{ProjectID: &container.ID, Title: "single"})
 	before = storedUpdatedAt(t, storage, "tasks", []int64{single.ID})
 	moved, err = tasks.Reorder(ctx, single.ID, domain.Placement{Anchor: domain.PlacementLast}, secondReorderAt)
@@ -289,7 +310,7 @@ func TestReorderErrorsFollowExistenceSelfAndContainerPrecedence(t *testing.T) {
 		ctx, storage := openTestStorage(t)
 		tasks := NewTasks(storage)
 		projects := NewProjects(storage)
-		container := addStoredProject(t, projects, project.CreateFields{Title: "container"})
+		container := addStoredProject(t, projects, project.AddFields{Title: "container"})
 		inbox := addStoredTask(t, tasks, task.AddFields{Title: "inbox"})
 		contained := addStoredTask(t, tasks, task.AddFields{ProjectID: &container.ID, Title: "contained"})
 		checks := []struct {
@@ -320,8 +341,8 @@ func TestReorderErrorsFollowExistenceSelfAndContainerPrecedence(t *testing.T) {
 		projects := NewProjects(storage)
 		areas := NewAreas(storage)
 		container := addStoredArea(t, areas, area.AddFields{Title: "container"})
-		standalone := addStoredProject(t, projects, project.CreateFields{Title: "standalone"})
-		contained := addStoredProject(t, projects, project.CreateFields{AreaID: &container.ID, Title: "contained"})
+		standalone := addStoredProject(t, projects, project.AddFields{Title: "standalone"})
+		contained := addStoredProject(t, projects, project.AddFields{AreaID: &container.ID, Title: "contained"})
 		checks := []struct {
 			id            int64
 			placement     domain.Placement
@@ -401,9 +422,9 @@ func TestReordersRollBackWhenFinalRereadFails(t *testing.T) {
 		storage.database.SetMaxOpenConns(1)
 		projects := NewProjects(storage)
 		values := []project.Project{
-			addStoredProject(t, projects, project.CreateFields{Title: "one"}),
-			addStoredProject(t, projects, project.CreateFields{Title: "two"}),
-			addStoredProject(t, projects, project.CreateFields{Title: "three"}),
+			addStoredProject(t, projects, project.AddFields{Title: "one"}),
+			addStoredProject(t, projects, project.AddFields{Title: "two"}),
+			addStoredProject(t, projects, project.AddFields{Title: "three"}),
 		}
 		ids := []int64{values[0].ID, values[1].ID, values[2].ID}
 		assertFinalReorderRereadRollback(

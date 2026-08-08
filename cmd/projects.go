@@ -44,7 +44,7 @@ func newProjectsAddCommand(options *rootOptions, factory applicationFactory) *co
 				return err
 			}
 
-			fields := project.AddFields{AreaID: areaID, Title: args[0], Note: resolvedNote, Tags: tags}
+			fields := project.AddRequest{AreaID: areaID, Title: args[0], Note: resolvedNote, Tags: tags}
 			if command.Flags().Changed("board") {
 				fields.Board = &boardTitle
 			}
@@ -138,16 +138,13 @@ func newProjectShowCommand(options *rootOptions, factory applicationFactory) *co
 				return err
 			}
 
-			return withProjectApplication(command, options, factory, func(application project.Application) error {
-				found, showErr := application.Show(command.Context(), id)
-				if showErr != nil {
-					return showErr
-				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), found.Project)
-				}
-				return options.presentation.output(command).writeProject(found)
-			})
+			return withProjectOutput(command, options, factory,
+				func(application project.Application) (project.Detail, error) {
+					return application.Show(command.Context(), id)
+				},
+				func(found project.Detail) any { return found.Project },
+				humanOutput.writeProject,
+			)
 		},
 	}
 }
@@ -198,17 +195,15 @@ func newProjectTaggingCommand(
 				return err
 			}
 
-			return withProjectApplication(command, options, factory, func(application project.Application) error {
-				tagging, err := mutate(command.Context(), application, id, args[1:])
-				if err != nil {
-					return err
-				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), tagging.Project)
-				}
-
-				return options.presentation.output(command).writeProjectTagging(verb, tagging)
-			})
+			return withProjectOutput(command, options, factory,
+				func(application project.Application) (project.Tagging, error) {
+					return mutate(command.Context(), application, id, args[1:])
+				},
+				func(tagging project.Tagging) any { return tagging.Project },
+				func(output humanOutput, tagging project.Tagging) error {
+					return output.writeProjectTagging(verb, tagging)
+				},
+			)
 		},
 	}
 }
@@ -283,16 +278,13 @@ func newProjectMoveCommand(options *rootOptions, factory applicationFactory) *co
 				return err
 			}
 
-			return withProjectApplication(command, options, factory, func(application project.Application) error {
-				moved, moveErr := application.Move(command.Context(), id, args[1], placement)
-				if moveErr != nil {
-					return moveErr
-				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), moved.Project)
-				}
-				return options.presentation.output(command).writeProjectMovement(moved)
-			})
+			return withProjectOutput(command, options, factory,
+				func(application project.Application) (project.Movement, error) {
+					return application.Move(command.Context(), id, args[1], placement)
+				},
+				func(moved project.Movement) any { return moved.Project },
+				humanOutput.writeProjectMovement,
+			)
 		},
 	}
 	flags.registerOptional(command, "project")
@@ -379,15 +371,15 @@ func newProjectDeleteCommand(options *rootOptions, factory applicationFactory) *
 					}
 					return err
 				}
-				if options.json {
-					if recursive {
-						return writeJSON(command.OutOrStdout(), deletion)
-					}
-
-					return writeJSON(command.OutOrStdout(), deletion.Project)
-				}
-
-				return options.presentation.output(command).writeProjectDeletion(deletion)
+				return renderResult(command, options, deletion,
+					func(deletion project.Deletion) any {
+						if recursive {
+							return deletion
+						}
+						return deletion.Project
+					},
+					humanOutput.writeProjectDeletion,
+				)
 			})
 		},
 	}
@@ -408,6 +400,9 @@ func newProjectEditCommand(options *rootOptions, factory applicationFactory) *co
 		Short: "Edit a project",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
+			if err := rejectFalseBooleanFlags(command, "no-area", "no-board"); err != nil {
+				return err
+			}
 			id, err := project.ParseID(args[0])
 			if err != nil {
 				return err
@@ -425,7 +420,7 @@ func newProjectEditCommand(options *rootOptions, factory applicationFactory) *co
 				)
 			}
 
-			fields := project.EditFields{}
+			fields := project.EditRequest{}
 			fields.Area.Set = areaID
 			fields.Area.Clear = noArea
 			if command.Flags().Changed("board") {
@@ -443,24 +438,24 @@ func newProjectEditCommand(options *rootOptions, factory applicationFactory) *co
 				fields.Note = &resolvedNote
 			}
 
-			return withProjectApplication(command, options, factory, func(application project.Application) error {
-				edited, editErr := application.Edit(command.Context(), id, fields)
-				if editErr != nil {
-					return editErr
-				}
-				boardChanged := command.Flags().Changed("board") || command.Flags().Changed("no-board")
-				if options.json {
+			boardChanged := command.Flags().Changed("board") || command.Flags().Changed("no-board")
+			return withProjectOutput(command, options, factory,
+				func(application project.Application) (project.Edition, error) {
+					return application.Edit(command.Context(), id, fields)
+				},
+				func(edited project.Edition) any {
 					if boardChanged {
-						return writeJSON(command.OutOrStdout(), edited)
+						return edited
 					}
-					return writeJSON(command.OutOrStdout(), edited.Project)
-				}
-				output := options.presentation.output(command)
-				if boardChanged {
-					return output.writeProjectBoardEdit(edited)
-				}
-				return output.writeProjectMutation(verbEdited, edited.Project)
-			})
+					return edited.Project
+				},
+				func(output humanOutput, edited project.Edition) error {
+					if boardChanged {
+						return output.writeProjectBoardEdit(edited)
+					}
+					return output.writeProjectMutation(verbEdited, edited.Project)
+				},
+			)
 		},
 	}
 	command.Flags().StringVar(&title, "title", "", "project title")
