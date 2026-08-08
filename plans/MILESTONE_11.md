@@ -66,8 +66,8 @@ deferred tasks in the same stroke).
   project, archived governing area → `conflict`). Projects order
   within a stage by `stage_position` with the placement grammar.
 - **Movement** is a dedicated transition verb in the `done`/`cancel`
-  family — `gsd project move ID STAGE [placement]` — any direction,
-  no sequence enforcement, never gated on tasks. Bare cross-stage
+  family, guarded like one — `gsd project move ID STAGE [placement]` —
+  any direction, no sequence enforcement, never gated on tasks. Bare cross-stage
   moves append; an explicit placement positions the project in the
   destination; a same-stage move with a placement is the within-column
   reorder. Resolved projects retain their hidden stage positions and
@@ -287,12 +287,12 @@ Against the real built binary and a temporary database:
 
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
-- [ ] `COMMANDS.md` documents the boards family, `move`,
+- [x] `COMMANDS.md` documents the boards family, `move`,
       `--defer-stage`, and the promotes marker.
-- [ ] `SCHEMA.md` documents `boards`, `stages`, the appended columns,
+- [x] `SCHEMA.md` documents `boards`, `stages`, the appended columns,
       and the recorded baseline fold-in decision.
-- [ ] `OVERVIEW.md` gains the boards concept and vocabulary.
-- [ ] The typed-transition-spec deferral carried above is paid or
+- [x] `OVERVIEW.md` gains the boards concept and vocabulary.
+- [x] The typed-transition-spec deferral carried above is paid or
       explicitly re-deferred with a new trigger — this milestone adds
       the transitions that trip it.
 

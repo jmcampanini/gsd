@@ -431,17 +431,17 @@ Report the clean transcript.
 
 ## Consolidation checklist (`PROCESS.md`)
 
-- [ ] `COMMANDS.md`: the boards and stages families, `--board`
+- [x] `COMMANDS.md`: the boards and stages families, `--board`
       membership flags, `move`, `--defer-stage`, `--promotes`, the
       name-addressed grammar rule, and the board/stage semantics and
       envelopes above.
-- [ ] `SCHEMA.md`: `boards`, `stages`, the appended project and task
+- [x] `SCHEMA.md`: `boards`, `stages`, the appended project and task
       columns, the `available` view change, the recorded baseline
       fold-in decision, and a note on `promotes` as the deliberate
       first boolean column.
-- [ ] `OVERVIEW.md`: the boards concept and vocabulary (board, stage,
+- [x] `OVERVIEW.md`: the boards concept and vocabulary (board, stage,
       column, move, promote).
 - [ ] The typed-transition-spec re-deferral recorded with its new
       trigger; remaining carried items re-homed per `PROCESS.md`.
-- [ ] `DIVERGENCES.md` stays empty.
+- [x] `DIVERGENCES.md` stays empty.
 - [ ] Standard exit workflow plus `MILESTONE_11.md`'s exit criteria.

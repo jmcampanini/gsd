@@ -128,7 +128,9 @@ The consolidation pull request:
 
 - Reconcile `OVERVIEW.md`, `COMMANDS.md`, and `SCHEMA.md` with all decided
   behavior. Fold in accepted proposed defaults and correct any temporary
-  implementation/specification mismatch.
+  implementation/specification mismatch. This reconciliation audit is scoped
+  to the consolidating milestone's own surface; earlier milestones' behavior
+  is re-audited only when a discovered contradiction implicates it.
 - Resolve every temporary divergence due at this boundary. Update the relevant
   milestone file while it is still useful, update the canonical specification,
   and remove the intake entry from `DIVERGENCES.md`. That file is temporary
