@@ -4,16 +4,20 @@ Data mode: **live**. Depends on: Milestone 9 (live baseline);
 independent of Milestone 10's TUI substrate.
 
 Settled by the 2026-08-07 boards interview (see `MILESTONES.md`
-§ Decisions and history). Spellings marked (**proposed**) are settled
-at plan gate.
+§ Decisions and history). Spellings originally marked (**proposed**)
+were settled at the 2026-08-07 plan gate — root `PLAN.md` records the
+decisions; this file reflects the settled surface. The governing
+plan-gate decision: boards are areas-shaped (note, manual position,
+`edit`-based mutation, the singular/plural noun split), not
+tag-shaped.
 
 ## Capability
 
 Boards make the pipeline a first-class concept: a **board** is a
 user-defined pipeline of named, ordered **stages** (a software board
 might run research → planning → doing → review; a life board something
-else — gsd ships no defaults). A project subscribes to at most one
-board and occupies exactly one stage; moving it is a deliberate act.
+else — gsd ships no defaults). A project is on at most one board and
+occupies exactly one stage; moving it is a deliberate act.
 The board is gsd's strategic lens — where the tactical views answer
 "what should I do right now?", `gsd board show` answers "where is
 everything, and what deserves to move next?"
@@ -33,43 +37,55 @@ deferred tasks in the same stroke).
   view — presentation only), *move* (the CLI verb, any direction),
   *promote* (movement to the next stage specifically — a concept, not
   a second verb).
-- **Board model.** Boards are global, like tags — orthogonal to areas
-  — and name-addressed (**proposed**: `NOCASE`-unique names, mirroring
-  tags). Each board owns its ordered stages; stage names are unique
-  within their board. Stages order by `position` with the standard
-  placement grammar; stage administration after creation (add, rename,
-  reorder, remove) ships in this milestone with spellings settled at
-  plan gate. Deleting a board or removing a stage with projects on it
-  is `conflict`-restricted, like every occupied container.
-- **Subscription.** A project subscribes to at most one board —
-  membership is optional, matching containment everywhere else.
-  Subscribing enters the board's first stage (**proposed**: or a named
-  stage); unsubscribing clears the project's stage. Projects order
-  within a stage by `position` with the placement grammar.
+- **Board model.** Boards are global — orthogonal to areas — and
+  name-addressed: `NOCASE`-unique names, stored spelling displayed.
+  Structurally they are areas-shaped: a note, a manual `position`
+  ordering `boards list`, and `board edit --title/--note` (no rename
+  verb). Each board owns its ordered stages; stage names are
+  `NOCASE`-unique within their board. Stages order by `position` with
+  the standard placement grammar; stage administration after creation
+  ships in this milestone (`stages add`, `stage rename`,
+  `stage reorder`, `stage delete`). Deleting a board or a stage with
+  projects on it is `conflict`-restricted, like every occupied
+  container.
+- **Membership.** A project is on at most one board — membership is
+  optional, and it is containment: `--board NAME | --no-board` on
+  `projects add` and `project edit`, composing with `--area` (boards
+  are orthogonal to areas). Entry always lands in the board's first
+  stage — there is no named-stage entry; mid-pipeline entry composes
+  `edit --board` with `move`. Switching boards re-enters the new
+  board's first stage; `--no-board` clears the project's stage.
+  Membership changes inherit the containment guards (resolved
+  project, archived governing area → `conflict`). Projects order
+  within a stage by `stage_position` with the placement grammar.
 - **Movement** is a dedicated transition verb in the `done`/`cancel`
-  family — `gsd project move ID STAGE` (**proposed** spelling) — any
-  direction, no sequence enforcement, never gated on tasks.
+  family — `gsd project move ID STAGE [placement]` — any direction,
+  no sequence enforcement, never gated on tasks. Cross-stage moves
+  append; a same-stage move with a placement is the within-column
+  reorder; `reorder` stays area-axis only.
 - **Stage is orthogonal to status.** The board shows open projects
   only; resolving a project removes it from the board and the logbook
   keeps owning finished work. The last stage means "in final phase",
   never "done" — completion keeps its one spelling.
 - **Defer until stage.** A task may name a stage of its project's
-  board; it is hidden from `available` until the project's stage is at
-  or past that stage. Composes with date defer — both must clear.
-  Renders like deferred tasks today. Re-parenting and unsubscription
-  semantics are settled at plan gate (**proposed**: the stage defer
-  clears, with narration).
+  board (`--defer-stage STAGE | --no-defer-stage`); it is hidden from
+  `available` until the project's stage is at or past that stage.
+  Composes with date defer — both must clear. Renders like deferred
+  tasks today, and `list --deferred` covers both defer axes. On
+  re-parenting away, `--no-board`, a board switch, or `stage delete`,
+  the stage defer clears, with narration.
 - **Promotes marker.** A task may be marked as promoting
-  (**proposed**: `--promotes`). Completing it transactionally moves
+  (`--promotes | --no-promotes`). Completing it transactionally moves
   its project one stage forward, narrated in the same envelope like
   the existing cascades. Promotion is one-way (reopening never
-  demotes), relative (+1 from wherever the project sits), and a
-  reported no-op at the last stage. The marker is opt-in per task and
-  visible in listings (**proposed** glyph).
+  demotes), relative (+1 from wherever the project sits), a reported
+  no-op at the last stage, and inert when the project is on no board.
+  The marker is opt-in per task and visible in listings as a faint
+  `↑`.
 - **`board show`** renders the strategic view: stages in order,
   open projects in position order under each, with derived task
-  progress per project (done/total); `--json` emits the complete
-  envelope.
+  progress per project (done/total, cancelled excluded from both
+  counts); `--json` emits the complete envelope.
 - **Schema, as a pre-users clean break**: the board schema folds
   directly into `0001_baseline.sql` — no `0002` migration — with the
   contract-snapshot test updated to match. New `boards` and `stages`
@@ -88,19 +104,27 @@ deferred tasks in the same stroke).
 ### Command
 
 ```text
-gsd boards add NAME --stage NAME [--stage NAME ...]
+gsd boards add NAME --stage NAME [--stage NAME ...] [--note TEXT|-]
 gsd boards list
 gsd board show NAME
-gsd board edit NAME
+gsd board edit NAME [--title TEXT] [--note TEXT|-]
+gsd board reorder NAME (--after NAME | --before NAME | --first | --last)
 gsd board delete NAME
-gsd project board ID BOARD        # subscribe; bare form unsubscribes
-gsd project move ID STAGE
+gsd stages add BOARD NAME [--first | --last | --after S | --before S]
+gsd stage rename BOARD OLD NEW
+gsd stage reorder BOARD NAME (--after S | --before S | --first | --last)
+gsd stage delete BOARD NAME
+gsd projects add "TITLE" ... [--board NAME]
+gsd project edit ID [--board NAME | --no-board] ...
+gsd project move ID STAGE [--first | --last | --after M | --before M]
 gsd add|edit ... --defer-stage STAGE | --no-defer-stage
 gsd add|edit ... --promotes | --no-promotes
 ```
 
-All spellings (**proposed**); the plural/singular noun grammar and
-"one obvious way" rules from `COMMANDS.md` govern the final surface.
+Settled at the 2026-08-07 plan gate under the grammar rule recorded
+in root `PLAN.md`: plural noun = collection operations, singular
+noun = one entity, its argument being the entity's identity (ID or
+NAME).
 
 ## Chunks
 
@@ -108,9 +132,9 @@ All spellings (**proposed**); the plural/singular noun grammar and
    and `stages` tables, `boards add`/`boards list`, board and stage
    administration, restricted deletes, `board show` over an empty
    board.
-2. **Subscription and movement** — the project stage reference,
-   subscribe/unsubscribe, `move`, within-stage ordering, `board show`
-   with grouped projects and progress counts.
+2. **Membership and movement** — the project stage reference,
+   `--board`/`--no-board`, `move` with placement, within-stage
+   ordering, `board show` with grouped projects and progress counts.
 3. **Stage-aware tasks** — `--defer-stage` composed into `available`,
    the promotes marker, and transactional promotion with narration.
 
@@ -171,8 +195,8 @@ forward here with their revisit triggers:
 $ gsd boards add software --stage research --stage planning \
     --stage doing --stage review
 + Board: software (research → planning → doing → review)
-$ gsd project board 12 software
-~ Boarded: ◆ 12 gsd boards milestone → software/research
+$ gsd project edit 12 --board software
+~ Edited: ◆ 12 gsd boards milestone → software/research
 $ gsd project move 12 doing
 ~ Moved: ◆ 12 gsd boards milestone → doing
 $ gsd board show software
@@ -199,11 +223,13 @@ Against the real built binary and a temporary database:
 
 1. Create a board; `boards list --json` and `board show --json` carry
    the stages in defined order; stage administration reorders and
-   renames; removing an occupied stage and deleting an occupied board
+   renames; deleting an occupied stage and deleting an occupied board
    are `conflict`, exit `1`.
-2. Subscribe a project (enters the first stage), move it forward and
-   backward, reorder within a stage; `board show` groups and orders
-   correctly in human and JSON output; unsubscribe clears the stage.
+2. Put a project on a board with `project edit --board` (enters the
+   first stage) and another with `projects add --board`; move it
+   forward and backward; reorder within a stage via same-stage `move`
+   with a placement; `board show` groups and orders correctly in
+   human and JSON output; `--no-board` clears the stage.
 3. Defer until stage: a task deferred until a later stage is absent
    from `available`, appears the moment the project reaches or passes
    that stage, and date defer still gates independently.
