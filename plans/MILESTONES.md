@@ -128,26 +128,48 @@ not a runtime check. Consolidation reconciled `COMMANDS.md` § Database
 to live-era semantics. From here real data enters through daily use
 and every schema change ships as a numbered migration.
 
+### Milestone 10 — Capture
+
+Delivered the first TUI surface and the substrate the remaining TUI
+milestones stand on: `gsd capture`, a popup-sized single-input Bubble
+Tea v2 program built for `tmux display-popup`, writing through
+`task.Add` with exactly `gsd add TITLE` semantics — blank Enter is a
+no-op, Esc/Ctrl+C cancel at exit 0, a failed write renders its
+application error inline and exits 1 on dismiss, and `--json`/non-TTY
+invocations are usage errors naming `gsd add` as the noninteractive
+path. The substrate: the `internal/tui` package (program construction
+from a cobra command, per-program screen mode, the
+background-adaptive Catppuccin theme now shared with CLI rendering),
+an in-flight-write lifecycle that never closes the database under a
+running `Add`, and a tmux-driven e2e harness inside `make check`
+(tmux is a documented prerequisite). The foundation review kept the
+cursor vanilla Bubble Tea (upstream `Cursor()`, probe deleted),
+converted the model to a phase enum, split the terminal-detection
+seam into typed reader/writer dependencies, and consolidated
+control-character escaping into `internal/text`; the substrate
+promotion triggers carry in `MILESTONE_12.md`.
+
 ## Active roadmap
 
-Active planning begins with the Capture milestone:
+Active planning begins with the Boards milestone:
 
 | # | Milestone | Capability delivered | Data mode |
 |---|-----------|----------------------|-----------|
-| 10 | [Capture](MILESTONE_10.md) | TUI substrate + `gsd capture` popup | **live** |
 | 11 | [Boards](MILESTONE_11.md) | Boards, stages, and stage-aware tasks in the CLI | **live** |
 | 12 | [Navigator](MILESTONE_12.md) | Read-only full-screen `gsd tui` | **live** |
 | 13 | [Board view](MILESTONE_13.md) | Read-only strategic board in the TUI | **live** |
 | 14 | [Row verbs](MILESTONE_14.md) | Single-key mutations and reorder in the TUI | **live** |
 | 15 | [Input grammar](MILESTONE_15.md) | `:` command line and richer capture | **live** |
 
-v1 closed when Go live landed; Capture is the first post-v1 milestone.
+v1 closed when Go live landed; Capture shipped as the first post-v1
+milestone.
 
 Boards (11) is the strategic layer of the data model — pipelines
 projects move through — and lands CLI-first, independent of the TUI
 track.
 
-The TUI enters the map as Milestones 10 and 12–15, sequenced by
+The TUI shipped its substrate as Milestone 10 and continues as
+Milestones 12–15, sequenced by
 foundational layer rather than feature count: each milestone boundary
 marks a foundation review that later TUI work builds on — substrate,
 then navigation, then mutation, then grammar. Leaf features ride their
@@ -254,8 +276,9 @@ when their trigger fires:
   canonical specs with it — `SCHEMA.md`'s contract section now states
   the stability rules Go live's migrations require. Milestone numbering
   is retained; the roadmap resumes at 10. Milestone 8's carried deferred
-  items and the functional completeness audit moved into
-  `MILESTONE_10.md`. Go live's install story partially shipped early the
+  items and the functional completeness audit moved into the Capture
+  milestone plan (its surviving deferrals now carry in
+  `MILESTONE_11.md`). Go live's install story partially shipped early the
   same day: `Formula/gsd.rb` and the self-tap README install
   instructions landed via PR #53.
 - 2026-08-06, roadmap restructure and renumbering: Serve moved behind
