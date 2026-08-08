@@ -313,18 +313,14 @@ func RunCapture(
 		application,
 		options.Color != ColorDisabled,
 		func(model CaptureModel) (CaptureModel, error) {
-			finalModel, err := NewProgram(ctx, model, options).Run()
+			finalModel, err := RunProgram(ctx, model, options)
 			if err != nil {
 				return CaptureModel{}, err
 			}
 
-			configured, ok := finalModel.(programModel)
+			capture, ok := finalModel.(CaptureModel)
 			if !ok {
-				return CaptureModel{}, fmt.Errorf("unexpected capture program model %T", finalModel)
-			}
-			capture, ok := configured.model.(CaptureModel)
-			if !ok {
-				return CaptureModel{}, fmt.Errorf("unexpected capture model %T", configured.model)
+				return CaptureModel{}, fmt.Errorf("unexpected capture model %T", finalModel)
 			}
 			return capture, nil
 		},

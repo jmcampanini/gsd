@@ -105,12 +105,12 @@ func TestCaptureCommandPassesRuntimeDependenciesAndColorMode(t *testing.T) {
 				gotOptions = options
 				return nil
 			}
-			root := newRootCommandWithCaptureRunner(
+			root := newRootCommandWithRunners(
 				factory,
 				nil,
 				time.UTC,
 				dependencies,
-				runCapture,
+				runners{capture: runCapture},
 			)
 			root.SetIn(input)
 			root.SetOut(&stdout)
@@ -203,15 +203,15 @@ func TestCaptureCommandRejectsUnsupportedInvocationBeforeOpeningApplication(t *t
 			dependencies := defaultPresentationDependencies()
 			dependencies.isTerminalReader = func(io.Reader) bool { return test.inputOK }
 			dependencies.isTerminalWriter = func(io.Writer) bool { return test.outputOK }
-			root := newRootCommandWithCaptureRunner(
+			root := newRootCommandWithRunners(
 				factory,
 				nil,
 				time.UTC,
 				dependencies,
-				func(context.Context, task.Application, tui.ProgramOptions) error {
+				runners{capture: func(context.Context, task.Application, tui.ProgramOptions) error {
 					runs++
 					return nil
-				},
+				}},
 			)
 			root.SetIn(input)
 			root.SetOut(&stdout)
@@ -276,14 +276,14 @@ func TestCaptureCommandMapsRunnerErrorsToExitOne(t *testing.T) {
 			dependencies.environment = func() []string { return []string{"TERM=xterm"} }
 			dependencies.isTerminalReader = func(io.Reader) bool { return true }
 			dependencies.isTerminalWriter = func(io.Writer) bool { return true }
-			root := newRootCommandWithCaptureRunner(
+			root := newRootCommandWithRunners(
 				factory,
 				nil,
 				time.UTC,
 				dependencies,
-				func(context.Context, task.Application, tui.ProgramOptions) error {
+				runners{capture: func(context.Context, task.Application, tui.ProgramOptions) error {
 					return test.err
-				},
+				}},
 			)
 			root.SetIn(input)
 			root.SetOut(&stdout)
