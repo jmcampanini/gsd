@@ -92,6 +92,10 @@ func (s *Areas) Unarchive(
 	})
 }
 
+func (s *Areas) Occupied(ctx context.Context, id int64) (bool, error) {
+	return s.poolCore().Occupied(ctx, id)
+}
+
 func (s *Areas) Delete(ctx context.Context, id int64) (area.Area, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction area.Transaction) (area.Area, error) {
 		return transaction.Delete(ctx, id)
@@ -351,28 +355,21 @@ RETURNING `+areaColumnsWithTags("areas.id"), timestamp, id))
 	)
 }
 
-func (s *areasCore) Delete(ctx context.Context, id int64) (area.Area, error) {
-	deleted, err := scanArea(s.executor.QueryRowContext(ctx, `
-SELECT `+areaColumnsWithTags("areas.id")+`
-FROM areas
-WHERE id = ?
-  AND NOT EXISTS (SELECT 1 FROM projects WHERE area_id = areas.id)
-  AND NOT EXISTS (SELECT 1 FROM tasks WHERE area_id = areas.id)
-`, id))
-	if errors.Is(err, sql.ErrNoRows) {
-		if _, findErr := s.Find(ctx, id); findErr != nil {
-			return area.Area{}, findErr
-		}
-		return area.Area{}, apperr.New(
-			apperr.Conflict,
-			fmt.Sprintf("cannot delete area %d while it contains projects or tasks", id),
-			err,
-		)
+func (s *areasCore) Occupied(ctx context.Context, id int64) (bool, error) {
+	var occupied bool
+	if err := s.executor.QueryRowContext(ctx, `
+SELECT EXISTS (SELECT 1 FROM projects WHERE area_id = ?)
+    OR EXISTS (SELECT 1 FROM tasks WHERE area_id = ?)`, id, id).Scan(&occupied); err != nil {
+		return false, fmt.Errorf("check area occupancy: %w", err)
 	}
-	if err != nil {
-		return area.Area{}, fmt.Errorf("delete area: %w", err)
-	}
+	return occupied, nil
+}
 
+func (s *areasCore) Delete(ctx context.Context, id int64) (area.Area, error) {
+	deleted, err := s.Find(ctx, id)
+	if err != nil {
+		return area.Area{}, err
+	}
 	if err := deleteRows(ctx, s.executor, 1, "DELETE FROM areas WHERE id = ?", id); err != nil {
 		return area.Area{}, fmt.Errorf("delete area: %w", err)
 	}

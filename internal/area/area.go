@@ -2,7 +2,6 @@ package area
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
@@ -18,16 +17,7 @@ const (
 	ListSliceAll      ListSlice = "all"
 )
 
-type Area struct {
-	ID         int64           `json:"id"`
-	Title      string          `json:"title"`
-	Note       string          `json:"note"`
-	ArchivedAt *string         `json:"archived_at"`
-	Position   int64           `json:"position"`
-	CreatedAt  string          `json:"created_at"`
-	UpdatedAt  string          `json:"updated_at"`
-	Tags       domain.TagNames `json:"tags"`
-}
+type Area = domain.Area
 
 type AddFields struct {
 	Title string
@@ -62,13 +52,7 @@ type Tagging struct {
 	TagTitles []string
 }
 
-type ArchivedAreasError struct {
-	IDs []int64
-}
-
-func (e ArchivedAreasError) Error() string {
-	return fmt.Sprintf("archived areas block this operation: %v", e.IDs)
-}
+type ArchivedAreasError = domain.ArchivedAreasError
 
 // Transaction methods return areas, projects, and tasks with non-nil Tags slices.
 type Transaction interface {
@@ -79,6 +63,7 @@ type Transaction interface {
 	Reorder(context.Context, int64, domain.Placement, string) (Area, error)
 	Archive(context.Context, int64, string) (Area, error)
 	Unarchive(context.Context, int64, string) (Area, error)
+	Occupied(context.Context, int64) (bool, error)
 	Delete(context.Context, int64) (Area, error)
 	DeleteProjects(context.Context, int64) ([]project.Project, error)
 	DeleteTasks(context.Context, int64, TaskDeletionScope) ([]task.Task, error)

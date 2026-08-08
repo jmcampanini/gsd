@@ -56,11 +56,14 @@ TUI verb, reorder, and command-line milestone acts on.
    kinds.
 4. **Live filter** — `/` incremental filtering of the current view.
 
-## Carried from Milestone 10
+## Carried from Milestone 11
 
-The Milestone 10 foundation review kept these substrate pieces
-concrete under the one-consumer convention; Navigator is the expected
-second consumer, so revisit each at this milestone's plan gate:
+The Milestone 11 foundation review's fix-now findings were resolved on the
+milestone branch. It scheduled no work, so there is no chunk 0. Its one
+deliberately deferred finding and all deferred items due in Navigator carry
+forward below with their revisit triggers. Stage history remains owned by
+Milestone 18. The Milestone 10 substrate triggers remain because Navigator is
+their expected next consumer.
 
 - **In-flight write lifecycle** — `captureSubmission` (child context,
   cancel-and-wait shutdown, synthesized cancellation for a
@@ -73,6 +76,59 @@ second consumer, so revisit each at this milestone's plan gate:
   status-file helpers live in `e2e/capture_test.go` under capture
   names: promote them to shared e2e helpers on the second tmux-driven
   test.
+- **Stage-gate predicate spellings** — the stage-defer gate exists in two
+  places, the `available` view in
+  `internal/store/migrations/0001_baseline.sql` and the `list --deferred`
+  selector in `internal/store/tasks.go`, with a store test pinning their
+  agreement. Revisit trigger: the first change to stage-gate semantics
+  must touch both sites.
+- **Task stage buckets** — Linear-style optional task-to-stage assignment
+  stays orthogonal to task status and never gates project movement. Revisit
+  when a project's task list grows phases that keep getting encoded in task
+  titles.
+- **WIP limits** — no per-stage project limit ships today. Revisit when the
+  board view makes over-commitment visible and it hurts.
+- **Truncation idiom consolidation** — `ansi.Truncate` with an `…`
+  tail has one production call site (the capture error footer). On the
+  second truncate-with-ellipsis call site, promote an `Ellipsize` helper
+  into `internal/text` beside the escaping helper. Milestone 11 did not
+  trip the trigger because `board show` does not truncate.
+- **Stability-contract prose home** — deferred in Milestone 9: the
+  additive-or-full-delete contract's durable prose home once `plans/`
+  retires (`AGENTS.md` is the natural candidate); the migration-policy
+  and contract lint tests carry the mechanical part regardless.
+- **Config report generalization** — on config key #2 (`[serve] addr`,
+  arriving with the optional Serve milestone, 16): add source
+  classification and tag-derived env/flag spellings to
+  go-config-loader's `configreporter` so gsd's renderer becomes a
+  generic provenance-row loop like the sibling CLIs, and revisit the
+  reporting/redaction contract at the same moment. No load-request
+  struct — positional load parameters are the family idiom.
+- **Genericizing the intentionally-parallel tag service flows** —
+  carried from Milestone 6: revisit on the first sibling-divergence bug
+  or a post-v1 attach-semantics change.
+- **Typed transition spec for `applyTransition`** — board movement and
+  promotion do not add an action case to the task store's transition
+  switch. Revisit when a new action case enters that switch.
+- **`search.Hit` constructors and accessors** — the hand-rolled sum
+  type's invariant (exactly one entity pointer, matching `Kind`) is
+  enforced at its consumers: revisit on the first new `Hit` consumer or
+  producer, expected at the TUI milestones.
+- **Entity-plus-container-titles projection consolidation** — logbook
+  entries, task views, and search hits each assemble container-title
+  context concretely in parallel, per convention: revisit on the fourth
+  projection or the first context-inconsistency bug between surfaces.
+- **In-expression scoping operators** (`in:`, `is:`, `~stem`/trigram
+  markers) — parked: revisit when unfiltered search proves too broad in
+  daily use; the spellings are reserved by FTS5 rejection today, and
+  the virtual index makes alternate tokenizers a per-invocation swap.
+- **Embeddings / semantic search** — parked, post-v1: revisit if
+  tag-based topical search (`--related`) proves insufficient in daily
+  use; the realistic path is an optional local-encoder sidecar fused
+  with FTS, and nothing in Search forecloses it.
+- **bm25 weight tuning** — the 4/3/2/1 values are a starting point:
+  revisit after real-data use; tests pin ordering properties only, so a
+  retune is a one-line change.
 
 ## User stories
 

@@ -106,11 +106,11 @@ func TestSearchJSONWritesFlattenedCanonicalRowsInResultOrder(t *testing.T) {
 			}
 		}
 	}
-	if len(objects[0]) != 15 || string(objects[0]["tags"]) != `["<repair> & upkeep"]` ||
+	if len(objects[0]) != 17 || string(objects[0]["tags"]) != `["<repair> & upkeep"]` ||
 		string(objects[0]["project_id"]) != "7" {
 		t.Errorf("task fields = %v, want complete canonical task plus kind", objects[0])
 	}
-	if len(objects[1]) != 12 || string(objects[1]["tags"]) != `[]` ||
+	if len(objects[1]) != 14 || string(objects[1]["tags"]) != `[]` ||
 		string(objects[1]["area_id"]) != "4" {
 		t.Errorf("project fields = %v, want complete canonical project plus kind", objects[1])
 	}

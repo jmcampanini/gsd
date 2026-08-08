@@ -206,7 +206,22 @@ func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletio
 	}
 
 	if !recursive {
-		deletedArea, err := s.store.Delete(ctx, id)
+		var deletedArea Area
+		err := s.store.WithinTransaction(ctx, func(store Transaction) error {
+			occupied, err := store.Occupied(ctx, id)
+			if err != nil {
+				return err
+			}
+			if occupied {
+				return apperr.New(
+					apperr.Conflict,
+					fmt.Sprintf("cannot delete area %d while it contains projects or tasks", id),
+					nil,
+				)
+			}
+			deletedArea, err = store.Delete(ctx, id)
+			return err
+		})
 		if err != nil {
 			return Deletion{}, err
 		}

@@ -28,6 +28,7 @@ func newProjectsCommand(options *rootOptions, factory applicationFactory) *cobra
 func newProjectsAddCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
 	var note string
 	var areaIDValue string
+	var boardTitle string
 	var tags []string
 	command := &cobra.Command{
 		Use:   "add TITLE",
@@ -43,7 +44,10 @@ func newProjectsAddCommand(options *rootOptions, factory applicationFactory) *co
 				return err
 			}
 
-			fields := project.AddFields{AreaID: areaID, Title: args[0], Note: resolvedNote, Tags: tags}
+			fields := project.AddRequest{AreaID: areaID, Title: args[0], Note: resolvedNote, Tags: tags}
+			if command.Flags().Changed("board") {
+				fields.Board = &boardTitle
+			}
 			return withProjectApplication(command, options, factory, func(application project.Application) error {
 				created, addErr := application.Add(command.Context(), fields)
 				if addErr != nil {
@@ -55,6 +59,7 @@ func newProjectsAddCommand(options *rootOptions, factory applicationFactory) *co
 	}
 	command.Flags().StringVar(&note, "note", "", "project note or - to read stdin")
 	command.Flags().StringVar(&areaIDValue, "area", "", "area ID")
+	command.Flags().StringVar(&boardTitle, "board", "", "board name")
 	command.Flags().StringArrayVar(&tags, "tag", nil, "tag name to attach (repeatable)")
 
 	return command
@@ -111,6 +116,7 @@ func newProjectCommand(options *rootOptions, factory applicationFactory) *cobra.
 		newProjectDeleteCommand(options, factory),
 		newProjectDoneCommand(options, factory),
 		newProjectEditCommand(options, factory),
+		newProjectMoveCommand(options, factory),
 		newProjectReopenCommand(options, factory),
 		newProjectReorderCommand(options, factory),
 		newProjectShowCommand(options, factory),
@@ -132,13 +138,13 @@ func newProjectShowCommand(options *rootOptions, factory applicationFactory) *co
 				return err
 			}
 
-			return withProjectApplication(command, options, factory, func(application project.Application) error {
-				found, showErr := application.Show(command.Context(), id)
-				if showErr != nil {
-					return showErr
-				}
-				return writeCommandOutput(command, options, found, humanOutput.writeProject)
-			})
+			return withProjectOutput(command, options, factory,
+				func(application project.Application) (project.Detail, error) {
+					return application.Show(command.Context(), id)
+				},
+				func(found project.Detail) any { return found.Project },
+				humanOutput.writeProject,
+			)
 		},
 	}
 }
@@ -189,17 +195,15 @@ func newProjectTaggingCommand(
 				return err
 			}
 
-			return withProjectApplication(command, options, factory, func(application project.Application) error {
-				tagging, err := mutate(command.Context(), application, id, args[1:])
-				if err != nil {
-					return err
-				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), tagging.Project)
-				}
-
-				return options.presentation.output(command).writeProjectTagging(verb, tagging)
-			})
+			return withProjectOutput(command, options, factory,
+				func(application project.Application) (project.Tagging, error) {
+					return mutate(command.Context(), application, id, args[1:])
+				},
+				func(tagging project.Tagging) any { return tagging.Project },
+				func(output humanOutput, tagging project.Tagging) error {
+					return output.writeProjectTagging(verb, tagging)
+				},
+			)
 		},
 	}
 }
@@ -253,6 +257,38 @@ func newProjectResolveCommand(
 			})
 		},
 	}
+}
+
+func newProjectMoveCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
+	flags := reorderFlags{}
+	command := &cobra.Command{
+		Use:   "move ID STAGE",
+		Short: "Move a project on its board",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := flags.validate(command); err != nil {
+				return err
+			}
+			id, err := project.ParseID(args[0])
+			if err != nil {
+				return err
+			}
+			placement, err := flags.optionalPlacement(command, project.ParseID)
+			if err != nil {
+				return err
+			}
+
+			return withProjectOutput(command, options, factory,
+				func(application project.Application) (project.Movement, error) {
+					return application.Move(command.Context(), id, args[1], placement)
+				},
+				func(moved project.Movement) any { return moved.Project },
+				humanOutput.writeProjectMovement,
+			)
+		},
+	}
+	flags.registerOptional(command, "project")
+	return command
 }
 
 func newProjectReopenCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
@@ -335,15 +371,15 @@ func newProjectDeleteCommand(options *rootOptions, factory applicationFactory) *
 					}
 					return err
 				}
-				if options.json {
-					if recursive {
-						return writeJSON(command.OutOrStdout(), deletion)
-					}
-
-					return writeJSON(command.OutOrStdout(), deletion.Project)
-				}
-
-				return options.presentation.output(command).writeProjectDeletion(deletion)
+				return renderResult(command, options, deletion,
+					func(deletion project.Deletion) any {
+						if recursive {
+							return deletion
+						}
+						return deletion.Project
+					},
+					humanOutput.writeProjectDeletion,
+				)
 			})
 		},
 	}
@@ -357,11 +393,16 @@ func newProjectEditCommand(options *rootOptions, factory applicationFactory) *co
 	var note string
 	var areaIDValue string
 	var noArea bool
+	var boardTitle string
+	var noBoard bool
 	command := &cobra.Command{
 		Use:   "edit ID",
 		Short: "Edit a project",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
+			if err := rejectFalseBooleanFlags(command, "no-area", "no-board"); err != nil {
+				return err
+			}
 			id, err := project.ParseID(args[0])
 			if err != nil {
 				return err
@@ -371,17 +412,21 @@ func newProjectEditCommand(options *rootOptions, factory applicationFactory) *co
 				return err
 			}
 
-			if !anyFlagChanged(command, "title", "note", "area", "no-area") {
+			if !anyFlagChanged(command, "title", "note", "area", "no-area", "board", "no-board") {
 				return apperr.New(
 					apperr.InvalidArgument,
-					"project edit requires --title, --note, --area, or --no-area",
+					"project edit requires --title, --note, --area, --no-area, --board, or --no-board",
 					nil,
 				)
 			}
 
-			fields := project.EditFields{}
+			fields := project.EditRequest{}
 			fields.Area.Set = areaID
 			fields.Area.Clear = noArea
+			if command.Flags().Changed("board") {
+				fields.Board.Set = &boardTitle
+			}
+			fields.Board.Clear = noBoard
 			if command.Flags().Changed("title") {
 				fields.Title = &title
 			}
@@ -393,20 +438,34 @@ func newProjectEditCommand(options *rootOptions, factory applicationFactory) *co
 				fields.Note = &resolvedNote
 			}
 
-			return withProjectApplication(command, options, factory, func(application project.Application) error {
-				edited, editErr := application.Edit(command.Context(), id, fields)
-				if editErr != nil {
-					return editErr
-				}
-				return writeCommandOutput(command, options, edited, projectMutationWriter(verbEdited))
-			})
+			boardChanged := command.Flags().Changed("board") || command.Flags().Changed("no-board")
+			return withProjectOutput(command, options, factory,
+				func(application project.Application) (project.Edition, error) {
+					return application.Edit(command.Context(), id, fields)
+				},
+				func(edited project.Edition) any {
+					if boardChanged {
+						return edited
+					}
+					return edited.Project
+				},
+				func(output humanOutput, edited project.Edition) error {
+					if boardChanged {
+						return output.writeProjectBoardEdit(edited)
+					}
+					return output.writeProjectMutation(verbEdited, edited.Project)
+				},
+			)
 		},
 	}
 	command.Flags().StringVar(&title, "title", "", "project title")
 	command.Flags().StringVar(&note, "note", "", "project note or - to read stdin")
 	command.Flags().StringVar(&areaIDValue, "area", "", "area ID")
 	command.Flags().BoolVar(&noArea, "no-area", false, "remove the project from its area")
+	command.Flags().StringVar(&boardTitle, "board", "", "board name")
+	command.Flags().BoolVar(&noBoard, "no-board", false, "remove the project from its board")
 	command.MarkFlagsMutuallyExclusive("area", "no-area")
+	command.MarkFlagsMutuallyExclusive("board", "no-board")
 
 	return command
 }

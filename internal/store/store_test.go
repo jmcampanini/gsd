@@ -12,6 +12,7 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/board"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -45,7 +46,7 @@ func TestOpenAppliesBaselineMigrationAndConfiguresConnections(t *testing.T) {
 	}
 
 	for _, tableName := range []string{
-		"areas", "projects", "tasks", "tags", "task_tags", "project_tags", "area_tags",
+		"areas", "boards", "stages", "projects", "tasks", "tags", "task_tags", "project_tags", "area_tags",
 	} {
 		var strict int
 		if err := storage.database.QueryRowContext(
@@ -1327,6 +1328,61 @@ RETURNING id
 	if persistedProject.Status != "open" || persistedProject.UpdatedAt != container.UpdatedAt {
 		t.Errorf("project after rollback = %#v, want original %#v", persistedProject, container)
 	}
+}
+
+func TestPromotionPairRollsBackTaskAndProjectTogether(t *testing.T) {
+	t.Parallel()
+
+	ctx, storage := openTestStorage(t)
+	boards := NewBoards(storage)
+	projects := NewProjects(storage)
+	tasks := NewTasks(storage)
+	pipeline := addStoredBoard(t, boards, board.AddFields{Title: "pipeline"}, "2026-01-01T00:00:00.000Z")
+	firstStage := addStoredStage(t, boards, pipeline.ID, "first", "2026-01-01T00:00:00.000Z")
+	secondStage := addStoredStage(t, boards, pipeline.ID, "second", "2026-01-01T00:00:00.000Z")
+	anchor := addStoredProject(t, projects, project.AddFields{StageID: &firstStage.ID, Title: "anchor"})
+	container := addStoredProject(t, projects, project.AddFields{StageID: &firstStage.ID, Title: "container"})
+	promoting := addStoredTask(t, tasks, task.AddFields{ProjectID: &container.ID, Title: "promoting", Promotes: true})
+
+	promotedAt := "2026-01-02T00:00:00.000Z"
+	rollbackErr := errors.New("promotion pair must roll back")
+	err := tasks.WithinTransaction(ctx, func(transaction task.Transaction) error {
+		done, operationErr := transaction.Done(ctx, promoting.ID, promotedAt)
+		if operationErr != nil {
+			return operationErr
+		}
+		if done.Status != "done" {
+			t.Errorf("Done() inside promotion pair = %#v, want done status", done)
+		}
+		moved, operationErr := transaction.MoveProjectStage(ctx, container.ID, secondStage.ID, promotedAt)
+		if operationErr != nil {
+			return operationErr
+		}
+		if moved.StageID == nil || *moved.StageID != secondStage.ID ||
+			moved.StagePosition == nil || *moved.StagePosition != 0 {
+			t.Errorf("MoveProjectStage() inside promotion pair = %#v, want second stage position 0", moved)
+		}
+		return rollbackErr
+	})
+	if !errors.Is(err, rollbackErr) {
+		t.Fatalf("WithinTransaction() error = %v, want %v", err, rollbackErr)
+	}
+
+	persistedTask, err := tasks.Find(ctx, promoting.ID)
+	if err != nil {
+		t.Fatalf("Find(task after rollback) error = %v", err)
+	}
+	if persistedTask.Status != "open" || persistedTask.DoneAt != nil || persistedTask.UpdatedAt != promoting.UpdatedAt {
+		t.Errorf("task after rollback = %#v, want original %#v", persistedTask, promoting)
+	}
+	persistedProject, err := projects.Find(ctx, container.ID)
+	if err != nil {
+		t.Fatalf("Find(project after rollback) error = %v", err)
+	}
+	if !reflect.DeepEqual(persistedProject, container) {
+		t.Errorf("project after rollback = %#v, want original %#v", persistedProject, container)
+	}
+	assertProjectStageOrder(t, storage, firstStage.ID, []int64{anchor.ID, container.ID})
 }
 
 func TestConcurrentDoneAndCancelExactlyOneSucceeds(t *testing.T) {

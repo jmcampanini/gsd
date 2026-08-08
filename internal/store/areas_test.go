@@ -400,8 +400,12 @@ WHERE project_id IN (?, ?) OR area_id = ?
 		t.Fatalf("arrange task deletion positions: %v", err)
 	}
 
-	if _, err := areas.Delete(ctx, doomed.ID); errorCode(err) != apperr.Conflict {
-		t.Fatalf("Delete(nonempty) error = %v, want conflict", err)
+	if occupied, err := areas.Occupied(ctx, doomed.ID); err != nil || !occupied {
+		t.Fatalf("Occupied(nonempty) = %t, %v; want true, nil", occupied, err)
+	}
+	emptyArea := addStoredArea(t, areas, area.AddFields{Title: "Vacant"})
+	if occupied, err := areas.Occupied(ctx, emptyArea.ID); err != nil || occupied {
+		t.Fatalf("Occupied(empty) = %t, %v; want false, nil", occupied, err)
 	}
 
 	var deletedArea area.Area

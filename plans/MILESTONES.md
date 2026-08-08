@@ -149,13 +149,28 @@ seam into typed reader/writer dependencies, and consolidated
 control-character escaping into `internal/text`; the substrate
 promotion triggers carry in `MILESTONE_12.md`.
 
+### Milestone 11 — Boards
+
+Delivered global, name-addressed boards with manually ordered stages and a
+strategic `board show` view. Projects can join one board, enter its first
+stage, move in either direction, and keep independent area and stage order;
+resolved projects disappear from boards without losing their stage. Tasks can
+defer until their project reaches a stage, combining independently with date
+defers, or promote their project one stage when completed. Membership changes,
+task re-parenting, and stage deletion clear invalid stage defers atomically.
+The schema was folded into `0001_baseline.sql` under the settled pre-users
+clean break, with complete service, command, real-SQLite, and subprocess
+coverage. The foundation review centralized entity row types in
+`internal/domain`, consolidated shared validation and store primitives, and
+strengthened cross-axis, rollback, and defer-complement tests; its remaining
+stage-gate trigger carries in `MILESTONE_12.md`.
+
 ## Active roadmap
 
-Active planning begins with the Boards milestone:
+Active planning begins with the Navigator milestone:
 
 | # | Milestone | Capability delivered | Data mode |
 |---|-----------|----------------------|-----------|
-| 11 | [Boards](MILESTONE_11.md) | Boards, stages, and stage-aware tasks in the CLI | **live** |
 | 12 | [Navigator](MILESTONE_12.md) | Read-only full-screen `gsd tui` | **live** |
 | 13 | [Board view](MILESTONE_13.md) | Read-only strategic board in the TUI | **live** |
 | 14 | [Row verbs](MILESTONE_14.md) | Single-key mutations and reorder in the TUI | **live** |
@@ -164,9 +179,8 @@ Active planning begins with the Boards milestone:
 v1 closed when Go live landed; Capture shipped as the first post-v1
 milestone.
 
-Boards (11) is the strategic layer of the data model — pipelines
-projects move through — and lands CLI-first, independent of the TUI
-track.
+Boards (11) shipped the strategic layer of the data model CLI-first,
+independent of the TUI track.
 
 The TUI shipped its substrate as Milestone 10 and continues as
 Milestones 12–15, sequenced by
@@ -257,7 +271,7 @@ when their trigger fires:
   `plans/API.md`; no OpenAPI in v1. Concurrency is documented, not
   enforced (last-write-wins `PATCH`, non-idempotent creates); the
   schema-skew guard and browser-borne hardening are deferred with
-  recorded revisit triggers in `MILESTONE_11.md`.
+  recorded revisit triggers in `MILESTONE_16.md`.
 - 2026-08-04, TUI planning interview: the TUI joins the roadmap as
   Milestones 12–15 (Capture, Navigator, Row verbs, Input grammar),
   sequenced by reviewable foundational layers. The settled paradigm is
@@ -278,7 +292,7 @@ when their trigger fires:
   is retained; the roadmap resumes at 10. Milestone 8's carried deferred
   items and the functional completeness audit moved into the Capture
   milestone plan (its surviving deferrals now carry in
-  `MILESTONE_11.md`). Go live's install story partially shipped early the
+  `MILESTONE_12.md`). Go live's install story partially shipped early the
   same day: `Formula/gsd.rb` and the self-tap README install
   instructions landed via PR #53.
 - 2026-08-06, roadmap restructure and renumbering: Serve moved behind

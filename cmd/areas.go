@@ -177,17 +177,15 @@ func newAreaTaggingCommand(
 				return err
 			}
 
-			return withAreaApplication(command, options, factory, func(application area.Application) error {
-				tagging, err := mutate(command.Context(), application, id, args[1:])
-				if err != nil {
-					return err
-				}
-				if options.json {
-					return writeJSON(command.OutOrStdout(), tagging.Area)
-				}
-
-				return options.presentation.output(command).writeAreaTagging(verb, tagging)
-			})
+			return withAreaOutput(command, options, factory,
+				func(application area.Application) (area.Tagging, error) {
+					return mutate(command.Context(), application, id, args[1:])
+				},
+				func(tagging area.Tagging) any { return tagging.Area },
+				func(output humanOutput, tagging area.Tagging) error {
+					return output.writeAreaTagging(verb, tagging)
+				},
+			)
 		},
 	}
 }
@@ -307,14 +305,15 @@ func newAreaDeleteCommand(options *rootOptions, factory applicationFactory) *cob
 					}
 					return deleteErr
 				}
-				if options.json {
-					if recursive {
-						return writeJSON(command.OutOrStdout(), deletion)
-					}
-					return writeJSON(command.OutOrStdout(), deletion.Area)
-				}
-
-				return options.presentation.output(command).writeAreaDeletion(deletion)
+				return renderResult(command, options, deletion,
+					func(deletion area.Deletion) any {
+						if recursive {
+							return deletion
+						}
+						return deletion.Area
+					},
+					humanOutput.writeAreaDeletion,
+				)
 			})
 		},
 	}

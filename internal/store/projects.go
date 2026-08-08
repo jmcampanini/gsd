@@ -10,13 +10,14 @@ import (
 
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/board"
 	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-const projectColumns = `id, area_id, title, note, done_at, cancelled_at, status, position, created_at, updated_at`
+const projectColumns = `id, area_id, title, note, done_at, cancelled_at, status, position, created_at, updated_at, stage_id, stage_position`
 
 type Projects struct {
 	database *DB
@@ -58,6 +59,30 @@ func (s *Projects) AreaExists(ctx context.Context, id int64) error {
 	return s.poolCore().AreaExists(ctx, id)
 }
 
+func (s *Projects) FindArea(ctx context.Context, id int64) (project.AreaReference, error) {
+	return s.poolCore().FindArea(ctx, id)
+}
+
+func (s *Projects) FindBoard(ctx context.Context, title string) (project.BoardReference, error) {
+	return s.poolCore().FindBoard(ctx, title)
+}
+
+func (s *Projects) FindFirstStage(ctx context.Context, boardID int64) (*project.StageReference, error) {
+	return s.poolCore().FindFirstStage(ctx, boardID)
+}
+
+func (s *Projects) FindStage(
+	ctx context.Context,
+	boardID int64,
+	title string,
+) (project.StageReference, error) {
+	return s.poolCore().FindStage(ctx, boardID, title)
+}
+
+func (s *Projects) FindStageByID(ctx context.Context, id int64) (project.StageReference, error) {
+	return s.poolCore().FindStageByID(ctx, id)
+}
+
 func (s *Projects) Edit(
 	ctx context.Context,
 	id int64,
@@ -66,6 +91,17 @@ func (s *Projects) Edit(
 ) (project.Project, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Transaction) (project.Project, error) {
 		return transaction.Edit(ctx, id, fields, timestamp)
+	})
+}
+
+func (s *Projects) MoveStage(
+	ctx context.Context,
+	id, stageID int64,
+	placement domain.Placement,
+	timestamp string,
+) (project.Project, error) {
+	return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Transaction) (project.Project, error) {
+		return transaction.MoveStage(ctx, id, stageID, placement, timestamp)
 	})
 }
 
@@ -97,6 +133,14 @@ func (s *Projects) CancelOpenTasks(
 	timestamp string,
 ) ([]task.Task, error) {
 	return s.poolCore().CancelOpenTasks(ctx, projectID, timestamp)
+}
+
+func (s *Projects) ClearTaskStageDefers(
+	ctx context.Context,
+	projectID int64,
+	timestamp string,
+) ([]task.Task, error) {
+	return s.poolCore().ClearTaskStageDefers(ctx, projectID, timestamp)
 }
 
 func (s *Projects) Reopen(
@@ -176,23 +220,18 @@ func (s *projectsCore) Add(
 	fields project.AddFields,
 	timestamp string,
 ) (project.Project, error) {
-	if fields.AreaID != nil {
-		archivedAreaIDs, err := s.archivedAreaIDs(ctx, *fields.AreaID)
-		if err != nil {
-			return project.Project{}, err
-		}
-		if len(archivedAreaIDs) > 0 {
-			message := fmt.Sprintf("cannot add project to area %d while it is archived", *fields.AreaID)
-			return project.Project{}, archivedAreasConflict(message, archivedAreaIDs, nil)
-		}
-	}
-
 	areaID := nullableID(fields.AreaID)
+	stageID := nullableID(fields.StageID)
 	created, err := scanProject(s.executor.QueryRowContext(ctx, `
-INSERT INTO projects (area_id, title, note, position, created_at, updated_at)
+INSERT INTO projects (
+    area_id, title, note, position, created_at, updated_at, stage_id, stage_position
+)
 VALUES (?, ?, ?,
         COALESCE((SELECT MAX(position) FROM projects WHERE area_id IS ?), -1) + 1,
-        ?, ?)
+        ?, ?, ?,
+        CASE WHEN ? IS NULL THEN NULL ELSE
+            COALESCE((SELECT MAX(stage_position) FROM projects WHERE stage_id = ?), -1) + 1
+        END)
 RETURNING `+projectColumnsWithTags("projects.id"),
 		areaID,
 		fields.Title,
@@ -200,6 +239,9 @@ RETURNING `+projectColumnsWithTags("projects.id"),
 		areaID,
 		timestamp,
 		timestamp,
+		stageID,
+		stageID,
+		stageID,
 	))
 	if err != nil {
 		return project.Project{}, fmt.Errorf("insert project: %w", err)
@@ -260,6 +302,69 @@ func (s *projectsCore) AreaExists(ctx context.Context, id int64) error {
 	return err
 }
 
+func (s *projectsCore) FindArea(ctx context.Context, id int64) (project.AreaReference, error) {
+	found, err := s.findArea(ctx, id)
+	if err != nil {
+		return project.AreaReference{}, err
+	}
+	return project.AreaReference{ID: found.ID, ArchivedAt: found.ArchivedAt}, nil
+}
+
+func (s *projectsCore) FindBoard(ctx context.Context, title string) (project.BoardReference, error) {
+	var found project.BoardReference
+	err := s.executor.QueryRowContext(
+		ctx,
+		"SELECT id, title FROM boards WHERE title = ? COLLATE NOCASE",
+		title,
+	).Scan(&found.ID, &found.Title)
+	if errors.Is(err, sql.ErrNoRows) {
+		return project.BoardReference{}, apperr.New(
+			apperr.NotFound,
+			fmt.Sprintf("no board %s", title),
+			err,
+		)
+	}
+	if err != nil {
+		return project.BoardReference{}, fmt.Errorf("find project board: %w", err)
+	}
+	return found, nil
+}
+
+func (s *projectsCore) FindFirstStage(
+	ctx context.Context,
+	boardID int64,
+) (*project.StageReference, error) {
+	found, boardTitle, err := (&boardsCore{executor: s.executor}).findFirstStageWithBoard(ctx, boardID)
+	if err != nil || found == nil {
+		return nil, err
+	}
+	reference := projectStageReference(*found, boardTitle)
+	return &reference, nil
+}
+
+func (s *projectsCore) FindStage(
+	ctx context.Context,
+	boardID int64,
+	title string,
+) (project.StageReference, error) {
+	found, boardTitle, err := (&boardsCore{executor: s.executor}).findStageWithBoard(ctx, boardID, title)
+	if err != nil {
+		return project.StageReference{}, err
+	}
+	return projectStageReference(found, boardTitle), nil
+}
+
+func (s *projectsCore) FindStageByID(
+	ctx context.Context,
+	id int64,
+) (project.StageReference, error) {
+	found, boardTitle, err := (&boardsCore{executor: s.executor}).findStageByIDWithBoard(ctx, id)
+	if err != nil {
+		return project.StageReference{}, err
+	}
+	return projectStageReference(found, boardTitle), nil
+}
+
 func (s *projectsCore) Edit(
 	ctx context.Context,
 	id int64,
@@ -269,8 +374,12 @@ func (s *projectsCore) Edit(
 	if fields.Area.Set != nil && fields.Area.Clear {
 		return project.Project{}, errors.New("area cannot be set and cleared")
 	}
+	if fields.Stage.Set != nil && fields.Stage.Clear {
+		return project.Project{}, errors.New("stage cannot be set and cleared")
+	}
 	contentChanged := fields.Title != nil || fields.Note != nil
-	membershipRequested := fields.Area.Set != nil || fields.Area.Clear
+	membershipRequested := fields.Area.Set != nil || fields.Area.Clear ||
+		fields.Stage.Set != nil || fields.Stage.Clear
 	if !contentChanged && !membershipRequested {
 		return project.Project{}, errors.New("edit requires at least one field")
 	}
@@ -278,31 +387,28 @@ func (s *projectsCore) Edit(
 	if err != nil {
 		return project.Project{}, err
 	}
-	destination := current.AreaID
+
+	areaDestination := current.AreaID
 	if fields.Area.Set != nil {
-		destination = fields.Area.Set
+		areaDestination = fields.Area.Set
 	} else if fields.Area.Clear {
-		destination = nil
+		areaDestination = nil
 	}
-	movement := !sameProjectArea(current.AreaID, destination)
-	if movement {
-		areaIDs := make([]int64, 0, 2)
-		if destination != nil {
-			areaIDs = append(areaIDs, *destination)
-		}
-		if current.AreaID != nil {
-			areaIDs = append(areaIDs, *current.AreaID)
-		}
-		if err := s.validateActiveAreas(ctx, fmt.Sprintf("move project %d", id), areaIDs...); err != nil {
-			return project.Project{}, err
-		}
+	areaMovement := !domain.SameOptionalID(current.AreaID, areaDestination)
+
+	stageDestination := current.StageID
+	if fields.Stage.Set != nil {
+		stageDestination = fields.Stage.Set
+	} else if fields.Stage.Clear {
+		stageDestination = nil
 	}
-	if !contentChanged && !movement {
+	stageMovement := !domain.SameOptionalID(current.StageID, stageDestination)
+	if !contentChanged && !areaMovement && !stageMovement {
 		return current, nil
 	}
 
-	assignments := make([]string, 0, 5)
-	arguments := make([]any, 0, 6)
+	assignments := make([]string, 0, 8)
+	arguments := make([]any, 0, 10)
 	if fields.Title != nil {
 		assignments = append(assignments, "title = ?")
 		arguments = append(arguments, *fields.Title)
@@ -311,8 +417,8 @@ func (s *projectsCore) Edit(
 		assignments = append(assignments, "note = ?")
 		arguments = append(arguments, *fields.Note)
 	}
-	if movement {
-		areaID := nullableID(destination)
+	if areaMovement {
+		areaID := nullableID(areaDestination)
 		assignments = append(
 			assignments,
 			`position = COALESCE((
@@ -323,6 +429,23 @@ func (s *projectsCore) Edit(
 			"area_id = ?",
 		)
 		arguments = append(arguments, areaID, areaID)
+	}
+	if stageMovement {
+		if stageDestination == nil {
+			assignments = append(assignments, "stage_id = NULL", "stage_position = NULL")
+		} else {
+			stageID := *stageDestination
+			assignments = append(
+				assignments,
+				`stage_position = COALESCE((
+    SELECT MAX(sibling.stage_position)
+    FROM projects AS sibling
+    WHERE sibling.stage_id = ?
+), -1) + 1`,
+				"stage_id = ?",
+			)
+			arguments = append(arguments, stageID, stageID)
+		}
 	}
 	assignments = append(assignments, "updated_at = ?")
 	arguments = append(arguments, timestamp)
@@ -336,6 +459,85 @@ func (s *projectsCore) Edit(
 	}
 
 	return edited, nil
+}
+
+func (s *projectsCore) MoveStage(
+	ctx context.Context,
+	id, stageID int64,
+	placement domain.Placement,
+	timestamp string,
+) (project.Project, error) {
+	moved, err := s.Find(ctx, id)
+	if err != nil {
+		return project.Project{}, err
+	}
+	if moved.StageID == nil {
+		return project.Project{}, errors.New("cannot move an unboarded project")
+	}
+	crossStage := *moved.StageID != stageID
+	if crossStage {
+		updated, err := scanProject(s.executor.QueryRowContext(ctx, `
+UPDATE projects
+SET stage_position = COALESCE((
+        SELECT MAX(sibling.stage_position)
+        FROM projects AS sibling
+        WHERE sibling.stage_id = ?
+    ), -1) + 1,
+    stage_id = ?,
+    updated_at = ?
+WHERE id = ?
+RETURNING `+projectColumnsWithTags("projects.id"), stageID, stageID, timestamp, id))
+		if err != nil {
+			return project.Project{}, fmt.Errorf("move project stage: %w", err)
+		}
+		if placement.Anchor == "" || placement.Anchor == domain.PlacementLast {
+			return updated, nil
+		}
+	} else if placement.Anchor == "" {
+		return moved, nil
+	}
+	if placement.Anchor == domain.PlacementAfter || placement.Anchor == domain.PlacementBefore {
+		reference, findErr := s.Find(ctx, placement.ReferenceID)
+		if findErr != nil {
+			return project.Project{}, findErr
+		}
+		if id == placement.ReferenceID {
+			return project.Project{}, apperr.New(
+				apperr.InvalidArgument,
+				fmt.Sprintf("cannot move project %d relative to itself", id),
+				nil,
+			)
+		}
+		if reference.StageID == nil || *reference.StageID != stageID {
+			return project.Project{}, apperr.New(
+				apperr.InvalidArgument,
+				fmt.Sprintf("project %d is in a different stage", placement.ReferenceID),
+				nil,
+			)
+		}
+	}
+
+	rows, err := s.executor.QueryContext(ctx, `
+SELECT id
+FROM projects
+WHERE stage_id = ?
+ORDER BY stage_position, id`, stageID)
+	if err != nil {
+		return project.Project{}, fmt.Errorf("list project stage siblings: %w", err)
+	}
+	ordered, err := collectSiblingIDs(rows, "project stage")
+	if err != nil {
+		return project.Project{}, err
+	}
+	ordered, err = spliceOrderedIDs(ordered, id, placement)
+	if err != nil {
+		return project.Project{}, fmt.Errorf("reorder project stage positions: %w", err)
+	}
+	clause, arguments := reorderColumnCaseUpdate("stage_position", ordered, id, timestamp)
+	if _, err := s.executor.ExecContext(ctx, "UPDATE projects SET "+clause, arguments...); err != nil {
+		return project.Project{}, fmt.Errorf("reorder project within stage: %w", err)
+	}
+	return s.Find(ctx, id)
 }
 
 func (s *projectsCore) Reorder(
@@ -360,7 +562,7 @@ func (s *projectsCore) Reorder(
 				nil,
 			)
 		}
-		if !sameProjectArea(moved.AreaID, reference.AreaID) {
+		if !domain.SameOptionalID(moved.AreaID, reference.AreaID) {
 			return project.Project{}, apperr.New(
 				apperr.InvalidArgument,
 				fmt.Sprintf("project %d is in a different container", placement.ReferenceID),
@@ -463,6 +665,28 @@ RETURNING `+taskColumnsWithTags("tasks.id"), timestamp, timestamp, projectID)
 	sortTasks(cancelled)
 
 	return cancelled, nil
+}
+
+func (s *projectsCore) ClearTaskStageDefers(
+	ctx context.Context,
+	projectID int64,
+	timestamp string,
+) ([]task.Task, error) {
+	rows, err := s.executor.QueryContext(ctx, `
+UPDATE tasks
+SET defer_stage_id = NULL, updated_at = ?
+WHERE project_id = ? AND defer_stage_id IS NOT NULL
+RETURNING `+taskColumnsWithTags("tasks.id"), timestamp, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("clear project task stage defers: %w", err)
+	}
+
+	cleared, err := collectRows(rows, scanTask, "scan cleared project task stage defer", "iterate cleared project task stage defers")
+	if err != nil {
+		return nil, err
+	}
+	sortTasks(cleared)
+	return cleared, nil
 }
 
 func (s *projectsCore) Reopen(
@@ -600,6 +824,8 @@ func projectBaseScanTargets(value *project.Project) []any {
 		&value.Position,
 		&value.CreatedAt,
 		&value.UpdatedAt,
+		&value.StageID,
+		&value.StagePosition,
 	}
 }
 
@@ -660,10 +886,12 @@ func (s *projectsCore) findArea(ctx context.Context, id int64) (area.Area, error
 	return (&areasCore{executor: s.executor}).Find(ctx, id)
 }
 
-func sameProjectArea(left *int64, right *int64) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
+func projectStageReference(stage board.Stage, boardTitle string) project.StageReference {
+	return project.StageReference{
+		ID:         stage.ID,
+		BoardID:    stage.BoardID,
+		BoardTitle: boardTitle,
+		Title:      stage.Title,
+		Position:   stage.Position,
 	}
-
-	return *left == *right
 }

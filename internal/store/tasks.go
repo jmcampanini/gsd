@@ -15,9 +15,9 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
-const taskColumns = `id, project_id, area_id, title, note, defer_until, due_on, done_at, cancelled_at, status, position, created_at, updated_at`
+const taskColumns = `id, project_id, area_id, title, note, defer_until, due_on, done_at, cancelled_at, status, position, created_at, updated_at, defer_stage_id, promotes`
 
-const taskViewColumns = taskColumns + `, project_title, governing_area_id, governing_area_title, tags`
+const taskViewColumns = taskColumns + `, defer_stage_title, project_title, governing_area_id, governing_area_title, tags`
 
 type Tasks struct {
 	database *DB
@@ -79,6 +79,36 @@ func (s *Tasks) List(ctx context.Context, filter task.ListFilter) ([]task.Task, 
 
 func (s *Tasks) ProjectExists(ctx context.Context, id int64) error {
 	return s.poolCore().ProjectExists(ctx, id)
+}
+
+func (s *Tasks) FindProject(ctx context.Context, id int64) (domain.Project, error) {
+	return s.poolCore().FindProject(ctx, id)
+}
+
+func (s *Tasks) FindStage(ctx context.Context, boardID int64, title string) (task.StageReference, error) {
+	return s.poolCore().FindStage(ctx, boardID, title)
+}
+
+func (s *Tasks) FindStageByID(ctx context.Context, id int64) (task.StageReference, error) {
+	return s.poolCore().FindStageByID(ctx, id)
+}
+
+func (s *Tasks) StageExists(ctx context.Context, title string) (bool, error) {
+	return s.poolCore().StageExists(ctx, title)
+}
+
+func (s *Tasks) FindNextStage(ctx context.Context, boardID, currentPosition int64) (*task.StageReference, error) {
+	return s.poolCore().FindNextStage(ctx, boardID, currentPosition)
+}
+
+func (s *Tasks) MoveProjectStage(
+	ctx context.Context,
+	projectID, stageID int64,
+	timestamp string,
+) (domain.Project, error) {
+	return runInTransaction(ctx, s.WithinTransaction, func(transaction task.Transaction) (domain.Project, error) {
+		return transaction.MoveProjectStage(ctx, projectID, stageID, timestamp)
+	})
 }
 
 func (s *Tasks) AreaExists(ctx context.Context, id int64) error {
@@ -192,10 +222,11 @@ func (s *tasksCore) Add(ctx context.Context, fields task.AddFields, timestamp st
 	areaID := nullableID(fields.AreaID)
 	created, err := scanTask(s.executor.QueryRowContext(ctx, `
 INSERT INTO tasks (
-    project_id, area_id, title, note, defer_until, due_on, position, created_at, updated_at
+    project_id, area_id, title, note, defer_until, due_on, defer_stage_id, promotes,
+    position, created_at, updated_at
 )
 VALUES (
-    ?, ?, ?, ?, ?, ?,
+    ?, ?, ?, ?, ?, ?, ?, ?,
     (
         SELECT COALESCE(MAX(position), -1) + 1
         FROM tasks
@@ -210,6 +241,8 @@ RETURNING `+taskColumnsWithTags("tasks.id"),
 		fields.Note,
 		fields.DeferUntil,
 		fields.DueOn,
+		fields.DeferStageID,
+		fields.Promotes,
 		projectID,
 		areaID,
 		timestamp,
@@ -280,7 +313,17 @@ func (s *tasksCore) List(ctx context.Context, filter task.ListFilter) ([]task.Ta
 	case task.DateSelectorOverdue:
 		conditions = append(conditions, "status = 'open' AND due_on < date('now', 'localtime')")
 	case task.DateSelectorDeferred:
-		conditions = append(conditions, "defer_until > date('now', 'localtime')")
+		conditions = append(conditions, `(defer_until > date('now', 'localtime') OR (
+    defer_stage_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1
+        FROM projects deferred_project
+        JOIN stages project_stage ON project_stage.id = deferred_project.stage_id
+        JOIN stages defer_stage ON defer_stage.id = tasks.defer_stage_id
+        WHERE deferred_project.id = tasks.project_id
+          AND project_stage.board_id = defer_stage.board_id
+          AND project_stage.position >= defer_stage.position
+    )
+))`)
 	default:
 		return nil, fmt.Errorf("invalid date selector %q", filter.Date)
 	}
@@ -316,8 +359,77 @@ func (s *tasksCore) List(ctx context.Context, filter task.ListFilter) ([]task.Ta
 }
 
 func (s *tasksCore) ProjectExists(ctx context.Context, id int64) error {
-	_, err := (&projectsCore{executor: s.executor}).Find(ctx, id)
+	_, err := s.FindProject(ctx, id)
 	return err
+}
+
+func (s *tasksCore) FindProject(ctx context.Context, id int64) (domain.Project, error) {
+	return (&projectsCore{executor: s.executor}).Find(ctx, id)
+}
+
+func (s *tasksCore) FindStage(
+	ctx context.Context,
+	boardID int64,
+	title string,
+) (task.StageReference, error) {
+	found, err := (&projectsCore{executor: s.executor}).FindStage(ctx, boardID, title)
+	if err != nil {
+		return task.StageReference{}, err
+	}
+	return taskStageReference(found), nil
+}
+
+func (s *tasksCore) FindStageByID(ctx context.Context, id int64) (task.StageReference, error) {
+	found, err := (&projectsCore{executor: s.executor}).FindStageByID(ctx, id)
+	if err != nil {
+		return task.StageReference{}, err
+	}
+	return taskStageReference(found), nil
+}
+
+func (s *tasksCore) StageExists(ctx context.Context, title string) (bool, error) {
+	var exists bool
+	if err := s.executor.QueryRowContext(
+		ctx,
+		"SELECT EXISTS (SELECT 1 FROM stages WHERE title = ? COLLATE NOCASE)",
+		title,
+	).Scan(&exists); err != nil {
+		return false, fmt.Errorf("check task defer stage existence: %w", err)
+	}
+	return exists, nil
+}
+
+func (s *tasksCore) FindNextStage(
+	ctx context.Context,
+	boardID, currentPosition int64,
+) (*task.StageReference, error) {
+	found, err := scanTaskStageReference(s.executor.QueryRowContext(ctx, `
+SELECT id, board_id, title, position
+FROM stages
+WHERE board_id = ? AND position > ?
+ORDER BY position, id
+LIMIT 1`, boardID, currentPosition))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find next task project stage: %w", err)
+	}
+	return &found, nil
+}
+
+func (s *tasksCore) MoveProjectStage(
+	ctx context.Context,
+	projectID, stageID int64,
+	timestamp string,
+) (domain.Project, error) {
+	return (&projectsCore{executor: s.executor}).MoveStage(
+		ctx,
+		projectID,
+		stageID,
+		domain.Placement{Anchor: domain.PlacementLast},
+		timestamp,
+	)
 }
 
 func (s *tasksCore) AreaExists(ctx context.Context, id int64) error {
@@ -340,10 +452,14 @@ func (s *tasksCore) Edit(
 	if fields.Project.Set != nil && fields.Area.Set != nil {
 		return task.Task{}, errors.New("task cannot have both project and area")
 	}
+	if fields.DeferStageID.Set != nil && fields.DeferStageID.Clear {
+		return task.Task{}, errors.New("defer stage cannot be set and cleared")
+	}
 
 	contentChanged := fields.Title != nil || fields.Note != nil ||
 		fields.DueOn.Set != nil || fields.DueOn.Clear ||
-		fields.DeferUntil.Set != nil || fields.DeferUntil.Clear
+		fields.DeferUntil.Set != nil || fields.DeferUntil.Clear ||
+		fields.DeferStageID.Set != nil || fields.DeferStageID.Clear || fields.Promotes != nil
 	membershipRequested := fields.Project.Set != nil || fields.Project.Clear ||
 		fields.Area.Set != nil || fields.Area.Clear
 	if !contentChanged && !membershipRequested {
@@ -406,6 +522,17 @@ func (s *tasksCore) Edit(
 	}
 	if fields.DeferUntil.Clear {
 		assignments = append(assignments, "defer_until = NULL")
+	}
+	if fields.DeferStageID.Set != nil {
+		assignments = append(assignments, "defer_stage_id = ?")
+		arguments = append(arguments, *fields.DeferStageID.Set)
+	}
+	if fields.DeferStageID.Clear {
+		assignments = append(assignments, "defer_stage_id = NULL")
+	}
+	if fields.Promotes != nil {
+		assignments = append(assignments, "promotes = ?")
+		arguments = append(arguments, *fields.Promotes)
 	}
 	if moving {
 		projectID, areaID := taskContainerIDs(destination)
@@ -579,7 +706,10 @@ func (s *tasksCore) Delete(ctx context.Context, id int64) (task.Task, error) {
 }
 
 func taskColumnsWithTags(entityReference string) string {
-	return taskColumns + ", " + tagJSONExpression(taskTagSpec, entityReference) + " AS tags"
+	entity := strings.TrimSuffix(entityReference, ".id")
+	return taskColumns + `,
+       (SELECT title FROM stages WHERE id = ` + entity + `.defer_stage_id) AS defer_stage_title,
+       ` + tagJSONExpression(taskTagSpec, entityReference) + " AS tags"
 }
 
 func (s *tasksCore) ResolveTags(ctx context.Context, names []string) ([]tag.Tag, error) {
@@ -738,7 +868,25 @@ func taskBaseScanTargets(value *task.Task) []any {
 		&value.Position,
 		&value.CreatedAt,
 		&value.UpdatedAt,
+		&value.DeferStageID,
+		&value.Promotes,
+		&value.DeferStageTitle,
 	}
+}
+
+func taskStageReference(value project.StageReference) task.StageReference {
+	return task.StageReference{
+		ID:       value.ID,
+		BoardID:  value.BoardID,
+		Title:    value.Title,
+		Position: value.Position,
+	}
+}
+
+func scanTaskStageReference(scanner rowScanner) (task.StageReference, error) {
+	var value task.StageReference
+	err := scanner.Scan(&value.ID, &value.BoardID, &value.Title, &value.Position)
+	return value, err
 }
 
 func nullableID(value *int64) any {

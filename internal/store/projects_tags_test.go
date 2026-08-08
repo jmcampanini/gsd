@@ -27,7 +27,6 @@ func TestProjectTagsRoundTripInAlphabeticalOrderAcrossProjectOperations(t *testi
 	created, err := projects.Add(ctx, project.AddFields{
 		AreaID: &container.ID,
 		Title:  "tagged primitives",
-		Tags:   []string{"Blue", "amber"},
 	}, "2026-01-02T00:00:00.000Z")
 	if err != nil {
 		t.Fatalf("Add(project) error = %v", err)
@@ -140,7 +139,6 @@ func TestProjectTagPrimitivesShareTransactionsAndAllowResolvedArchivedContainers
 		transient, operationErr = transaction.Add(ctx, project.AddFields{
 			AreaID: &container.ID,
 			Title:  "transient",
-			Tags:   []string{marker.Title},
 		}, "2026-01-02T00:00:00.000Z")
 		if operationErr != nil {
 			return operationErr

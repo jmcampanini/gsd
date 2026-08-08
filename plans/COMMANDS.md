@@ -14,8 +14,9 @@ it incrementally.
 - **Plural noun = operate on the collection** (create into it, enumerate
   it): `gsd projects add`, `gsd areas list`. Bare plurals are an error —
   `list` is always explicit.
-- **Singular noun = operate on one entity, always by ID**: `gsd project
-  done 7`, `gsd area archive 2`.
+- **Singular noun = operate on one entity.** Its argument is that entity's
+  identity: an ID for ID-addressed entities (`gsd project done 7`) and a name
+  for name-addressed entities (`gsd board show software`).
 - **Bare integer IDs; the noun disambiguates.** `gsd done 42` is a task,
   `gsd project done 7` is a project. Mixed output (logbook, search)
   prints the kind next to the ID.
@@ -25,7 +26,8 @@ it incrementally.
 - **One obvious way.** No aliases, no sugar verbs, no second spellings.
 - **Same field, same flag, everywhere.** `add` and `edit` share one flag
   vocabulary; `--no-<field>` clears an optional field (`--no-due`,
-  `--no-project`). There is no `move`: `edit` owns re-parenting.
+  `--no-project`). `edit` owns containment re-parenting; the dedicated
+  `project move` verb owns movement on the board axis.
 - **One entity per invocation.** No multi-add; bulk is a later decision.
 
 ## Views
@@ -40,6 +42,8 @@ gsd logbook       # done + cancelled, tasks & projects; newest first
 
 ```
 gsd add "Buy milk" [--project N | --area N] [--due DATE] [--defer DATE]
+                    [--defer-stage STAGE | --no-defer-stage]
+                    [--promotes | --no-promotes]
                     [--tag NAME]... [--note TEXT|-]
 gsd list [--project N] [--area N] [--tag NAME]
           [--status open|done|cancelled|all]        # default: open
@@ -47,6 +51,8 @@ gsd list [--project N] [--area N] [--tag NAME]
 gsd show N
 gsd edit N [--title TEXT] [--note TEXT|-]
             [--due DATE | --no-due] [--defer DATE | --no-defer]
+            [--defer-stage STAGE | --no-defer-stage]
+            [--promotes | --no-promotes]
             [--project N | --no-project] [--area N | --no-area]
 gsd done N
 gsd cancel N
@@ -60,19 +66,63 @@ gsd delete N
 ## Projects
 
 ```
-gsd projects add "Kitchen reno" [--area N] [--tag NAME]... [--note TEXT|-]
+gsd projects add "Kitchen reno" [--area N] [--board NAME]
+                 [--tag NAME]... [--note TEXT|-]
 gsd projects list [--area N] [--status open|done|cancelled|all]
 gsd project show N
 gsd project edit N [--title TEXT] [--note TEXT|-]
-                    [--area N | --no-area]
+                    [--area N | --no-area] [--board NAME | --no-board]
 gsd project done N          # cancels remaining open tasks; reports them
 gsd project cancel N        # same cascade
 gsd project reopen N
 gsd project tag N NAME...
 gsd project untag N NAME...
 gsd project reorder N (--after M | --before M | --first | --last)
+gsd project move N STAGE [--after M | --before M | --first | --last]
 gsd project delete N [--recursive]
 ```
+
+## Boards and stages
+
+```
+gsd boards add NAME --stage NAME [--stage NAME ...] [--note TEXT|-]
+gsd boards list
+gsd board show NAME
+gsd board edit NAME [--title TEXT] [--note TEXT|-]
+gsd board reorder NAME (--after NAME | --before NAME | --first | --last)
+gsd board delete NAME
+gsd stages add BOARD NAME [--after STAGE | --before STAGE | --first | --last]
+gsd stage rename BOARD OLD NEW
+gsd stage reorder BOARD NAME (--after STAGE | --before STAGE | --first | --last)
+gsd stage delete BOARD NAME
+```
+
+Boards are global, ordered pipelines orthogonal to areas. A board has a note
+and one or more named stages at creation (`boards add` without `--stage` is
+`invalid_argument`); later stage deletion may leave it empty. Board names are
+globally `NOCASE`-unique, and stage names are `NOCASE`-unique within a board;
+accepted spelling is stored unchanged and lookups are case-insensitive under
+SQLite `NOCASE`.
+
+A project belongs to at most one board and occupies one stage. Board entry
+always uses the first stage; switching boards re-enters the new first stage,
+and `--no-board` removes membership. Entry onto a board with no stages is a
+`conflict`. Board containment is independent of area containment, but its
+changes inherit the resolved-project and archived-area guards.
+
+`project move` owns the board axis. A cross-stage move appends unless an
+explicit placement positions it among projects in the destination stage; a
+same-stage placement reorders that column, while a bare same-stage move is a
+no-op that still narrates `~ Moved:`. Moving a project that is on no board is
+a `conflict`. Movement may go in either direction, does not enforce sequence,
+and is not gated by tasks. It is a transition verb guarded like one: moving a
+resolved project, or any project under an archived governing area, is a
+`conflict`, checked before the same-stage no-op. Placement references are
+project IDs in the destination stage, including resolved projects that
+retain hidden positions. Resolving a
+project hides it from `board show`; reopening restores it at the same stage
+and position. Deleting an occupied board or stage is a `conflict`; deleting
+an empty board deletes its stages.
 
 ## Areas
 
@@ -159,17 +209,26 @@ gsd capture
 - **Mutual exclusion**: `--project` and `--area` together is
   `invalid_argument` (matches the schema CHECK), on task `add`, `edit`, and
   as `list` filters. Pairing a set flag with its own clear
-  (`--area N --no-area`) is a usage error. Neither = inbox.
+  (`--area N --no-area`, `--defer-stage S --no-defer-stage`,
+  `--promotes --no-promotes`, or `--board B --no-board`) is a usage error.
+  On task `add` and `edit`, boolean marker and clear flags must be
+  meaningfully true; explicitly false values are usage errors rather than
+  alternate spellings.
+  Neither task container = inbox.
 - **Re-parenting appends** to the end of the destination container;
   re-stating the current container is a no-op and does not move the entity.
 - **Reorder is sibling-relative**: the reference entity must live in the
   same container as the moved one; a cross-container reference or a
   self-reference is `invalid_argument`. Reordering is status-blind — done,
   cancelled, and archived siblings keep their positions, can be moved, and
-  can serve as references — and a placement that lands the entity where it
-  already sits succeeds as an ordinary reorder. Exactly one placement flag
-  must be meaningfully given: an explicitly false boolean placement
-  (`--first=false`) is the same arity failure as omitting placement
+  can serve as references. The board axis applies the same reference rule:
+  resolved projects retain hidden stage positions and remain valid placement
+  references, though `move` itself carries the transition guards — a resolved
+  project, or one under an archived governing area, cannot move. A placement
+  that lands the entity where it already sits succeeds as an ordinary
+  reorder. Exactly one placement flag must be meaningfully given. An
+  explicitly false boolean placement (`--first=false`) is the same arity
+  failure as omitting placement
   entirely, a usage error.
 - **Tag names use title validation**: they must be valid UTF-8 and nonblank
   after surrounding-space inspection, and accepted spelling is stored
@@ -203,15 +262,17 @@ gsd capture
   exit; tasks the cascade cancelled stay cancelled until individually
   reopened.
 - **A resolved project is closed history**: completing, cancelling, or
-  reopening its tasks, creating a task into it, and re-parenting a task into
-  or out of it are `conflict` errors with reopen-the-project-first guidance
+  reopening its tasks, creating a task into it, re-parenting a task into or
+  out of it, and moving it on the board axis are `conflict` errors with
+  reopen-the-project-first guidance
   (a move blocked by a resolved source and a resolved destination names
   both). Content edits and deletion of contained tasks stay allowed.
 - **An archived area is retired history**, mirroring the resolved-project
   guard through the governing area (own, or inherited through the project):
-  creating a task or project into it, re-parenting into or out of it, and
-  completing, cancelling, or reopening anything it governs are `conflict`
-  errors with unarchive-the-area-first guidance; a move blocked by more than
+  creating a task or project into it, re-parenting into or out of it, moving
+  a project it governs on the board axis, and completing, cancelling, or
+  reopening anything it governs are `conflict` errors with
+  unarchive-the-area-first guidance; a move blocked by more than
   one guard names every blocker. Content edits and deletes stay allowed,
   archiving never mutates contents, and unarchive restores visibility with
   every position intact.
@@ -226,13 +287,31 @@ gsd capture
 - **Delete honors RESTRICT**: deleting a non-empty project/area is an
   error; `--recursive` is the explicit opt-in (children deleted in one
   transaction). Deleting a task never blocks.
+- **Stage defer**: `--defer-stage` requires the task's destination project
+  to be on a board and the named stage to belong to that board. Unknown names
+  are `not_found`; an off-board project or a stage from another board is
+  `invalid_argument`. On a combined task re-parent plus explicit stage defer,
+  the destination is resolved first and the defer is validated against that
+  destination. A stage defer clears automatically when the task is
+  re-parented away, when its project leaves or switches boards, or when the
+  referenced stage is deleted. The containment edit or deletion and all
+  clears are one operation.
+- **Promotion**: `--promotes` is valid on any task and is inert if its project
+  has no board. Completing a promoting task advances its project exactly one
+  stage from its current position and appends it to the destination column in
+  the same operation. At the last stage this succeeds as a reported no-op;
+  reopening the task never moves the project backward.
+- **Stage and date gates are independent**: a task is available only after
+  both its date defer has arrived and its project has reached or passed its
+  deferred stage by stage position. Moving the project backward can hide it
+  again. `list --deferred` includes tasks blocked by either gate.
 - **Dates**: canonical `YYYY-MM-DD`, plus a closed keyword set — `today`,
   `tomorrow`, weekday names (`mon`..`sun` = next occurrence), `+Nd`,
   `+Nw`. Nothing else parses.
-- **Date filters are mutually exclusive**: `--due` selects tasks in the chosen
-  status whose due date is set; `--overdue` selects only open tasks due before
-  the local calendar day; `--deferred` selects tasks in the chosen status
-  deferred beyond the local calendar day.
+- **Date/defer filters are mutually exclusive**: `--due` selects tasks in the
+  chosen status whose due date is set; `--overdue` selects only open tasks due
+  before the local calendar day; `--deferred` selects tasks in the chosen
+  status blocked by a future defer date or an unreached defer stage.
 - **Notes are markdown by convention** but never parsed or interpreted by
   any tool. `--note ""` clears a note. `--note -` reads stdin through EOF
   without stripping trailing newlines.
@@ -254,12 +333,21 @@ gsd capture
   The complete v1 entity field sets are:
   - task: `id`, `project_id`, `area_id`, `title`, `note`, `defer_until`,
     `due_on`, `done_at`, `cancelled_at`, `status`, `position`, `created_at`,
-    `updated_at`, `tags`;
+    `updated_at`, `defer_stage_id`, `promotes`, `tags`;
   - project: `id`, `area_id`, `title`, `note`, `done_at`, `cancelled_at`,
-    `status`, `position`, `created_at`, `updated_at`, `tags`;
+    `status`, `position`, `created_at`, `updated_at`, `stage_id`,
+    `stage_position`, `tags`;
   - area: `id`, `title`, `note`, `archived_at`, `position`, `created_at`,
-    `updated_at`, `tags`.
+    `updated_at`, `tags`;
+  - board: `id`, `title`, `note`, `position`, `created_at`, `updated_at`;
+  - stage: `id`, `board_id`, `title`, `position`, `created_at`, `updated_at`.
   Nullable values are `null`; collections are arrays, including `[]`.
+  `promotes` is a JSON boolean although SQLite stores its constrained integer
+  representation. Resolved board and stage names are presentation metadata:
+  task JSON exposes `defer_stage_id` but not `defer_stage_title`, and project
+  JSON exposes `stage_id` and `stage_position` but not board or stage titles.
+  View-task JSON still includes its established project and governing-area
+  enrichment.
 - JSON output is exactly one compact value followed by a newline. Tags
   complete the v1 entity field set, but field order remains unstable; field
   names, types, and error codes are stable, while message wording is not.
@@ -275,6 +363,24 @@ gsd capture
   totaled across tasks, projects, and areas. `tags delete` returns
   `{"tag":{...},"detached":N}`, where `tag` is the deleted row and `detached`
   is the total removed attachment count.
+- **Board envelopes name every affected row.** `boards list` returns board
+  rows each with an ordered `stages` array. `board show` returns
+  `{"board":{...},"stages":[{...stage row...,"projects":[{...project row...,"progress":{"done":N,"total":M}}]}]}`;
+  cancelled tasks count in neither progress value. `board delete` returns
+  `{"board":{...},"stages":[...]}`. Every other board and stage mutation
+  echoes its bare affected row: `boards add`, `board edit`, and
+  `board reorder` return the board row (an agent wanting the resulting
+  stages follows with `boards list`); `stages add`, `stage rename`, and
+  `stage reorder` return the stage row. A project board edit returns
+  `{"project":{...},"cleared_defers":[...]}`. A task containment edit
+  returns `{"task":{...},"cleared_defers":[...]}`, and stage deletion returns
+  `{"stage":{...},"cleared_defers":[...]}`. These `cleared_defers` values
+  are always arrays, including when empty. For a task containment edit, the
+  array reports the stage defer cleared by an actual re-parent, including when
+  `--no-defer-stage` also requested that clear. Completing a promoting
+  task returns `{"task":{...},"promoted_project":{...}}`;
+  `promoted_project` is `null` when no project moves because the task has no
+  project, the project is off-board, or it is already at the last stage.
 - **Cascades report what they touched**:
   `{"project":{...},"cancelled_tasks":[{...},...]}`; recursive deletion
   mirrors it as `{"project":{...},"deleted_tasks":[...]}` and, for areas,
@@ -308,7 +414,19 @@ gsd capture
   payloads, and `tags list` prints `#`-prefixed stored names with cross-entity
   usage counts, ordered alphabetically with `NOCASE`, without IDs or a header.
   Task, project, and area `show` include a `tags` row of `#`-prefixed stored
-  names, blank when untagged; collection rows gain no tags column.
+  names, blank when untagged; project `show` also names `board/stage`, and task
+  `show` names its defer stage and promoting intent. Collection rows gain no
+  tags column. A promoting task carries a faint `↑` beside its title wherever
+  the title renders, in listings and in the `show` headline alike.
+- Board mutations use `+ Board: NAME (stage → stage)`, `~ Edited:`,
+  `~ Moved:`, and `~ Promoted:` lines. Stage administration uses
+  `+ Added stage BOARD/STAGE`, `~ Renamed stage BOARD/OLD to BOARD/NEW`,
+  `~ Reordered: stage BOARD/STAGE`, and `− Deleted: stage BOARD/STAGE`.
+  Automatic defer clears are narrated as `├ Cleared stage defer:` /
+  `└ Cleared stage defer:` children of the containment change or stage
+  deletion. `boards list` prints each board with its ordered stage path;
+  `board show` prints every column, including `(empty)`, without truncation,
+  and heads a board with no stages `(no stages)`.
 - Successful tag mutation lines are concise and action-prefixed:
   `Added tag NAME`, `Renamed tag OLD to NEW`,
   `Deleted tag NAME (detached from N items)`, `Tagged: KIND ID  #NAME`, and

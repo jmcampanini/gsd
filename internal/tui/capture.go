@@ -255,7 +255,7 @@ func (s *captureSubmission) register(
 
 		var err error
 		defer func() { s.finish(err) }()
-		_, err = application.Add(ctx, task.AddFields{Title: title})
+		_, err = application.Add(ctx, task.AddRequest{Title: title})
 		return captureResultMsg{err: err}
 	}
 }

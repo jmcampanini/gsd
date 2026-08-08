@@ -57,26 +57,26 @@ func TestProjectContainmentWorkflow(t *testing.T) {
 		"--project",
 		fmt.Sprint(bathroom.ID),
 	))
-	moved := decodeTask(t, runJSON(
+	moved := decodeTaskEdition(t, runJSON(
 		"edit",
 		fmt.Sprint(tiles.ID),
 		"--project",
 		fmt.Sprint(bathroom.ID),
-	))
+	)).Task
 	if !hasProject(moved, bathroom.ID) || moved.Position != bathroomFirst.Position+1 {
 		t.Errorf("moved task = %#v, want appended after %#v", moved, bathroomFirst)
 	}
-	restated := decodeTask(t, runJSON(
+	restated := decodeTaskEdition(t, runJSON(
 		"edit",
 		fmt.Sprint(tiles.ID),
 		"--project",
 		fmt.Sprint(bathroom.ID),
-	))
+	)).Task
 	if !hasProject(restated, bathroom.ID) || restated.Position != moved.Position {
 		t.Errorf("same-container edit = %#v, want membership and position unchanged from %#v", restated, moved)
 	}
 
-	returned := decodeTask(t, runJSON("edit", fmt.Sprint(tiles.ID), "--no-project"))
+	returned := decodeTaskEdition(t, runJSON("edit", fmt.Sprint(tiles.ID), "--no-project")).Task
 	if returned.ProjectID != nil || returned.Position != loose.Position+1 {
 		t.Errorf("returned task = %#v, want appended after inbox task %#v", returned, loose)
 	}

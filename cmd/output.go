@@ -13,6 +13,7 @@ import (
 	"charm.land/lipgloss/v2/table"
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/board"
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/search"
@@ -59,6 +60,7 @@ var (
 	verbCancelled  = mutationVerb{label: "Cancelled", glyph: glyphCancelled, accent: accentRed}
 	verbArchived   = mutationVerb{label: "Archived", glyph: glyphCancelled, accent: accentRed}
 	verbEdited     = mutationVerb{label: "Edited", glyph: glyphNeutral}
+	verbMoved      = mutationVerb{label: "Moved", glyph: glyphNeutral}
 	verbReopened   = mutationVerb{label: "Reopened", glyph: glyphNeutral}
 	verbReordered  = mutationVerb{label: "Reordered", glyph: glyphNeutral}
 	verbUnarchived = mutationVerb{label: "Unarchived", glyph: glyphNeutral}
@@ -126,22 +128,37 @@ func writeJSON(writer io.Writer, value any) error {
 	return nil
 }
 
-// writeCommandOutput is the JSON/human dispatch point for every site whose two
-// modes share one payload; only tagging, recursive delete, and tag rename
-// branch by hand because their JSON payloads differ. If a cross-cutting output
-// policy lands (--quiet, another machine surface such as CSV), the next
-// refactor is moving dispatch into the with*Application wrappers so it exists
-// in exactly one place.
+// renderResult is the single JSON/human dispatch point. Sites whose two modes
+// share one payload route here through writeCommandOutput; commands whose JSON
+// payload differs from the human model (flag-keyed envelopes, bare-row echoes)
+// route through the with*Output wrappers in root.go, which pair this dispatch
+// with a per-command payload selector. capture and config are not dispatch
+// sites: both reject --json outright. If another cross-cutting output surface
+// lands (--quiet, CSV), extend renderResult — dispatch exists only here.
+func renderResult[T any](
+	command *cobra.Command,
+	options *rootOptions,
+	value T,
+	jsonPayload func(T) any,
+	writeHuman func(humanOutput, T) error,
+) error {
+	if options.json {
+		return writeJSON(command.OutOrStdout(), jsonPayload(value))
+	}
+	return writeHuman(options.presentation.output(command), value)
+}
+
 func writeCommandOutput[T any](
 	command *cobra.Command,
 	options *rootOptions,
 	value T,
 	writeHuman func(humanOutput, T) error,
 ) error {
-	if options.json {
-		return writeJSON(command.OutOrStdout(), value)
-	}
-	return writeHuman(options.presentation.output(command), value)
+	return renderResult(command, options, value, samePayload[T], writeHuman)
+}
+
+func samePayload[T any](value T) any {
+	return value
 }
 
 func taskMutationWriter(verb mutationVerb) func(humanOutput, task.Task) error {
@@ -165,6 +182,18 @@ func projectResolutionWriter(verb mutationVerb) func(humanOutput, project.Resolu
 func areaMutationWriter(verb mutationVerb) func(humanOutput, area.Area) error {
 	return func(output humanOutput, current area.Area) error {
 		return output.writeAreaMutation(verb, current)
+	}
+}
+
+func boardMutationWriter(verb mutationVerb) func(humanOutput, board.Board) error {
+	return func(output humanOutput, current board.Board) error {
+		return output.writeBoardMutation(verb, current)
+	}
+}
+
+func stageMutationWriter(verb mutationVerb) func(humanOutput, board.StageResult) error {
+	return func(output humanOutput, result board.StageResult) error {
+		return output.writeStageMutation(verb, result)
 	}
 }
 
@@ -212,6 +241,68 @@ func (o humanOutput) addedTagSuffix(titles []string) string {
 		return ""
 	}
 	return "  " + o.humanTagTitles(titles)
+}
+
+func (o humanOutput) writeAddedBoard(addition board.Addition) error {
+	stages := make([]string, len(addition.Stages))
+	for index, stage := range addition.Stages {
+		stages[index] = text.Human(stage.Title, false)
+	}
+	_, err := fmt.Fprintf(
+		o.writer,
+		"%s Board: %s (%s)\n",
+		o.styles.green.Render(glyphAdded),
+		text.Human(addition.Board.Title, false),
+		strings.Join(stages, " → "),
+	)
+	return err
+}
+
+func (o humanOutput) writeAddedStage(result board.StageResult) error {
+	_, err := fmt.Fprintf(
+		o.writer,
+		"%s Added stage %s/%s\n",
+		o.styles.green.Render(glyphAdded),
+		text.Human(result.Board.Title, false),
+		text.Human(result.Stage.Title, false),
+	)
+	return err
+}
+
+func (o humanOutput) writeRenamedStage(result board.StageRenameResult) error {
+	_, err := fmt.Fprintf(
+		o.writer,
+		"%s Renamed stage %s/%s to %s/%s\n",
+		glyphNeutral,
+		text.Human(result.Board.Title, false),
+		text.Human(result.PreviousTitle, false),
+		text.Human(result.Board.Title, false),
+		text.Human(result.Stage.Title, false),
+	)
+	return err
+}
+
+func (o humanOutput) writeStageMutation(verb mutationVerb, result board.StageResult) error {
+	return o.writeStageMutationValues(verb, result.Board, result.Stage)
+}
+
+func (o humanOutput) writeStageDeletion(deletion board.StageDeletion) error {
+	if err := o.writeStageMutationValues(verbDeleted, deletion.Board, deletion.Stage); err != nil {
+		return err
+	}
+	return o.writeClearedStageDefers(deletion.ClearedDefers)
+}
+
+func (o humanOutput) writeStageMutationValues(verb mutationVerb, currentBoard board.Board, stage board.Stage) error {
+	_, err := fmt.Fprintf(
+		o.writer,
+		"%s %s: stage %s/%s\n",
+		o.verbGlyph(verb),
+		verb.label,
+		text.Human(currentBoard.Title, false),
+		text.Human(stage.Title, false),
+	)
+	return err
 }
 
 func (o humanOutput) writeAddedTag(created tag.Tag) error {
@@ -289,6 +380,21 @@ func (o humanOutput) writeAreaMutation(verb mutationVerb, current area.Area) err
 	return err
 }
 
+func (o humanOutput) writeBoardMutation(verb mutationVerb, current board.Board) error {
+	_, err := fmt.Fprintf(
+		o.writer,
+		"%s %s: board %s\n",
+		o.verbGlyph(verb),
+		verb.label,
+		text.Human(current.Title, false),
+	)
+	return err
+}
+
+func (o humanOutput) writeBoardDeletion(deletion board.Deletion) error {
+	return o.writeBoardMutation(verbDeleted, deletion.Board)
+}
+
 func (o humanOutput) writeAreaDeletion(deletion area.Deletion) error {
 	if err := o.writeAreaMutation(verbDeleted, deletion.Area); err != nil {
 		return err
@@ -312,7 +418,7 @@ func (o humanOutput) writeOpenTaskList(tasks []task.ViewTask) error {
 	for _, current := range tasks {
 		rows = append(rows, []string{
 			strconv.FormatInt(current.ID, 10),
-			text.Human(current.Title, false),
+			o.taskTitle(current.Task),
 			o.taskDateTokens(current.Task, true),
 		})
 	}
@@ -329,7 +435,7 @@ func (o humanOutput) writeTaskList(tasks []task.Task) error {
 	for _, current := range tasks {
 		rows = append(rows, []string{
 			strconv.FormatInt(current.ID, 10),
-			text.Human(current.Title, false),
+			o.taskTitle(current),
 			o.statusWord(current.Status),
 			o.taskDateTokens(current, current.Status == string(task.ListStatusOpen)),
 		})
@@ -354,6 +460,62 @@ func (o humanOutput) writeTaskMutation(verb mutationVerb, current task.Task) err
 	return err
 }
 
+func (o humanOutput) writeTaskEdition(edition task.Edition) error {
+	if err := o.writeTaskMutation(verbEdited, edition.Task); err != nil {
+		return err
+	}
+	return o.writeClearedStageDefers(edition.ClearedDefers)
+}
+
+func (o humanOutput) writeTaskCompletion(completion task.Completion) error {
+	if err := o.writeTaskMutation(verbDone, completion.Task); err != nil {
+		return err
+	}
+	if completion.Promotion == nil {
+		return nil
+	}
+	promotion := completion.Promotion
+	suffix := ""
+	if promotion.LastStage {
+		suffix = " (already at last stage)"
+	}
+	_, err := fmt.Fprintf(
+		o.writer,
+		"%s Promoted: %s %s  %s → %s%s\n",
+		glyphNeutral,
+		glyphProjectOpen,
+		o.styles.faint.Render(strconv.FormatInt(promotion.Project.ID, 10)),
+		text.Human(promotion.Project.Title, false),
+		text.Human(promotion.StageTitle, false),
+		suffix,
+	)
+	return err
+}
+
+func (o humanOutput) writeClearedStageDefers(tasks []task.Task) error {
+	idWidth := 0
+	for _, current := range tasks {
+		idWidth = max(idWidth, len(strconv.FormatInt(current.ID, 10)))
+	}
+	for index, current := range tasks {
+		branch := glyphBranch
+		if index == len(tasks)-1 {
+			branch = glyphLastBranch
+		}
+		id := padRight(strconv.FormatInt(current.ID, 10), idWidth)
+		if _, err := fmt.Fprintf(
+			o.writer,
+			"  %s Cleared stage defer: %s  %s\n",
+			o.styles.faint.Render(branch),
+			o.styles.faint.Render(id),
+			text.Human(current.Title, false),
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (o humanOutput) writeProjectMutation(verb mutationVerb, current project.Project) error {
 	_, err := fmt.Fprintf(
 		o.writer,
@@ -362,6 +524,44 @@ func (o humanOutput) writeProjectMutation(verb mutationVerb, current project.Pro
 		verb.label,
 		o.styles.faint.Render(strconv.FormatInt(current.ID, 10)),
 		text.Human(current.Title, false),
+	)
+	return err
+}
+
+func (o humanOutput) writeProjectBoardEdit(edition project.Edition) error {
+	destination := "(no board)"
+	if edition.Location != nil {
+		destination = text.Human(edition.Location.BoardTitle, false) + "/" +
+			text.Human(edition.Location.StageTitle, false)
+	}
+	if err := o.writeProjectBoardMutation(verbEdited, edition.Project, destination); err != nil {
+		return err
+	}
+	return o.writeClearedStageDefers(edition.ClearedDefers)
+}
+
+func (o humanOutput) writeProjectMovement(movement project.Movement) error {
+	return o.writeProjectBoardMutation(
+		verbMoved,
+		movement.Project,
+		text.Human(movement.StageTitle, false),
+	)
+}
+
+func (o humanOutput) writeProjectBoardMutation(
+	verb mutationVerb,
+	current project.Project,
+	destination string,
+) error {
+	_, err := fmt.Fprintf(
+		o.writer,
+		"%s %s: %s %s  %s → %s\n",
+		o.verbGlyph(verb),
+		verb.label,
+		o.projectGlyph(current.Status),
+		o.styles.faint.Render(strconv.FormatInt(current.ID, 10)),
+		text.Human(current.Title, false),
+		destination,
 	)
 	return err
 }
@@ -444,6 +644,74 @@ func (o humanOutput) writeProjectList(projects []project.Project) error {
 	)
 }
 
+func (o humanOutput) writeBoardList(boards []board.ListedBoard) error {
+	rows := make([][]string, 0, len(boards))
+	for _, current := range boards {
+		stages := make([]string, len(current.Stages))
+		for index, stage := range current.Stages {
+			stages[index] = text.Human(stage.Title, false)
+		}
+		rows = append(rows, []string{
+			text.Human(current.Title, false),
+			strings.Join(stages, " → "),
+		})
+	}
+	return o.writeCollection([]string{"board", "stages"}, rows, -1, 1)
+}
+
+func (o humanOutput) writeBoard(shown board.Show) error {
+	stageTitles := make([]string, len(shown.Stages))
+	stageWidth := 0
+	projectIDWidth := 0
+	projectTitleWidth := 0
+	for index, stage := range shown.Stages {
+		stageTitles[index] = text.Human(stage.Title, false)
+		stageWidth = max(stageWidth, lipgloss.Width(stageTitles[index]))
+		for _, current := range stage.Projects {
+			projectIDWidth = max(projectIDWidth, len(strconv.FormatInt(current.ID, 10)))
+			projectTitleWidth = max(projectTitleWidth, lipgloss.Width(text.Human(current.Title, false)))
+		}
+	}
+
+	headline := "(no stages)"
+	if len(stageTitles) > 0 {
+		headline = strings.Join(stageTitles, " → ")
+	}
+	if _, err := fmt.Fprintf(o.writer, "%s  %s\n", text.Human(shown.Board.Title, false), headline); err != nil {
+		return err
+	}
+	for index, stage := range shown.Stages {
+		stageTitle := padRight(stageTitles[index], stageWidth)
+		if len(stage.Projects) == 0 {
+			if _, err := fmt.Fprintf(o.writer, "  %s  %s\n", stageTitle, o.styles.faint.Render("(empty)")); err != nil {
+				return err
+			}
+			continue
+		}
+		for projectIndex, current := range stage.Projects {
+			visibleStage := strings.Repeat(" ", stageWidth)
+			if projectIndex == 0 {
+				visibleStage = stageTitle
+			}
+			id := padRight(strconv.FormatInt(current.ID, 10), projectIDWidth)
+			title := padRight(text.Human(current.Title, false), projectTitleWidth)
+			if _, err := fmt.Fprintf(
+				o.writer,
+				"  %s  %s %s  %s  %d/%d\n",
+				visibleStage,
+				glyphProjectOpen,
+				o.styles.faint.Render(id),
+				title,
+				current.Progress.Done,
+				current.Progress.Total,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (o humanOutput) writeTagList(tags []tag.ListedTag) error {
 	nameWidth := 0
 	visible := make([]string, len(tags))
@@ -498,21 +766,21 @@ func (o humanOutput) writeSearchHits(hits []search.Hit) error {
 				return fmt.Errorf("render search hit: task row is missing")
 			}
 			id = hit.Task.ID
-			title = hit.Task.Title
+			title = o.taskTitle(*hit.Task)
 			status = o.statusWord(hit.Task.Status)
 		case search.KindProject:
 			if hit.Project == nil {
 				return fmt.Errorf("render search hit: project row is missing")
 			}
 			id = hit.Project.ID
-			title = hit.Project.Title
+			title = text.Human(hit.Project.Title, false)
 			status = o.statusWord(hit.Project.Status)
 		case search.KindArea:
 			if hit.Area == nil {
 				return fmt.Errorf("render search hit: area row is missing")
 			}
 			id = hit.Area.ID
-			title = hit.Area.Title
+			title = text.Human(hit.Area.Title, false)
 			if hit.Area.ArchivedAt != nil {
 				status = o.styles.faintRed.Render("archived")
 			}
@@ -530,7 +798,7 @@ func (o humanOutput) writeSearchHits(hits []search.Hit) error {
 		rows = append(rows, []string{
 			text.Human(hit.Kind, false),
 			strconv.FormatInt(id, 10),
-			text.Human(title, false),
+			title,
 			status,
 			strings.Join(contextTitles, " · "),
 		})
@@ -581,6 +849,8 @@ func (o humanOutput) writeTask(current task.Task) error {
 		{Label: "note", Value: text.Human(current.Note, true)},
 		{Label: "due on", Value: o.detailDueDate(current)},
 		{Label: "defer until", Value: o.metadata(text.Human(nullableString(current.DeferUntil), false))},
+		{Label: "defer stage", Value: o.metadata(text.Human(nullableString(current.DeferStageTitle), false))},
+		{Label: "promotes", Value: o.metadata(strconv.FormatBool(current.Promotes))},
 		{Label: "done at", Value: o.metadata(text.Human(nullableString(current.DoneAt), false))},
 		{Label: "cancelled at", Value: o.metadata(text.Human(nullableString(current.CancelledAt), false))},
 		{Label: "status", Value: o.statusWord(current.Status)},
@@ -589,18 +859,19 @@ func (o humanOutput) writeTask(current task.Task) error {
 		{Label: "updated at", Value: o.metadata(text.Human(current.UpdatedAt, false))},
 		{Label: "tags", Value: o.humanTagTitles(current.Tags)},
 	}
-	return o.writeDetail(glyph, current.ID, current.Title, fields)
+	return o.writeDetail(glyph, current.ID, o.taskTitle(current), fields)
 }
 
-func (o humanOutput) writeProject(current project.Project) error {
-	glyph := glyphProjectOpen
-	if current.Status == string(project.ListStatusDone) {
-		glyph = o.styles.green.Render(glyphDone)
-	} else if current.Status == string(project.ListStatusCancelled) {
-		glyph = o.styles.red.Render(glyphCancelled)
+func (o humanOutput) writeProject(detail project.Detail) error {
+	current := detail.Project
+	boardLocation := ""
+	if detail.Location != nil {
+		boardLocation = text.Human(detail.Location.BoardTitle, false) + "/" +
+			text.Human(detail.Location.StageTitle, false)
 	}
 	fields := []detailField{
 		{Label: "area", Value: o.metadata(nullableInt64(current.AreaID))},
+		{Label: "board", Value: o.metadata(boardLocation)},
 		{Label: "note", Value: text.Human(current.Note, true)},
 		{Label: "done at", Value: o.metadata(text.Human(nullableString(current.DoneAt), false))},
 		{Label: "cancelled at", Value: o.metadata(text.Human(nullableString(current.CancelledAt), false))},
@@ -610,7 +881,18 @@ func (o humanOutput) writeProject(current project.Project) error {
 		{Label: "updated at", Value: o.metadata(text.Human(current.UpdatedAt, false))},
 		{Label: "tags", Value: o.humanTagTitles(current.Tags)},
 	}
-	return o.writeDetail(glyph, current.ID, current.Title, fields)
+	return o.writeDetail(o.projectGlyph(current.Status), current.ID, text.Human(current.Title, false), fields)
+}
+
+func (o humanOutput) projectGlyph(status string) string {
+	switch status {
+	case string(project.ListStatusDone):
+		return o.styles.green.Render(glyphDone)
+	case string(project.ListStatusCancelled):
+		return o.styles.red.Render(glyphCancelled)
+	default:
+		return glyphProjectOpen
+	}
 }
 
 func (o humanOutput) writeArea(current area.Area) error {
@@ -626,7 +908,7 @@ func (o humanOutput) writeArea(current area.Area) error {
 		{Label: "updated at", Value: o.metadata(text.Human(current.UpdatedAt, false))},
 		{Label: "tags", Value: o.humanTagTitles(current.Tags)},
 	}
-	return o.writeDetail(glyph, current.ID, current.Title, fields)
+	return o.writeDetail(glyph, current.ID, text.Human(current.Title, false), fields)
 }
 
 type detailField struct {
@@ -640,7 +922,7 @@ func (o humanOutput) writeDetail(glyph string, id int64, title string, fields []
 		"%s %s  %s\n",
 		glyph,
 		o.styles.faint.Render(strconv.FormatInt(id, 10)),
-		text.Human(title, false),
+		title,
 	); err != nil {
 		return err
 	}
@@ -765,8 +1047,16 @@ func (o humanOutput) writeCollection(
 	return err
 }
 
+func (o humanOutput) taskTitle(current task.Task) string {
+	title := text.Human(current.Title, false)
+	if current.Promotes {
+		title += " " + o.styles.faint.Render("↑")
+	}
+	return title
+}
+
 func (o humanOutput) taskDateTokens(current task.Task, urgent bool) string {
-	tokens := make([]string, 0, 2)
+	tokens := make([]string, 0, 3)
 	if current.DueOn != nil {
 		value := "due " + text.Human(*current.DueOn, false)
 		if urgent && *current.DueOn <= o.today {
@@ -777,6 +1067,9 @@ func (o humanOutput) taskDateTokens(current task.Task, urgent bool) string {
 	}
 	if current.DeferUntil != nil {
 		tokens = append(tokens, o.styles.faint.Render("defer "+text.Human(*current.DeferUntil, false)))
+	}
+	if current.DeferStageTitle != nil {
+		tokens = append(tokens, o.styles.faint.Render("defer→"+text.Human(*current.DeferStageTitle, false)))
 	}
 	return strings.Join(tokens, " ")
 }
