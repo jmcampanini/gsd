@@ -210,8 +210,8 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Editio
 
 	timestamp := domain.FormatTimestamp(s.now())
 	result := Edition{ClearedDefers: []task.Task{}}
-	membershipRequested := fields.Area.Set != nil || fields.Area.Clear ||
-		fields.Board.Set != nil || fields.Board.Clear
+	boardRequested := fields.Board.Set != nil || fields.Board.Clear
+	membershipRequested := fields.Area.Set != nil || fields.Area.Clear || boardRequested
 	if !membershipRequested {
 		updated := UpdateFields{Title: fields.Title, Note: fields.Note}
 		edited, err := s.store.Edit(ctx, id, updated, timestamp)
@@ -230,7 +230,6 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Editio
 		updated := UpdateFields{Area: fields.Area, Title: fields.Title, Note: fields.Note}
 
 		var currentStage *StageReference
-		boardRequested := fields.Board.Set != nil || fields.Board.Clear
 		if boardRequested && current.StageID != nil {
 			stage, err := store.FindStageByID(ctx, *current.StageID)
 			if err != nil {
@@ -597,30 +596,25 @@ func resolveEditAreas(
 }
 
 func containmentConflict(action string, current Project, areas ...AreaReference) error {
-	resolvedIDs := []int64{}
-	if current.ID != 0 && (current.DoneAt != nil || current.CancelledAt != nil ||
-		(current.Status != "" && current.Status != string(ListStatusOpen))) {
-		resolvedIDs = append(resolvedIDs, current.ID)
-	}
+	resolved := current.ID != 0 && (current.DoneAt != nil || current.CancelledAt != nil ||
+		(current.Status != "" && current.Status != string(ListStatusOpen)))
 	archivedIDs := make([]int64, 0, len(areas))
 	for _, currentArea := range areas {
 		if currentArea.ArchivedAt != nil {
 			archivedIDs = append(archivedIDs, currentArea.ID)
 		}
 	}
-	if len(resolvedIDs) == 0 && len(archivedIDs) == 0 {
+	if !resolved && len(archivedIDs) == 0 {
 		return nil
 	}
 
-	slices.Sort(resolvedIDs)
-	resolvedIDs = slices.Compact(resolvedIDs)
 	slices.Sort(archivedIDs)
 	archivedIDs = slices.Compact(archivedIDs)
 	blockers := make([]string, 0, 2)
 	causes := make([]error, 0, 2)
-	if len(resolvedIDs) > 0 {
-		blockers = append(blockers, fmt.Sprintf("project %d is resolved", resolvedIDs[0]))
-		causes = append(causes, &ResolvedProjectsError{IDs: resolvedIDs})
+	if resolved {
+		blockers = append(blockers, fmt.Sprintf("project %d is resolved", current.ID))
+		causes = append(causes, &ResolvedProjectsError{IDs: []int64{current.ID}})
 	}
 	if len(archivedIDs) == 1 {
 		blockers = append(blockers, fmt.Sprintf("area %d is archived", archivedIDs[0]))

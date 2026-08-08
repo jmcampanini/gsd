@@ -517,7 +517,6 @@ RETURNING `+projectColumnsWithTags("projects.id"), stageID, stageID, timestamp, 
 		if placement.Anchor == "" || placement.Anchor == domain.PlacementLast {
 			return updated, nil
 		}
-		moved = updated
 	} else if placement.Anchor == "" {
 		return moved, nil
 	}
