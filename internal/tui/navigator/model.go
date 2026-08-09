@@ -711,14 +711,10 @@ func boardRows(items []board.ListedBoard) []row {
 func areaRows(items []area.Area) []row {
 	rows := make([]row, 0, len(items)+1)
 	for _, item := range items {
-		state := ""
-		if item.ArchivedAt != nil {
-			state = "archived"
-		}
 		id := strconv.FormatInt(item.ID, 10)
 		rows = append(rows, descendingRow(
 			"area:"+id,
-			[]string{id, item.Title, state},
+			[]string{id, item.Title, archivedStatus(item.ArchivedAt)},
 			viewKey{kind: viewArea, id: item.ID},
 		))
 	}

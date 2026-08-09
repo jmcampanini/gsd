@@ -88,7 +88,7 @@ func boardDetail(shown board.Show) detailView {
 	fields := make([]detailField, 0, 5)
 	fields = appendDetailNote(fields, current.Note)
 	fields = appendDetailField(fields, "position", strconv.FormatInt(current.Position, 10))
-	fields = appendDetailField(fields, "stages", strings.Join(stages, " → "))
+	fields = appendDetailField(fields, "stages", joinStages(stages))
 	fields = appendDetailField(fields, "created at", current.CreatedAt)
 	fields = appendDetailField(fields, "updated at", current.UpdatedAt)
 	return detailView{kind: detailBoard, id: current.ID, title: current.Title, fields: fields}
