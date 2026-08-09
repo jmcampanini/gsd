@@ -3,7 +3,6 @@ package navigator
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strconv"
 	"time"
 
@@ -170,7 +169,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch message.String() {
-	case "q":
+	case "q", "ctrl+c":
 		return m, tea.Quit
 	case "esc":
 		if len(m.stack) == 1 {
@@ -389,25 +388,11 @@ func logbookRows(entries []logbook.Entry, location *time.Location) ([]row, error
 }
 
 func boardRows(items []board.ListedBoard) []row {
-	items = slices.Clone(items)
-	slices.SortStableFunc(items, func(left, right board.ListedBoard) int {
-		if left.Position != right.Position {
-			return compareInt64(left.Position, right.Position)
-		}
-		return compareInt64(left.ID, right.ID)
-	})
 	rows := make([]row, 0, len(items))
 	for _, item := range items {
-		stages := slices.Clone(item.Stages)
-		slices.SortStableFunc(stages, func(left, right board.Stage) int {
-			if left.Position != right.Position {
-				return compareInt64(left.Position, right.Position)
-			}
-			return compareInt64(left.ID, right.ID)
-		})
-		stageTitles := make([]string, len(stages))
-		for index := range stages {
-			stageTitles[index] = stages[index].Title
+		stageTitles := make([]string, len(item.Stages))
+		for index := range item.Stages {
+			stageTitles[index] = item.Stages[index].Title
 		}
 		rows = append(rows, row{
 			identity: "board:" + strconv.FormatInt(item.ID, 10),
@@ -418,13 +403,6 @@ func boardRows(items []board.ListedBoard) []row {
 }
 
 func areaRows(items []area.Area) []row {
-	items = slices.Clone(items)
-	slices.SortStableFunc(items, func(left, right area.Area) int {
-		if left.Position != right.Position {
-			return compareInt64(left.Position, right.Position)
-		}
-		return compareInt64(left.ID, right.ID)
-	})
 	rows := make([]row, 0, len(items)+1)
 	for _, item := range items {
 		state := ""
@@ -437,14 +415,4 @@ func areaRows(items []area.Area) []row {
 		})
 	}
 	return append(rows, row{identity: "area:none", cells: []string{"", "(no area)", ""}})
-}
-
-func compareInt64(left, right int64) int {
-	if left < right {
-		return -1
-	}
-	if left > right {
-		return 1
-	}
-	return 0
 }

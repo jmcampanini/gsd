@@ -57,8 +57,8 @@ until consolidation.
   truncate to the terminal width with `…` and never wrap.
 - **Navigation.** `j`/`k`/arrows move; Enter descends into a
   container or opens a detail; Esc/`h` goes back; Esc clears an
-  active filter before it navigates; Esc at the root quits, like `q`,
-  from anywhere. `l` is not an alias for Enter, and `←`/`→` stay
+  active filter before it navigates; Esc at the root quits, while `q`
+  and Ctrl+C quit from anywhere. `l` is not an alias for Enter, and `←`/`→` stay
   unbound, reserved for Milestone 13's columns. The view stack keeps
   one cursor per view, restored by entity identity when returning and
   clamped when the row has vanished.

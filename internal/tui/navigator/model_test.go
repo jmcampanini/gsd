@@ -170,8 +170,10 @@ func TestRootNavigationPushPopAndQuit(t *testing.T) {
 	_, rootQuit := press(t, current, "esc")
 	assertQuit(t, rootQuit)
 	child, _ := press(t, current, "enter")
-	_, anywhereQuit := press(t, child, "q")
-	assertQuit(t, anywhereQuit)
+	for _, key := range []string{"q", "ctrl+c"} {
+		_, anywhereQuit := press(t, child, key)
+		assertQuit(t, anywhereQuit)
+	}
 	back, command := press(t, child, "h")
 	if command != nil || len(back.stack) != 1 {
 		t.Errorf("h from child stack/command = %d/%v, want root", len(back.stack), command)
@@ -307,15 +309,15 @@ func TestTaskAndLogbookRowsMirrorCLIColumns(t *testing.T) {
 func TestBoardAndAreaRowsUseServiceOrderContractsAndApprovedShape(t *testing.T) {
 	dependencies, _, areas, boards, _ := testDependencies()
 	boards.items = []board.ListedBoard{
+		{Board: board.Board{ID: 1, Title: "First", Position: 1}},
 		{
 			Board: board.Board{ID: 2, Title: "Second", Position: 2},
 			Stages: []board.Stage{
-				{ID: 22, Title: "Review", Position: 3},
 				{ID: 20, Title: "Research", Position: 1},
 				{ID: 21, Title: "Doing", Position: 2},
+				{ID: 22, Title: "Review", Position: 3},
 			},
 		},
-		{Board: board.Board{ID: 1, Title: "First", Position: 1}},
 	}
 	boardView := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), 3).View().Content
 	if strings.Index(boardView, "First") > strings.Index(boardView, "Second") {
@@ -328,8 +330,8 @@ func TestBoardAndAreaRowsUseServiceOrderContractsAndApprovedShape(t *testing.T) 
 	}
 
 	areas.items = []area.Area{
-		{ID: 8, Title: "Work", Position: 2},
 		{ID: 4, Title: "Home", Position: 1},
+		{ID: 8, Title: "Work", Position: 2},
 	}
 	areaView := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), 4).View().Content
 	if len(areas.options) != 1 || areas.options[0].Slice != area.ListSliceActive {
@@ -402,6 +404,8 @@ func press(t *testing.T, current model, key string) (model, tea.Cmd) {
 	t.Helper()
 	message := tea.KeyPressMsg{Text: key, Code: []rune(key)[0]}
 	switch key {
+	case "ctrl+c":
+		message = tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 	case "enter":
 		message = tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "esc":
