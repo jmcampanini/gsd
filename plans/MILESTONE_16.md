@@ -195,8 +195,3 @@ Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
       (amending the single-key config statement).
 - [ ] The deferred list above is re-homed durably (`MILESTONES.md`
       decisions or `API.md`) before this file is retired.
-
-## Standards
-
-CLI-CMD-002/003, CLI-OUTPUT-003; HTTP-applicable standards re-checked at
-plan gate.

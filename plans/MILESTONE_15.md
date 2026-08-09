@@ -49,8 +49,3 @@ fields; runner mode round-trips a full command.
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
 - [ ] `COMMANDS.md` documents the capture syntax and runner mode.
-
-## Standards
-
-CLI-CMD-002/003, CLI-OUTPUT-001/003; TUI-applicable standards re-checked
-at plan gate.

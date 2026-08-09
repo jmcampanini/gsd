@@ -1,4 +1,3 @@
-# cli-standards: CLI-GO-001, CLI-QUALITY-001, CLI-SEC-002
 name: Check
 
 on:

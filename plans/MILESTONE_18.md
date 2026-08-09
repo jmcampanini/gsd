@@ -36,7 +36,3 @@ sit in each stage?"
 
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)); real criteria
 are written at activation.
-
-## Standards
-
-Settled at activation.

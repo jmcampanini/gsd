@@ -196,8 +196,7 @@ gsd capture
 - Chrome: a `gsd` badge as the input prompt, a continuous input band,
   and a faint `enter add · esc cancel` footer that reports transient
   `adding` / `canceling` statuses while an in-flight write settles.
-  Color follows
-  CLI-OUTPUT-001 (`--color` > nonempty `NO_COLOR` > per-stream auto);
+  Color follows `--color` > nonempty `NO_COLOR` > per-stream auto;
   light/dark accents are detected in-program from the terminal
   background, the cursor stays terminal-default, and structure is
   identical uncolored.
@@ -477,7 +476,7 @@ gsd capture
   adding any future sensitive key.
 - Color accepts `--color=auto|always|never` with an explicit value.
   Resolution is the explicit `--color` flag, then nonempty `NO_COLOR`, then
-  destination-aware `auto`, evaluated per output stream (CLI-OUTPUT-001/002).
+  destination-aware `auto`, evaluated per output stream.
   Auto disables color for non-terminals and `TERM=dumb`; `FORCE_COLOR`,
   `CLICOLOR`, and `CLICOLOR_FORCE` are not consulted. JSON output never
   contains ANSI sequences, including under `--color=always`.
