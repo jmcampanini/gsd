@@ -9,7 +9,7 @@ consolidation. This plan is temporary and is retired at consolidation.
 
 - [x] Chunk 1 — The skeleton stands
 - [x] Chunk 2 — Every hall opens
-- [ ] Chunk 3 — Every door opens
+- [x] Chunk 3 — Every door opens
 - [ ] Chunk 4 — Type to find
 
 There is no chunk 0: the Milestone 11 foundation review scheduled
@@ -272,30 +272,30 @@ freshness proven live.
 
 Implementation:
 
-- [ ] `internal/tui/navigator` detail view: one renderer for task,
+- [x] `internal/tui/navigator` detail view: one renderer for task,
       project, area, and board mirroring `show`'s field order per the
       settled design; empty fields collapse; notes escaped with line
       feeds preserved; the promotes marker matches the CLI.
-- [ ] Enter/`l` wiring: task, project, and area rows in every list —
+- [x] Enter/`l` wiring: task, project, and area rows in every list —
       including logbook rows — open that entity's detail; container
       headers open the container's detail; detail has no cursor and
       no filter; Esc pops.
-- [ ] Data: `task.Show`, `project.Show` (with the board/stage
+- [x] Data: `task.Show`, `project.Show` (with the board/stage
       location), `area.Show`, `board.ShowByID`.
 
 Verification (primary owner: navigator model tests with fake
 dependencies):
 
-- [ ] Model: field order and values per kind — the project's
+- [x] Model: field order and values per kind — the project's
       `Board/Stage` row, defer-stage and promotes rows, the board's
       stage list — with empty-field collapse and control-character
       escaping in notes.
-- [ ] Model: Enter/`l` targets rows versus headers correctly; logbook
+- [x] Model: Enter/`l` targets rows versus headers correctly; logbook
       rows open task and project details; an entity deleted
       mid-session renders its `not_found` inline and Esc backs out.
-- [ ] Model: pop-return re-calls the list loader, so a mutated entity
+- [x] Model: pop-return re-calls the list loader, so a mutated entity
       shows its new state.
-- [ ] `make check` green.
+- [x] `make check` green.
 
 Human proof (chunk demo `.sandbox/demos/12-chunk-3.html`), exact
 commands:
@@ -310,7 +310,7 @@ gsd --db .sandbox/demo12.db edit 2 --note "under the sink"
     # back in the TUI: Esc, re-enter the task — the note is there; q
 ```
 
-- [ ] Agent verification before review: build the real binary, drive
+- [x] Agent verification before review: build the real binary, drive
       the command list in tmux against a fresh temporary database,
       capture the frames into the deck, and pass local `make check`.
 

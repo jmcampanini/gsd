@@ -19,6 +19,7 @@ type TaskReader interface {
 	Inbox(context.Context) ([]task.ViewTask, error)
 	Available(context.Context) ([]task.ViewTask, error)
 	List(context.Context, task.ListOptions) ([]task.Task, error)
+	Show(context.Context, int64) (task.Task, error)
 }
 
 type ProjectReader interface {
@@ -75,6 +76,10 @@ const (
 	viewProject
 	viewBoard
 	viewNoArea
+	viewTaskDetail
+	viewProjectDetail
+	viewAreaDetail
+	viewBoardDetail
 )
 
 type viewKey struct {
@@ -108,10 +113,35 @@ type section struct {
 	rows       []row
 }
 
+type detailKind uint8
+
+const (
+	detailTask detailKind = iota
+	detailProject
+	detailArea
+	detailBoard
+)
+
+type detailField struct {
+	label             string
+	value             string
+	preserveLineFeeds bool
+}
+
+type detailView struct {
+	kind     detailKind
+	id       int64
+	title    string
+	status   string
+	promotes bool
+	fields   []detailField
+}
+
 type loadedView struct {
 	plainTitle string
 	header     *row
 	sections   []section
+	detail     *detailView
 }
 
 type cursorState struct {
@@ -224,8 +254,20 @@ func (m model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (m *model) move(delta int) {
 	current := m.top()
+	if current.loading || current.err != nil {
+		return
+	}
+	if current.detail != nil {
+		lines, _ := m.renderLines(current)
+		maximum := 0
+		if m.height > 0 {
+			maximum = max(len(lines)-m.height, 0)
+		}
+		current.offset = clamp(current.offset+delta, 0, maximum)
+		return
+	}
 	rows := current.selectableRows()
-	if current.loading || current.err != nil || len(rows) == 0 {
+	if len(rows) == 0 {
 		return
 	}
 	current.cursor = clamp(current.cursor+delta, 0, len(rows)-1)
@@ -306,6 +348,14 @@ func (m model) loadView(key viewKey) (loadedView, error) {
 		return m.loadBoard(key.id)
 	case viewNoArea:
 		return m.loadNoArea()
+	case viewTaskDetail:
+		return m.loadTaskDetail(key.id)
+	case viewProjectDetail:
+		return m.loadProjectDetail(key.id)
+	case viewAreaDetail:
+		return m.loadAreaDetail(key.id)
+	case viewBoardDetail:
+		return m.loadBoardDetail(key.id)
 	case viewRoot:
 		return loadedView{}, fmt.Errorf("root view has no loader")
 	default:
@@ -459,6 +509,42 @@ func (m model) loadNoArea() (loadedView, error) {
 	}, nil
 }
 
+func (m model) loadTaskDetail(id int64) (loadedView, error) {
+	shown, err := m.dependencies.Tasks.Show(m.ctx, id)
+	if err != nil {
+		return loadedView{}, err
+	}
+	detail := taskDetail(shown)
+	return loadedView{detail: &detail}, nil
+}
+
+func (m model) loadProjectDetail(id int64) (loadedView, error) {
+	shown, err := m.dependencies.Projects.Show(m.ctx, id)
+	if err != nil {
+		return loadedView{}, err
+	}
+	detail := projectDetail(shown)
+	return loadedView{detail: &detail}, nil
+}
+
+func (m model) loadAreaDetail(id int64) (loadedView, error) {
+	shown, err := m.dependencies.Areas.Show(m.ctx, id)
+	if err != nil {
+		return loadedView{}, err
+	}
+	detail := areaDetail(shown)
+	return loadedView{detail: &detail}, nil
+}
+
+func (m model) loadBoardDetail(id int64) (loadedView, error) {
+	shown, err := m.dependencies.Boards.ShowByID(m.ctx, id)
+	if err != nil {
+		return loadedView{}, err
+	}
+	detail := boardDetail(shown)
+	return loadedView{detail: &detail}, nil
+}
+
 func (m model) applyLoad(message loadResultMsg) model {
 	current := m.top()
 	if current.key != message.key || current.generation != message.generation {
@@ -489,6 +575,9 @@ func (m *model) top() *frame {
 }
 
 func (f frame) selectableRows() []row {
+	if f.detail != nil {
+		return nil
+	}
 	count := 0
 	if f.header != nil {
 		count++
@@ -550,14 +639,11 @@ func viewTaskRows(items []task.ViewTask) []row {
 	rows := make([]row, 0, len(items))
 	for _, item := range items {
 		id := strconv.FormatInt(item.ID, 10)
-		rows = append(rows, row{
-			identity: "task:" + id,
-			cells: []string{
-				id,
-				taskTitle(item.Task),
-				taskDates(item.Task),
-			},
-		})
+		rows = append(rows, descendingRow(
+			"task:"+id,
+			[]string{id, taskTitle(item.Task), taskDates(item.Task)},
+			viewKey{kind: viewTaskDetail, id: item.ID},
+		))
 	}
 	return rows
 }
@@ -566,15 +652,11 @@ func listedTaskRows(items []task.Task) []row {
 	rows := make([]row, 0, len(items))
 	for _, item := range items {
 		id := strconv.FormatInt(item.ID, 10)
-		rows = append(rows, row{
-			identity: "task:" + id,
-			cells: []string{
-				id,
-				taskTitle(item),
-				item.Status,
-				taskDates(item),
-			},
-		})
+		rows = append(rows, descendingRow(
+			"task:"+id,
+			[]string{id, taskTitle(item), item.Status, taskDates(item)},
+			viewKey{kind: viewTaskDetail, id: item.ID},
+		))
 	}
 	return rows
 }
@@ -587,16 +669,26 @@ func logbookRows(entries []logbook.Entry, location *time.Location) ([]row, error
 			return nil, fmt.Errorf("parse logbook resolved_at for %s %d: %w", entry.Kind, entry.ID, err)
 		}
 		id := strconv.FormatInt(entry.ID, 10)
-		rows = append(rows, row{
-			identity: entry.Kind + ":" + id,
-			cells: []string{
+		var destination viewKey
+		switch entry.Kind {
+		case "task":
+			destination = viewKey{kind: viewTaskDetail, id: entry.ID}
+		case "project":
+			destination = viewKey{kind: viewProjectDetail, id: entry.ID}
+		default:
+			return nil, fmt.Errorf("unknown logbook entry kind %q", entry.Kind)
+		}
+		rows = append(rows, descendingRow(
+			entry.Kind+":"+id,
+			[]string{
 				entry.Kind,
 				id,
 				entry.Title,
 				entry.Status,
 				resolvedAt.In(location).Format(time.DateOnly),
 			},
-		})
+			destination,
+		))
 	}
 	return rows, nil
 }
@@ -675,11 +767,20 @@ func descendingRow(identity string, cells []string, destination viewKey) row {
 
 func containerHeader(style rowStyle, id int64, title string) row {
 	formattedID := strconv.FormatInt(id, 10)
-	return row{
-		identity: "header:" + formattedID,
-		cells:    []string{formattedID, title},
-		style:    style,
+	kind := viewAreaDetail
+	switch style {
+	case rowProjectHeader:
+		kind = viewProjectDetail
+	case rowBoardHeader:
+		kind = viewBoardDetail
 	}
+	header := descendingRow(
+		"header:"+formattedID,
+		[]string{formattedID, title},
+		viewKey{kind: kind, id: id},
+	)
+	header.style = style
+	return header
 }
 
 func taskViewSection(rows []row) section {
