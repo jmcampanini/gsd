@@ -82,7 +82,7 @@ func (m model) renderSection(current section, cursor, selectionOffset int) ([]st
 		lines = append(lines, m.fit("  "+m.dim(text.Human(current.title, false))))
 	}
 	if len(current.rows) == 0 {
-		if current.showEmpty {
+		if current.title != "" {
 			lines = append(lines, m.fit("  "+m.dim("(empty)")))
 		}
 		return lines, selectedLine
@@ -94,14 +94,11 @@ func (m model) renderSection(current section, cursor, selectionOffset int) ([]st
 		visibleRows[rowIndex] = visibleCells(current.rows[rowIndex].cells)
 		columnCount = max(columnCount, len(visibleRows[rowIndex]))
 	}
-	visibleHeaders := []string(nil)
-	if current.showColumns {
-		visibleHeaders = visibleCells(current.columns)
-	}
+	visibleHeaders := visibleCells(current.columns)
 	widths := tableWidths(visibleHeaders, visibleRows, columnCount)
 	widths = m.fitTableWidths(widths, current.flexColumn, current.firstGap)
 
-	if current.showColumns {
+	if len(visibleHeaders) > 0 {
 		header := renderCells(visibleHeaders, widths, current.rightAlign, current.firstGap)
 		lines = append(lines, m.fit("  "+m.dim(header)))
 	}

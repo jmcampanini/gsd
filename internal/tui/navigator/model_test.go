@@ -50,10 +50,6 @@ func (f *fakeTasks) List(_ context.Context, options task.ListOptions) ([]task.Ta
 	return response, f.listErr
 }
 
-func (*fakeTasks) Show(context.Context, int64) (task.Task, error) {
-	return task.Task{}, nil
-}
-
 type fakeProjects struct {
 	responses     [][]project.Project
 	showResponses []project.Detail
@@ -826,8 +822,9 @@ func assertQuit(t *testing.T, command tea.Cmd) {
 	if command == nil {
 		t.Fatal("quit command = nil")
 	}
-	if _, ok := command().(tea.QuitMsg); !ok {
-		t.Errorf("quit command result = %T, want tea.QuitMsg", command())
+	result := command()
+	if _, ok := result.(tea.QuitMsg); !ok {
+		t.Errorf("quit command result = %T, want tea.QuitMsg", result)
 	}
 }
 
