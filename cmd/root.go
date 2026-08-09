@@ -22,6 +22,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/jmcampanini/gsd/internal/tui"
+	"github.com/jmcampanini/gsd/internal/tui/navigator"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -101,21 +102,29 @@ func newRootCommandWithRuntimeDependencies(
 	location *time.Location,
 	presentationDependencies presentationDependencies,
 ) *cobra.Command {
-	return newRootCommandWithCaptureRunner(
+	return newRootCommandWithRunners(
 		factory,
 		loadConfiguration,
 		location,
 		presentationDependencies,
-		tui.RunCapture,
+		runners{
+			capture:   tui.RunCapture,
+			navigator: navigator.Run,
+		},
 	)
 }
 
-func newRootCommandWithCaptureRunner(
+type runners struct {
+	capture   captureRunner
+	navigator navigatorRunner
+}
+
+func newRootCommandWithRunners(
 	factory applicationFactory,
 	loadConfiguration configurationLoader,
 	location *time.Location,
 	presentationDependencies presentationDependencies,
-	runCapture captureRunner,
+	runners runners,
 ) *cobra.Command {
 	options := &rootOptions{color: colorAuto}
 	availablePresentation := &presentation{
@@ -154,7 +163,7 @@ func newRootCommandWithCaptureRunner(
 		newBoardCommand(options, factory),
 		newBoardsCommand(options, factory),
 		newCancelCommand(options, factory),
-		newCaptureCommand(options, factory, runCapture),
+		newCaptureCommand(options, factory, runners.capture),
 		newConfigCommand(options, loadConfiguration),
 		newDeleteCommand(options, factory),
 		newDoneCommand(options, factory),
@@ -172,6 +181,7 @@ func newRootCommandWithCaptureRunner(
 		newStagesCommand(options, factory),
 		newTagCommand(options, factory),
 		newTagsCommand(options, factory),
+		newTUICommand(options, factory, runners.navigator, location),
 		newUntagCommand(options, factory),
 	)
 

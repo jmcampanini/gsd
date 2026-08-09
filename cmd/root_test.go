@@ -1717,6 +1717,7 @@ func TestHelpAndVersionDoNotOpenDatabase(t *testing.T) {
 		{name: "bare root"},
 		{name: "help", args: []string{"--config", "/nonexistent.toml", "--db", "/unusable/path/gsd.db", "--help"}},
 		{name: "capture help", args: []string{"--config", "/nonexistent.toml", "--db", "/unusable/path/gsd.db", "capture", "--help"}},
+		{name: "tui help", args: []string{"--config", "/nonexistent.toml", "--db", "/unusable/path/gsd.db", "tui", "--help"}},
 		{name: "version", args: []string{"--config", "/nonexistent.toml", "--db", "/unusable/path/gsd.db", "--version"}},
 	}
 

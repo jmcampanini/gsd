@@ -7,7 +7,7 @@ consolidation. This plan is temporary and is retired at consolidation.
 
 ## Progress
 
-- [ ] Chunk 1 — The skeleton stands
+- [x] Chunk 1 — The skeleton stands
 - [ ] Chunk 2 — Every hall opens
 - [ ] Chunk 3 — Every door opens
 - [ ] Chunk 4 — Type to find
@@ -57,8 +57,8 @@ until consolidation.
   truncate to the terminal width with `…` and never wrap.
 - **Navigation.** `j`/`k`/arrows move; Enter descends into a
   container or opens a detail; Esc/`h` goes back; Esc clears an
-  active filter before it navigates; Esc at the root quits, like `q`,
-  from anywhere. `l` is not an alias for Enter, and `←`/`→` stay
+  active filter before it navigates; Esc at the root quits, while `q`
+  and Ctrl+C quit from anywhere. `l` is not an alias for Enter, and `←`/`→` stay
   unbound, reserved for Milestone 13's columns. The view stack keeps
   one cursor per view, restored by entity identity when returning and
   clamped when the row has vanished.
@@ -126,27 +126,27 @@ root) quits.
 
 Implementation:
 
-- [ ] `internal/tui`: extract the shared program runner — run the
+- [x] `internal/tui`: extract the shared program runner — run the
       program and unwrap the final model behind one helper — and move
       capture onto it; capture behavior unchanged.
-- [ ] `internal/tui/navigator`: view stack (push/pop, one cursor per
+- [x] `internal/tui/navigator`: view stack (push/pop, one cursor per
       view restored by entity identity with clamping), the exported
       dependency struct, view-entry loading with re-read on re-entry,
       and the inline error state behind the red accent.
-- [ ] `internal/tui/navigator`: root view (five fixed rows);
+- [x] `internal/tui/navigator`: root view (five fixed rows);
       Inbox/Available/Logbook lists over `Inbox`, `Available`, and
       `logbook.List` with rows mirroring the CLI columns; boards
       collection (`NAME stage → …` from `board.List`) and areas
       collection (active areas from `area.List`, then the `(no area)`
       pseudo-row). Enter on rows inside these views waits for chunks
       2–3.
-- [ ] `cmd/tui.go` and root wiring: `gsd tui` registered; guards
+- [x] `cmd/tui.go` and root wiring: `gsd tui` registered; guards
       before the factory (no arguments, `--json` refused, per-stream
       TTY checks) naming the CLI path; color resolved in cmd;
       alt-screen program through the shared runner; the innermost
       constructor's capture-runner seam generalized to a runners
       seam.
-- [ ] `e2e`: promote the capture tmux helpers (private server,
+- [x] `e2e`: promote the capture tmux helpers (private server,
       `send-keys`, status file, pane polling) to shared harness
       helpers; add a navigator smoke test — seeded database, root
       renders all five rows in a full-size pane, `q` exits 0.
@@ -155,22 +155,22 @@ Verification (primary owners: navigator model tests with fake
 dependencies; cmd tests for guards and wiring; e2e for real-terminal
 smoke):
 
-- [ ] Model: five root rows in order; movement clamps at both ends;
+- [x] Model: five root rows in order; movement clamps at both ends;
       Enter pushes each of the five views; Esc pops; Esc at root and
       `q` quit; re-entering a view re-calls its loader; a load
       failure renders inline and Esc backs out.
-- [ ] Model: boards rows show the stage chain in position order;
+- [x] Model: boards rows show the stage chain in position order;
       areas rows are active-only in position order with `(no area)`
       last; task and logbook rows mirror the CLI columns.
-- [ ] Shared runner: the capture suite stays green on the extracted
+- [x] Shared runner: the capture suite stays green on the extracted
       helper; the runner returns the final model and propagates
       program errors.
-- [ ] cmd: `--json`, non-TTY stdin, non-TTY stdout, and positional
+- [x] cmd: `--json`, non-TTY stdin, non-TTY stdout, and positional
       arguments are usage errors (exit 2) naming the CLI; the factory
       opens once at run and never for `--help`.
-- [ ] e2e: the smoke test passes on the promoted helpers; the capture
+- [x] e2e: the smoke test passes on the promoted helpers; the capture
       e2e stays green on the shared harness.
-- [ ] `make check` green.
+- [x] `make check` green.
 
 Human proof (chunk demo `.sandbox/demos/12-chunk-1.html`; pane frames
 captured per the capture precedent), exact commands:
@@ -186,7 +186,7 @@ gsd --db .sandbox/demo12.db tui
     # Esc; Enter on Areas; Esc; q
 ```
 
-- [ ] Agent verification before review: build the real binary, drive
+- [x] Agent verification before review: build the real binary, drive
       the command list in tmux against a fresh temporary database,
       capture the frames into the deck, and pass local `make check`.
 

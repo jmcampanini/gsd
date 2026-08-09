@@ -40,8 +40,8 @@ TUI verb, reorder, and command-line milestone acts on.
     area, or board — mirroring `show` (fields, tags, dates). Notes
     render as plain escaped text; markdown is a parked exploration.
 - **Navigation**: `j`/`k`/arrows move (the header is the topmost cursor
-  position), Enter descends/opens, Esc/`h` goes back (at the root,
-  quits), `q` quits. Keyboard-only.
+  position), Enter descends/opens, Esc/`h` goes back; at the root, Esc
+  quits and `h` is inert. `q` and Ctrl+C quit from anywhere. Keyboard-only.
 - **Freshness**: data loads when a view is entered; re-entering
   re-reads. No polling or watchers.
 - **`/` is an incremental fuzzy filter** — snacks-picker semantics,
