@@ -101,7 +101,6 @@ type row struct {
 	cells       []string
 	style       rowStyle
 	destination viewKey
-	descends    bool
 }
 
 type section struct {
@@ -278,7 +277,7 @@ func (m *model) move(delta int) {
 func (m model) pushSelection() (tea.Model, tea.Cmd) {
 	current := m.top()
 	selected, ok := current.selectedRow()
-	if !ok || !selected.descends {
+	if !ok {
 		return m, nil
 	}
 	m.rememberCursor(current)
@@ -762,7 +761,7 @@ func boardProjectRows(items []board.ShownProject) []row {
 }
 
 func descendingRow(identity string, cells []string, destination viewKey) row {
-	return row{identity: identity, cells: cells, destination: destination, descends: true}
+	return row{identity: identity, cells: cells, destination: destination}
 }
 
 func containerHeader(style rowStyle, id int64, title string) row {

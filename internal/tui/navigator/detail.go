@@ -12,20 +12,20 @@ import (
 
 func taskDetail(current task.Task) detailView {
 	fields := make([]detailField, 0, 14)
-	fields = appendDetailField(fields, "project", nullableInt64(current.ProjectID), false)
-	fields = appendDetailField(fields, "area", nullableInt64(current.AreaID), false)
-	fields = appendDetailField(fields, "note", current.Note, true)
-	fields = appendDetailField(fields, "due on", nullableString(current.DueOn), false)
-	fields = appendDetailField(fields, "defer until", nullableString(current.DeferUntil), false)
-	fields = appendDetailField(fields, "defer stage", nullableString(current.DeferStageTitle), false)
-	fields = appendDetailField(fields, "promotes", strconv.FormatBool(current.Promotes), false)
-	fields = appendDetailField(fields, "done at", nullableString(current.DoneAt), false)
-	fields = appendDetailField(fields, "cancelled at", nullableString(current.CancelledAt), false)
-	fields = appendDetailField(fields, "status", current.Status, false)
-	fields = appendDetailField(fields, "position", strconv.FormatInt(current.Position, 10), false)
-	fields = appendDetailField(fields, "created at", current.CreatedAt, false)
-	fields = appendDetailField(fields, "updated at", current.UpdatedAt, false)
-	fields = appendDetailField(fields, "tags", tagTitles(current.Tags), false)
+	fields = appendDetailField(fields, "project", nullableInt64(current.ProjectID))
+	fields = appendDetailField(fields, "area", nullableInt64(current.AreaID))
+	fields = appendDetailNote(fields, current.Note)
+	fields = appendDetailField(fields, "due on", nullableString(current.DueOn))
+	fields = appendDetailField(fields, "defer until", nullableString(current.DeferUntil))
+	fields = appendDetailField(fields, "defer stage", nullableString(current.DeferStageTitle))
+	fields = appendDetailField(fields, "promotes", strconv.FormatBool(current.Promotes))
+	fields = appendDetailField(fields, "done at", nullableString(current.DoneAt))
+	fields = appendDetailField(fields, "cancelled at", nullableString(current.CancelledAt))
+	fields = appendDetailField(fields, "status", current.Status)
+	fields = appendDetailField(fields, "position", strconv.FormatInt(current.Position, 10))
+	fields = appendDetailField(fields, "created at", current.CreatedAt)
+	fields = appendDetailField(fields, "updated at", current.UpdatedAt)
+	fields = appendDetailField(fields, "tags", tagTitles(current.Tags))
 	return detailView{
 		kind:     detailTask,
 		id:       current.ID,
@@ -39,20 +39,20 @@ func taskDetail(current task.Task) detailView {
 func projectDetail(shown project.Detail) detailView {
 	current := shown.Project
 	fields := make([]detailField, 0, 10)
-	fields = appendDetailField(fields, "area", nullableInt64(current.AreaID), false)
+	fields = appendDetailField(fields, "area", nullableInt64(current.AreaID))
 	location := ""
 	if shown.Location != nil {
 		location = shown.Location.BoardTitle + "/" + shown.Location.StageTitle
 	}
-	fields = appendDetailField(fields, "board", location, false)
-	fields = appendDetailField(fields, "note", current.Note, true)
-	fields = appendDetailField(fields, "done at", nullableString(current.DoneAt), false)
-	fields = appendDetailField(fields, "cancelled at", nullableString(current.CancelledAt), false)
-	fields = appendDetailField(fields, "status", current.Status, false)
-	fields = appendDetailField(fields, "position", strconv.FormatInt(current.Position, 10), false)
-	fields = appendDetailField(fields, "created at", current.CreatedAt, false)
-	fields = appendDetailField(fields, "updated at", current.UpdatedAt, false)
-	fields = appendDetailField(fields, "tags", tagTitles(current.Tags), false)
+	fields = appendDetailField(fields, "board", location)
+	fields = appendDetailNote(fields, current.Note)
+	fields = appendDetailField(fields, "done at", nullableString(current.DoneAt))
+	fields = appendDetailField(fields, "cancelled at", nullableString(current.CancelledAt))
+	fields = appendDetailField(fields, "status", current.Status)
+	fields = appendDetailField(fields, "position", strconv.FormatInt(current.Position, 10))
+	fields = appendDetailField(fields, "created at", current.CreatedAt)
+	fields = appendDetailField(fields, "updated at", current.UpdatedAt)
+	fields = appendDetailField(fields, "tags", tagTitles(current.Tags))
 	return detailView{
 		kind:   detailProject,
 		id:     current.ID,
@@ -64,12 +64,12 @@ func projectDetail(shown project.Detail) detailView {
 
 func areaDetail(current area.Area) detailView {
 	fields := make([]detailField, 0, 6)
-	fields = appendDetailField(fields, "note", current.Note, true)
-	fields = appendDetailField(fields, "archived at", nullableString(current.ArchivedAt), false)
-	fields = appendDetailField(fields, "position", strconv.FormatInt(current.Position, 10), false)
-	fields = appendDetailField(fields, "created at", current.CreatedAt, false)
-	fields = appendDetailField(fields, "updated at", current.UpdatedAt, false)
-	fields = appendDetailField(fields, "tags", tagTitles(current.Tags), false)
+	fields = appendDetailNote(fields, current.Note)
+	fields = appendDetailField(fields, "archived at", nullableString(current.ArchivedAt))
+	fields = appendDetailField(fields, "position", strconv.FormatInt(current.Position, 10))
+	fields = appendDetailField(fields, "created at", current.CreatedAt)
+	fields = appendDetailField(fields, "updated at", current.UpdatedAt)
+	fields = appendDetailField(fields, "tags", tagTitles(current.Tags))
 	return detailView{
 		kind:   detailArea,
 		id:     current.ID,
@@ -86,19 +86,26 @@ func boardDetail(shown board.Show) detailView {
 		stages[index] = shown.Stages[index].Title
 	}
 	fields := make([]detailField, 0, 5)
-	fields = appendDetailField(fields, "note", current.Note, true)
-	fields = appendDetailField(fields, "position", strconv.FormatInt(current.Position, 10), false)
-	fields = appendDetailField(fields, "stages", strings.Join(stages, " → "), false)
-	fields = appendDetailField(fields, "created at", current.CreatedAt, false)
-	fields = appendDetailField(fields, "updated at", current.UpdatedAt, false)
+	fields = appendDetailNote(fields, current.Note)
+	fields = appendDetailField(fields, "position", strconv.FormatInt(current.Position, 10))
+	fields = appendDetailField(fields, "stages", strings.Join(stages, " → "))
+	fields = appendDetailField(fields, "created at", current.CreatedAt)
+	fields = appendDetailField(fields, "updated at", current.UpdatedAt)
 	return detailView{kind: detailBoard, id: current.ID, title: current.Title, fields: fields}
 }
 
-func appendDetailField(fields []detailField, label, value string, preserveLineFeeds bool) []detailField {
+func appendDetailField(fields []detailField, label, value string) []detailField {
 	if value == "" {
 		return fields
 	}
-	return append(fields, detailField{label: label, value: value, preserveLineFeeds: preserveLineFeeds})
+	return append(fields, detailField{label: label, value: value})
+}
+
+func appendDetailNote(fields []detailField, value string) []detailField {
+	if value == "" {
+		return fields
+	}
+	return append(fields, detailField{label: "note", value: value, preserveLineFeeds: true})
 }
 
 func nullableString(value *string) string {
