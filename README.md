@@ -29,5 +29,3 @@ With `tmux` installed:
 ```sh
 make check
 ```
-
-<!-- cli-standards: CLI-DOCS-001, CLI-RELEASE-003 -->

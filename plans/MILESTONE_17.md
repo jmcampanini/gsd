@@ -75,7 +75,3 @@ On a seeded temporary database:
 ## Exit criteria
 
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)).
-
-## Standards
-
-CLI-CMD-002/003, CLI-OUTPUT-003, CLI-DOCS-004.

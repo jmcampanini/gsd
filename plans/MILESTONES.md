@@ -21,8 +21,8 @@ behavior.
 
 ### Milestone 0 — Scaffolding
 
-Established the standards-compliant repository, command-tree and version
-spine, complete local `make check` contract, CI, and initial codified
+Established the repository, command-tree and version spine, complete local
+`make check` contract, CI, and initial codified
 engineering guardrails.
 
 ### Milestone 1 — Capture loop
@@ -71,7 +71,7 @@ TOML file loaded through go-config-loader with defaults → file → env →
 flag precedence and fail-loud invalid-file handling, db-path resolution
 moved onto the loaded config, and the TOML-only `gsd config` report
 with normalized `--provenance` source comments. Landed the settled
-visual system — standards-pure per-stream color modes,
+visual system — destination-aware per-stream color modes,
 background-adaptive Catppuccin accents, quiet-headed collection tables,
 glyph-led records and mutation lines, and `├`/`└` cascade trees — while
 JSON envelopes stayed byte-identical to Milestone 5. Consolidation also
@@ -225,8 +225,7 @@ when their trigger fires:
 
 ## Decisions and history
 
-- Stack: Go (current release), Cobra, charm.land v2 packages, per
-  jmcampanini/cli-standards. Fleet patterns come from cmdk/overlay.
+- Stack: Go (current release), Cobra, and charm.land v2 packages.
 - SQLite driver: `modernc.org/sqlite` (pure Go, no cgo; FTS5 supported).
 - `--json` plus structured application errors is a baseline property of every
   behavioral command. Usage errors remain human-readable with exit code 2, as
@@ -236,7 +235,7 @@ when their trigger fires:
   export from the current tool; no import code is added to gsd.
 - The canonical v1 config surface is minimal: `db_path` only. Its contract
   is in `COMMANDS.md`, with implementation scheduled for Config. Color is
-  flag and environment behavior (CLI-OUTPUT-001), never a config key.
+  flag and environment behavior, never a config key.
 - Initial stack, data-policy, TUI-scope, error-rendering, and config decisions
   were settled during planning and implementation interviews on 2026-07-26
   and 2026-07-27, then reconciled into the canonical specifications.
@@ -253,8 +252,8 @@ when their trigger fires:
   ratified: stores own implementation-detail atomicity, services own
   use-case composition.
 - 2026-08-02, Milestone 6 planning: color was removed from the config
-  surface — the chain is strictly CLI-OUTPUT-001 (`--color` > nonempty
-  `NO_COLOR` > per-stream auto), with no `GSD_COLOR` and no TOML key. The
+  surface — the chain is strictly `--color` > nonempty `NO_COLOR` >
+  per-stream auto, with no `GSD_COLOR` and no TOML key. The
   human-output styling system was settled by three blind pairwise test
   rounds plus a glyph tournament: quiet-chrome collection tables, glyph-led
   records and mutation lines, standard `├`/`└` cascade trees, and red/green

@@ -1,5 +1,3 @@
-# cli-standards: CLI-SEC-003
-# cli-standards: exception CLI-GO-002 - Go directive updates remain manual pending https://github.com/jmcampanini/cli-standards/issues/9.
 version: 2
 updates:
   - package-ecosystem: "gomod"

@@ -12,7 +12,7 @@ boards with ordered stages and project movement, and the interleaved
 archiving and RESTRICT-guarded recursive deletion, flat tags spanning all
 three entity kinds, and the settled config and presentation layer: a TOML
 `db_path` with full precedence, a provenance-reporting `gsd config`,
-standards-pure color modes, and the styled human surface. Tags complete the
+destination-aware color modes, and the styled human surface. Tags complete the
 v1 entity model and its JSON field set; the broader command surface remains
 the forward-looking canonical v1 target delivered incrementally through
 `MILESTONES.md`. The SQL schema lives in `SCHEMA.md`.
