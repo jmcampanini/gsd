@@ -19,10 +19,9 @@ func (m model) View() tea.View {
 		content = m.fit("  " + m.dim("loading…"))
 	case current.err != nil:
 		content = m.fit(m.red("! ") + text.Human(current.err.Error(), false))
-	case current.key.kind == viewRoot:
-		content = m.renderRoot(current)
 	default:
-		content = m.renderFrame(current)
+		lines, _ := m.renderLines(current)
+		content = strings.Join(m.visibleLines(lines, current.offset), "\n")
 	}
 	if content != "" {
 		content += "\n"
@@ -30,37 +29,55 @@ func (m model) View() tea.View {
 	return tea.View{Content: content}
 }
 
-func (m model) renderRoot(current *frame) string {
+func (m model) renderLines(current *frame) ([]string, int) {
+	if current.key.kind == viewRoot {
+		return m.renderRoot(current)
+	}
+	return m.renderFrame(current)
+}
+
+func (m model) renderRoot(current *frame) ([]string, int) {
 	rows := current.selectableRows()
 	lines := make([]string, len(rows))
 	for index := range rows {
 		line := m.marker(index == current.cursor) + text.Human(rows[index].cells[0], false)
 		lines[index] = m.fit(line)
 	}
-	return strings.Join(lines, "\n")
+	if current.cursor < 0 || current.cursor >= len(lines) {
+		return lines, -1
+	}
+	return lines, current.cursor
 }
 
-func (m model) renderFrame(current *frame) string {
+func (m model) renderFrame(current *frame) ([]string, int) {
 	lines := make([]string, 0, len(current.selectableRows())+len(current.sections)+2)
+	selectedLine := -1
 	selectionOffset := 0
 	if current.plainTitle != "" {
 		lines = append(lines, m.fit("  "+text.Human(current.plainTitle, false)))
 	}
 	if current.header != nil {
+		if current.cursor == selectionOffset {
+			selectedLine = len(lines)
+		}
 		line := m.marker(current.cursor == selectionOffset) + renderHeader(*current.header)
 		lines = append(lines, m.fit(line))
 		selectionOffset++
 	}
 	for _, currentSection := range current.sections {
-		sectionLines := m.renderSection(currentSection, current.cursor, selectionOffset)
+		sectionLines, sectionSelection := m.renderSection(currentSection, current.cursor, selectionOffset)
+		if sectionSelection >= 0 {
+			selectedLine = len(lines) + sectionSelection
+		}
 		lines = append(lines, sectionLines...)
 		selectionOffset += len(currentSection.rows)
 	}
-	return strings.Join(lines, "\n")
+	return lines, selectedLine
 }
 
-func (m model) renderSection(current section, cursor, selectionOffset int) []string {
+func (m model) renderSection(current section, cursor, selectionOffset int) ([]string, int) {
 	lines := make([]string, 0, len(current.rows)+2)
+	selectedLine := -1
 	if current.title != "" {
 		lines = append(lines, m.fit("  "+m.dim(text.Human(current.title, false))))
 	}
@@ -68,7 +85,7 @@ func (m model) renderSection(current section, cursor, selectionOffset int) []str
 		if current.showEmpty {
 			lines = append(lines, m.fit("  "+m.dim("(empty)")))
 		}
-		return lines
+		return lines, selectedLine
 	}
 
 	visibleRows := make([][]string, len(current.rows))
@@ -89,11 +106,40 @@ func (m model) renderSection(current section, cursor, selectionOffset int) []str
 		lines = append(lines, m.fit("  "+m.dim(header)))
 	}
 	for index := range current.rows {
+		if cursor == selectionOffset+index {
+			selectedLine = len(lines)
+		}
 		cells := renderCells(visibleRows[index], widths, current.rightAlign, current.firstGap)
 		line := m.marker(cursor == selectionOffset+index) + cells
 		lines = append(lines, m.fit(line))
 	}
-	return lines
+	return lines, selectedLine
+}
+
+func (m *model) ensureCursorVisible(current *frame) {
+	if m.height <= 0 || current.loading || current.err != nil {
+		current.offset = 0
+		return
+	}
+	lines, selectedLine := m.renderLines(current)
+	current.offset = clamp(current.offset, 0, max(len(lines)-m.height, 0))
+	if selectedLine < 0 {
+		return
+	}
+	if selectedLine < current.offset {
+		current.offset = selectedLine
+	}
+	if selectedLine >= current.offset+m.height {
+		current.offset = selectedLine - m.height + 1
+	}
+}
+
+func (m model) visibleLines(lines []string, offset int) []string {
+	if m.height <= 0 || len(lines) <= m.height {
+		return lines
+	}
+	offset = clamp(offset, 0, len(lines)-m.height)
+	return lines[offset : offset+m.height]
 }
 
 func renderHeader(current row) string {

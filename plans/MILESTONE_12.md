@@ -41,7 +41,9 @@ TUI verb, reorder, and command-line milestone acts on.
     render as plain escaped text; markdown is a parked exploration.
 - **Navigation**: `j`/`k`/arrows move (the header is the topmost cursor
   position), Enter/`l` descends/opens, Esc/`h` goes back; at the root,
-  Esc quits and `h` is inert. `q` and Ctrl+C quit from anywhere. Keyboard-only.
+  Esc quits and `h` is inert. `q` and Ctrl+C quit from anywhere.
+  Long views stay within the terminal height and follow the selected
+  row. Keyboard-only.
 - **Freshness**: data loads when a view is entered; re-entering
   re-reads every entity field by stable ID. No polling or watchers.
 - **`/` is an incremental fuzzy filter** — snacks-picker semantics,

@@ -132,6 +132,7 @@ type frame struct {
 	err        error
 	loadedView
 	cursor int
+	offset int
 }
 
 type loadResultMsg struct {
@@ -148,6 +149,7 @@ type model struct {
 	theme        tui.Theme
 	colorEnabled bool
 	width        int
+	height       int
 	generation   uint64
 	stack        []frame
 	cursors      map[viewKey]cursorState
@@ -198,6 +200,8 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = message.Width
+		m.height = message.Height
+		m.ensureCursorVisible(m.top())
 		return m, nil
 	case loadResultMsg:
 		return m.applyLoad(message), nil
@@ -238,6 +242,7 @@ func (m *model) move(delta int) {
 		return
 	}
 	current.cursor = clamp(current.cursor+delta, 0, len(rows)-1)
+	m.ensureCursorVisible(current)
 	m.rememberCursor(current)
 }
 
@@ -270,6 +275,7 @@ func (m model) enterTop() (tea.Model, tea.Cmd) {
 			rows:       rootRows(),
 		}}}
 		current.cursor = restoreCursor(current.selectableRows(), state)
+		m.ensureCursorVisible(current)
 		m.rememberCursor(current)
 		return m, nil
 	}
@@ -484,6 +490,7 @@ func (m model) applyLoad(message loadResultMsg) model {
 	current.loadedView = message.loadedView
 	state := m.cursors[current.key]
 	current.cursor = restoreCursor(current.selectableRows(), state)
+	m.ensureCursorVisible(current)
 	m.rememberCursor(current)
 	return m
 }

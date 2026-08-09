@@ -54,7 +54,8 @@ until consolidation.
   work lives; board rows in the collection render `NAME stage → …`
   like `boards list`; task rows mirror the CLI's list columns, so no
   fourth container-title projection appears. No count badges. Rows
-  truncate to the terminal width with `…` and never wrap.
+  truncate to the terminal width with `…` and never wrap. Long views
+  stay within the terminal height and follow the selected row.
 - **Navigation.** `j`/`k`/arrows move; Enter/`l` descends into a
   container or opens a detail; Esc/`h` goes back; Esc clears an
   active filter before it navigates; Esc at the root quits, while `q`
@@ -203,6 +204,9 @@ Implementation:
 - [x] `internal/text`: promote `Ellipsize` (truncate with `…`) beside
       the escaping helper; migrate capture's footer call site;
       navigator rows truncate through it.
+- [x] `internal/tui/navigator` vertical viewport: bound rendered views
+      to terminal height and keep the selected row visible across
+      movement and resize.
 - [x] `internal/tui/navigator` container views: area (selectable
       header; open projects, then loose open tasks under section
       headings), project (header; open tasks), board (header; stage
@@ -227,6 +231,8 @@ Verification (primary owners: navigator model tests; text tests for
       pop and clamps when the row is gone.
 - [x] Model: area, project, and board containers reload by stable ID
       and render renamed headers on pop-return.
+- [x] Model: root and structured container viewports remain height
+      bounded and keep selections visible after movement and resize.
 - [x] Board service/store: `ShowByID` validates and assembles the same
       grouped projection through a real ID lookup.
 - [x] text: `Ellipsize` width and ellipsis semantics; capture's

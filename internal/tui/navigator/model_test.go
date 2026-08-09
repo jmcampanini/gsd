@@ -690,6 +690,52 @@ func TestRowsEllipsizeFlexibleContentBeforeTrailingMetadata(t *testing.T) {
 	}
 }
 
+func TestVerticalViewportKeepsSelectedRowsVisibleAfterMovementAndResize(t *testing.T) {
+	assertVisible := func(name string, current model, height int, want string) {
+		t.Helper()
+		lines := strings.Split(strings.TrimSuffix(current.View().Content, "\n"), "\n")
+		if len(lines) > height {
+			t.Errorf("%s rendered lines = %d, want at most %d: %q", name, len(lines), height, current.View().Content)
+		}
+		if selected := selectedLine(current.View().Content); !strings.Contains(selected, want) {
+			t.Errorf("%s selected line = %q, want %q visible", name, selected, want)
+		}
+	}
+
+	dependencies, tasks, projects, areas, _, _ := testDependencies()
+	root := newModel(context.Background(), dependencies, false, time.UTC)
+	updated, _ := root.Update(tea.WindowSizeMsg{Width: 80, Height: 2})
+	root = pressTimes(t, updated.(model), "j", 4)
+	assertVisible("root", root, 2, "Areas")
+
+	areaID := int64(7)
+	areas.items = []area.Area{{ID: areaID, Title: "Home"}}
+	areas.showResponses = []area.Area{{ID: areaID, Title: "Home"}}
+	projects.responses = [][]project.Project{{
+		{ID: 11, AreaID: &areaID, Title: "Project 1", Status: "open"},
+		{ID: 12, AreaID: &areaID, Title: "Project 2", Status: "open"},
+		{ID: 13, AreaID: &areaID, Title: "Project 3", Status: "open"},
+	}}
+	tasks.listResponses = [][]task.Task{{
+		{ID: 21, AreaID: &areaID, Title: "Task 1", Status: "open"},
+		{ID: 22, AreaID: &areaID, Title: "Task 2", Status: "open"},
+		{ID: 23, AreaID: &areaID, Title: "Task 3", Status: "open"},
+		{ID: 24, AreaID: &areaID, Title: "Task 4", Status: "open"},
+	}}
+	current := newModel(context.Background(), dependencies, false, time.UTC)
+	updated, _ = current.Update(tea.WindowSizeMsg{Width: 80, Height: 5})
+	current = enterRootRow(t, updated.(model), 4)
+	current = enterSelection(t, current)
+	current = pressTimes(t, current, "j", 7)
+	assertVisible("container", current, 5, "Task 4")
+
+	updated, _ = current.Update(tea.WindowSizeMsg{Width: 80, Height: 2})
+	current = updated.(model)
+	assertVisible("resized container", current, 2, "Task 4")
+	current = pressTimes(t, current, "k", 7)
+	assertVisible("container scrolled up", current, 2, "Home")
+}
+
 func responseAt[T any](responses [][]T, call int) []T {
 	if len(responses) == 0 {
 		return nil
