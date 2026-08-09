@@ -1,6 +1,7 @@
 package navigator
 
 import (
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -30,10 +31,64 @@ func (m model) View() tea.View {
 }
 
 func (m model) renderLines(current *frame) ([]string, int) {
+	if current.detail != nil {
+		return m.renderDetail(*current.detail), -1
+	}
 	if current.key.kind == viewRoot {
 		return m.renderRoot(current)
 	}
 	return m.renderFrame(current)
+}
+
+func (m model) renderDetail(current detailView) []string {
+	lines := []string{m.fit(m.detailHeadline(current))}
+	labelWidth := 0
+	for _, field := range current.fields {
+		labelWidth = max(labelWidth, lipgloss.Width(field.label))
+	}
+	indent := strings.Repeat(" ", 4+labelWidth+2)
+	for _, field := range current.fields {
+		valueLines := strings.Split(text.Human(field.value, field.preserveLineFeeds), "\n")
+		label := "    " + m.dim(field.label)
+		if valueLines[0] != "" {
+			label += strings.Repeat(" ", labelWidth-lipgloss.Width(field.label)) + "  " + valueLines[0]
+		}
+		lines = append(lines, m.fit(label))
+		for _, continuation := range valueLines[1:] {
+			if continuation == "" {
+				lines = append(lines, "")
+				continue
+			}
+			lines = append(lines, m.fit(indent+continuation))
+		}
+	}
+	return lines
+}
+
+func (m model) detailHeadline(current detailView) string {
+	title := text.Human(current.title, false)
+	if current.promotes {
+		title += " ↑"
+	}
+	if current.kind == detailBoard {
+		return title
+	}
+	glyph := ""
+	switch current.kind {
+	case detailTask:
+		glyph = "•"
+	case detailProject:
+		glyph = "◆"
+	case detailArea:
+		glyph = "●"
+	}
+	switch current.status {
+	case "done":
+		glyph = m.green("✓")
+	case "cancelled", "archived":
+		glyph = m.red("✗")
+	}
+	return glyph + " " + m.dim(strconv.FormatInt(current.id, 10)) + "  " + title
 }
 
 func (m model) renderRoot(current *frame) ([]string, int) {
@@ -248,6 +303,13 @@ func (m model) dim(value string) string {
 		return value
 	}
 	return lipgloss.NewStyle().Foreground(m.theme.Dim).Render(value)
+}
+
+func (m model) green(value string) string {
+	if !m.colorEnabled {
+		return value
+	}
+	return lipgloss.NewStyle().Foreground(m.theme.Green).Render(value)
 }
 
 func (m model) red(value string) string {

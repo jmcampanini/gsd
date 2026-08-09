@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/board"
 	"github.com/jmcampanini/gsd/internal/logbook"
@@ -22,13 +23,17 @@ type fakeTasks struct {
 	inboxResponses     [][]task.ViewTask
 	availableResponses [][]task.ViewTask
 	listResponses      [][]task.Task
+	showResponses      []task.Task
 	inboxErr           error
 	availableErr       error
 	listErr            error
+	showErr            error
 	inboxCalls         int
 	availableCalls     int
 	listCalls          int
+	showCalls          int
 	listOptions        []task.ListOptions
+	showIDs            []int64
 }
 
 func (f *fakeTasks) Inbox(context.Context) ([]task.ViewTask, error) {
@@ -48,6 +53,13 @@ func (f *fakeTasks) List(_ context.Context, options task.ListOptions) ([]task.Ta
 	f.listCalls++
 	f.listOptions = append(f.listOptions, options)
 	return response, f.listErr
+}
+
+func (f *fakeTasks) Show(_ context.Context, id int64) (task.Task, error) {
+	response := valueAt(f.showResponses, f.showCalls)
+	f.showCalls++
+	f.showIDs = append(f.showIDs, id)
+	return response, f.showErr
 }
 
 type fakeProjects struct {
@@ -503,6 +515,7 @@ func TestAreaAndProjectContainersComposeDrillRestoreAndClamp(t *testing.T) {
 	tasks.listResponses = [][]task.Task{
 		{looseTask},
 		{projectTask},
+		{projectTask},
 		{looseTask},
 		{projectTask},
 		{},
@@ -529,11 +542,11 @@ func TestAreaAndProjectContainersComposeDrillRestoreAndClamp(t *testing.T) {
 		t.Errorf("area view = %q, want CLI project/task columns", view)
 	}
 
-	unchanged, command := press(t, current, "enter")
-	if command != nil || len(unchanged.stack) != 3 {
-		t.Fatalf("area header Enter stack/command = %d/%v, want inert until detail chunk", len(unchanged.stack), command)
+	detail, command := press(t, current, "enter")
+	if command == nil || detail.top().key != (viewKey{kind: viewAreaDetail, id: 7}) {
+		t.Fatalf("area header Enter key/command = %#v/%v, want area detail", detail.top().key, command)
 	}
-	current, _ = press(t, unchanged, "j")
+	current, _ = press(t, current, "j")
 	if selected := selectedLine(current.View().Content); !strings.Contains(selected, "Kitchen reno") {
 		t.Fatalf("selection after area header = %q, want first project", selected)
 	}
@@ -553,11 +566,13 @@ func TestAreaAndProjectContainersComposeDrillRestoreAndClamp(t *testing.T) {
 	}
 
 	current, _ = press(t, current, "j")
-	unchanged, command = press(t, current, "enter")
-	if command != nil || len(unchanged.stack) != 4 {
-		t.Errorf("task Enter stack/command = %d/%v, want inert until detail chunk", len(unchanged.stack), command)
+	detail, command = press(t, current, "enter")
+	if command == nil || detail.top().key != (viewKey{kind: viewTaskDetail, id: 31}) {
+		t.Errorf("task Enter key/command = %#v/%v, want task detail", detail.top().key, command)
 	}
-	current = popAndReload(t, unchanged)
+	current = deliver(t, detail, command)
+	current = popAndReload(t, current)
+	current = popAndReload(t, current)
 	if selected := selectedLine(current.View().Content); !strings.Contains(selected, "Kitchen reno") {
 		t.Fatalf("area selection after project pop = %q, want restored project", selected)
 	}
@@ -567,7 +582,7 @@ func TestAreaAndProjectContainersComposeDrillRestoreAndClamp(t *testing.T) {
 
 	current = enterSelection(t, current)
 	if !strings.Contains(current.View().Content, "◆ 11  Kitchen refreshed") ||
-		!slices.Equal(projects.showIDs, []int64{11, 11}) {
+		!slices.Equal(projects.showIDs, []int64{11, 11, 11}) {
 		t.Fatalf("refreshed project view/IDs = %q/%v, want renamed header by stable ID", current.View().Content, projects.showIDs)
 	}
 	current = popAndReload(t, current)
@@ -614,11 +629,11 @@ func TestBoardContainerUsesShowGroupingProgressAndDrillsToProject(t *testing.T) 
 	if !containsInOrder(view, "software", "research", "(empty)", "doing", "Milestone 12", "5/8", "Homelab", "2/6", "review", "(empty)") {
 		t.Fatalf("board view = %q, want service stage/project order with progress", view)
 	}
-	unchanged, command := press(t, current, "enter")
-	if command != nil || len(unchanged.stack) != 3 {
-		t.Fatalf("board header Enter stack/command = %d/%v, want inert until detail chunk", len(unchanged.stack), command)
+	detail, command := press(t, current, "enter")
+	if command == nil || detail.top().key != (viewKey{kind: viewBoardDetail, id: 4}) {
+		t.Fatalf("board header Enter key/command = %#v/%v, want board detail", detail.top().key, command)
 	}
-	current, _ = press(t, unchanged, "j")
+	current, _ = press(t, current, "j")
 	if selected := selectedLine(current.View().Content); !strings.Contains(selected, "Milestone 12") {
 		t.Fatalf("first board project selection = %q, want first shown project", selected)
 	}
@@ -730,6 +745,216 @@ func TestVerticalViewportKeepsSelectedRowsVisibleAfterMovementAndResize(t *testi
 	assertVisible("resized container", current, 2, "Task 4")
 	current = pressTimes(t, current, "k", 7)
 	assertVisible("container scrolled up", current, 2, "Home")
+}
+
+func TestDetailFieldOrderValuesCollapseAndEscaping(t *testing.T) {
+	projectID := int64(3)
+	due := "2026-08-15"
+	deferUntil := "2026-08-12"
+	deferStage := "Review"
+	doneAt := "2026-08-16T10:00:00Z"
+	cancelledAt := "2026-08-17T10:00:00Z"
+
+	taskView := renderTestDetail(taskDetail(task.Task{
+		ID:              9,
+		ProjectID:       &projectID,
+		Title:           "Ship\x1b",
+		Note:            "first\x1bline\nsecond\tline",
+		DueOn:           &due,
+		DeferUntil:      &deferUntil,
+		DeferStageTitle: &deferStage,
+		Promotes:        true,
+		DoneAt:          &doneAt,
+		CancelledAt:     &cancelledAt,
+		Status:          "done",
+		Position:        4,
+		CreatedAt:       "2026-08-01T10:00:00Z",
+		UpdatedAt:       "2026-08-09T10:00:00Z",
+		Tags:            []string{"work", "next"},
+	}))
+	if !containsInOrder(
+		taskView,
+		"✓ 9  Ship\\x1b ↑",
+		"project", "note", "due on", "defer until", "defer stage", "promotes",
+		"done at", "cancelled at", "status", "position", "created at", "updated at", "tags",
+	) {
+		t.Fatalf("task detail field order = %q", taskView)
+	}
+	for _, fragment := range []string{"first\\x1bline", "second\\tline", "#work #next"} {
+		if !strings.Contains(taskView, fragment) {
+			t.Errorf("task detail = %q, want %q", taskView, fragment)
+		}
+	}
+	if strings.Contains(taskView, "    area") {
+		t.Errorf("task detail = %q, want empty area collapsed", taskView)
+	}
+
+	projectView := renderTestDetail(projectDetail(project.Detail{
+		Project: project.Project{
+			ID: 7, Title: "Milestone", Note: "plan", Status: "open", Position: 2,
+			CreatedAt: "created", UpdatedAt: "updated", Tags: []string{"software"},
+		},
+		Location: &project.Location{BoardTitle: "Soft\x1bware", StageTitle: "Doing\nNow"},
+	}))
+	if !containsInOrder(projectView, "◆ 7  Milestone", "board", "note", "status", "position", "created at", "updated at", "tags") ||
+		!strings.Contains(projectView, "Soft\\x1bware/Doing\\nNow") {
+		t.Fatalf("project detail = %q, want ordered escaped board location", projectView)
+	}
+	for _, collapsed := range []string{"    area", "    done at", "    cancelled at"} {
+		if strings.Contains(projectView, collapsed) {
+			t.Errorf("project detail = %q, want %q collapsed", projectView, collapsed)
+		}
+	}
+
+	archivedAt := "2026-08-08T10:00:00Z"
+	areaView := renderTestDetail(areaDetail(area.Area{
+		ID: 4, Title: "Home", Note: "house", ArchivedAt: &archivedAt, Position: 1,
+		CreatedAt: "created", UpdatedAt: "updated", Tags: []string{"personal"},
+	}))
+	if !containsInOrder(areaView, "✗ 4  Home", "note", "archived at", "position", "created at", "updated at", "tags") {
+		t.Fatalf("area detail field order = %q", areaView)
+	}
+
+	boardView := renderTestDetail(boardDetail(board.Show{
+		Board: board.Board{ID: 2, Title: "Software", Note: "delivery", Position: 3, CreatedAt: "created", UpdatedAt: "updated"},
+		Stages: []board.ShownStage{
+			{Stage: board.Stage{Title: "Research"}},
+			{Stage: board.Stage{Title: "Doing"}},
+			{Stage: board.Stage{Title: "Review"}},
+		},
+	}))
+	if !containsInOrder(boardView, "Software", "note", "position", "stages", "Research → Doing → Review", "created at", "updated at") {
+		t.Fatalf("board detail field order = %q", boardView)
+	}
+	if strings.Contains(boardView, "tags") {
+		t.Errorf("board detail = %q, want no tags field", boardView)
+	}
+}
+
+func TestDetailLoadersReadEachEntityByStableID(t *testing.T) {
+	dependencies, tasks, projects, areas, boards, _ := testDependencies()
+	tasks.showResponses = []task.Task{{ID: 1, Title: "task"}}
+	projects.showResponses = []project.Detail{{Project: project.Project{ID: 2, Title: "project"}}}
+	areas.showResponses = []area.Area{{ID: 3, Title: "area"}}
+	boards.showResponses = []board.Show{{Board: board.Board{ID: 4, Title: "board"}}}
+	current := newModel(context.Background(), dependencies, false, time.UTC)
+
+	for _, key := range []viewKey{
+		{kind: viewTaskDetail, id: 1},
+		{kind: viewProjectDetail, id: 2},
+		{kind: viewAreaDetail, id: 3},
+		{kind: viewBoardDetail, id: 4},
+	} {
+		loaded, err := current.loadView(key)
+		if err != nil || loaded.detail == nil {
+			t.Fatalf("load detail %#v = %#v, %v", key, loaded, err)
+		}
+	}
+	if !slices.Equal(tasks.showIDs, []int64{1}) ||
+		!slices.Equal(projects.showIDs, []int64{2}) ||
+		!slices.Equal(areas.showIDs, []int64{3}) ||
+		!slices.Equal(boards.showIDs, []int64{4}) {
+		t.Errorf("detail IDs = task %v, project %v, area %v, board %v", tasks.showIDs, projects.showIDs, areas.showIDs, boards.showIDs)
+	}
+}
+
+func TestDetailRoutingFreshnessAndNotFoundNavigation(t *testing.T) {
+	dependencies, tasks, projects, _, _, entries := testDependencies()
+	tasks.inboxResponses = [][]task.ViewTask{
+		{{Task: task.Task{ID: 5, Title: "task"}}},
+		{{Task: task.Task{ID: 5, Title: "task"}}},
+	}
+	tasks.showResponses = []task.Task{
+		{ID: 5, Title: "task", Note: "old", Status: "open"},
+		{ID: 5, Title: "task", Note: "new", Status: "open"},
+		{ID: 6, Title: "task", Status: "done"},
+	}
+
+	current := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), 0)
+	current, load := press(t, current, "l")
+	if current.top().key != (viewKey{kind: viewTaskDetail, id: 5}) {
+		t.Fatalf("task l destination = %#v, want task detail 5", current.top().key)
+	}
+	current = deliver(t, current, load)
+	if !strings.Contains(current.View().Content, "old") || selectedLine(current.View().Content) != "" {
+		t.Fatalf("first task detail = %q, want old note and no cursor", current.View().Content)
+	}
+	current = popAndReload(t, current)
+	current, load = press(t, current, "enter")
+	current = deliver(t, current, load)
+	if !strings.Contains(current.View().Content, "new") || !slices.Equal(tasks.showIDs, []int64{5, 5}) || tasks.inboxCalls != 2 {
+		t.Fatalf("re-entered task detail/calls = %q/%v/%d, want fresh note and parent reload", current.View().Content, tasks.showIDs, tasks.inboxCalls)
+	}
+
+	entries.items = []logbook.Entry{
+		{Kind: "project", ID: 8, Title: "project", Status: "done", ResolvedAt: "2026-08-08T11:00:00Z"},
+		{Kind: "task", ID: 6, Title: "task", Status: "done", ResolvedAt: "2026-08-08T10:00:00Z"},
+	}
+	projects.showResponses = []project.Detail{{Project: project.Project{ID: 8, Title: "project", Status: "done"}}}
+	logbookView := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), 2)
+	projectDetailView, load := press(t, logbookView, "enter")
+	projectDetailView = deliver(t, projectDetailView, load)
+	if projectDetailView.top().key != (viewKey{kind: viewProjectDetail, id: 8}) || !slices.Equal(projects.showIDs, []int64{8}) {
+		t.Fatalf("logbook project destination/IDs = %#v/%v", projectDetailView.top().key, projects.showIDs)
+	}
+	logbookView = popAndReload(t, projectDetailView)
+	logbookView, _ = press(t, logbookView, "j")
+	taskDetailView, load := press(t, logbookView, "enter")
+	taskDetailView = deliver(t, taskDetailView, load)
+	if taskDetailView.top().key != (viewKey{kind: viewTaskDetail, id: 6}) || tasks.showIDs[len(tasks.showIDs)-1] != 6 {
+		t.Fatalf("logbook task destination/IDs = %#v/%v", taskDetailView.top().key, tasks.showIDs)
+	}
+
+	missingDependencies, missingTasks, _, _, _, _ := testDependencies()
+	missingTasks.inboxResponses = [][]task.ViewTask{{{Task: task.Task{ID: 99, Title: "gone"}}}}
+	missingTasks.showErr = apperr.New(apperr.NotFound, "task 99 not found", nil)
+	missing := enterRootRow(t, newModel(context.Background(), missingDependencies, false, time.UTC), 0)
+	missing, load = press(t, missing, "enter")
+	missing = deliver(t, missing, load)
+	if got := missing.View().Content; got != "! task 99 not found\n" {
+		t.Fatalf("missing detail = %q, want inline not_found", got)
+	}
+	missing, load = press(t, missing, "esc")
+	if missing.top().key.kind != viewInbox || load == nil {
+		t.Fatalf("Esc from missing detail key/command = %#v/%v, want live parent reload", missing.top().key, load)
+	}
+}
+
+func TestDetailViewportScrollsWithoutCursor(t *testing.T) {
+	detail := taskDetail(task.Task{
+		ID: 5, Title: "long", Note: "one\ntwo\nthree\nfour\nfive", Status: "open",
+		Position: 1, CreatedAt: "created", UpdatedAt: "updated",
+	})
+	current := newModel(context.Background(), Dependencies{}, false, time.UTC)
+	current.stack = append(current.stack, frame{
+		key:        viewKey{kind: viewTaskDetail, id: 5},
+		loadedView: loadedView{detail: &detail},
+	})
+	updated, _ := current.Update(tea.WindowSizeMsg{Width: 80, Height: 3})
+	current = updated.(model)
+	initial := current.View().Content
+	if len(strings.Split(strings.TrimSuffix(initial, "\n"), "\n")) != 3 || selectedLine(initial) != "" {
+		t.Fatalf("initial detail viewport = %q, want three lines and no cursor", initial)
+	}
+	current, _ = press(t, current, "down")
+	if current.top().offset != 1 || current.View().Content == initial {
+		t.Fatalf("detail down offset/view = %d/%q, want one-line scroll", current.top().offset, current.View().Content)
+	}
+	current = pressTimes(t, current, "j", 99)
+	lines, _ := current.renderLines(current.top())
+	if current.top().offset != len(lines)-3 {
+		t.Errorf("detail bottom offset = %d, want %d", current.top().offset, len(lines)-3)
+	}
+	current, _ = press(t, current, "up")
+	if current.top().offset != len(lines)-4 {
+		t.Errorf("detail up offset = %d, want %d", current.top().offset, len(lines)-4)
+	}
+}
+
+func renderTestDetail(detail detailView) string {
+	current := newModel(context.Background(), Dependencies{}, false, time.UTC)
+	current.stack = append(current.stack, frame{loadedView: loadedView{detail: &detail}})
+	return current.View().Content
 }
 
 func responseAt[T any](responses [][]T, call int) []T {
