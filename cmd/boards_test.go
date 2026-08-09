@@ -71,6 +71,10 @@ func (f *fakeBoardApplication) Show(_ context.Context, name string) (board.Show,
 	return f.showResult, f.showError
 }
 
+func (f *fakeBoardApplication) ShowByID(context.Context, int64) (board.Show, error) {
+	return f.showResult, f.showError
+}
+
 func (f *fakeBoardApplication) Edit(
 	_ context.Context,
 	name string,

@@ -3,6 +3,7 @@ package board
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -21,7 +22,9 @@ type fakeStore struct {
 	addBoardFields            AddFields
 	addBoardTimestamp         string
 	findBoards                map[string]Board
+	findBoardsByID            map[int64]Board
 	findBoardError            error
+	findBoardIDs              []int64
 	listBoardsResult          []Board
 	listBoardsError           error
 	editBoardResult           Board
@@ -102,6 +105,19 @@ func (f *fakeStore) FindBoard(_ context.Context, title string) (Board, error) {
 	found, exists := f.findBoards[title]
 	if !exists {
 		return Board{}, apperr.New(apperr.NotFound, "no board "+title, nil)
+	}
+	return found, nil
+}
+
+func (f *fakeStore) FindBoardByID(_ context.Context, id int64) (Board, error) {
+	f.calls = append(f.calls, fmt.Sprintf("find board %d", id))
+	f.findBoardIDs = append(f.findBoardIDs, id)
+	if f.findBoardError != nil {
+		return Board{}, f.findBoardError
+	}
+	found, exists := f.findBoardsByID[id]
+	if !exists {
+		return Board{}, apperr.New(apperr.NotFound, fmt.Sprintf("no board %d", id), nil)
 	}
 	return found, nil
 }
@@ -290,6 +306,7 @@ func TestInvalidInputsAreRejectedBeforeStoreOrClock(t *testing.T) {
 			return err
 		}},
 		{name: "show board title", apply: func(s *Service) error { _, err := s.Show(context.Background(), blank); return err }},
+		{name: "show board ID", apply: func(s *Service) error { _, err := s.ShowByID(context.Background(), 0); return err }},
 		{name: "edit without fields", apply: func(s *Service) error { _, err := s.Edit(context.Background(), valid, EditFields{}); return err }},
 		{name: "edit title", apply: func(s *Service) error {
 			_, err := s.Edit(context.Background(), valid, EditFields{Title: &blank})
@@ -567,7 +584,7 @@ func TestListAndShowAssembleNonnilSlicesInReadTransactions(t *testing.T) {
 	}
 }
 
-func TestShowGroupsPopulatedProjectsByStageWithNonnilArrays(t *testing.T) {
+func TestShowByIDGroupsPopulatedProjectsByStageWithNonnilArrays(t *testing.T) {
 	t.Parallel()
 
 	ideas := Stage{ID: 10, BoardID: 7, Title: "Ideas", Position: 0}
@@ -588,22 +605,22 @@ func TestShowGroupsPopulatedProjectsByStageWithNonnilArrays(t *testing.T) {
 		Progress: ProjectProgress{Done: 4, Total: 5},
 	}
 	transaction := &fakeStore{
-		findBoards:              map[string]Board{"work": {ID: 7, Title: "Work"}},
+		findBoardsByID:          map[int64]Board{7: {ID: 7, Title: "Work"}},
 		listStages:              map[int64][]Stage{7: {ideas, doing, review}},
 		listShownProjectsResult: []ShownProject{firstIdea, secondIdea, active},
 	}
 	store := &fakeStore{readTransactionStore: transaction}
 
-	shown, err := NewService(store).Show(context.Background(), "work")
+	shown, err := NewService(store).ShowByID(context.Background(), 7)
 	if err != nil {
-		t.Fatalf("Show() error = %v", err)
+		t.Fatalf("ShowByID() error = %v", err)
 	}
-	if store.readTransactionCalls != 1 ||
+	if store.readTransactionCalls != 1 || !reflect.DeepEqual(transaction.findBoardIDs, []int64{7}) ||
 		!reflect.DeepEqual(transaction.listShownProjectsBoardIDs, []int64{7}) {
-		t.Errorf("Show() read delegation = %#v/%#v, want one board-scoped read transaction", store, transaction)
+		t.Errorf("ShowByID() read delegation = %#v/%#v, want one board-scoped read transaction", store, transaction)
 	}
 	want := Show{
-		Board: transaction.findBoards["work"],
+		Board: transaction.findBoardsByID[7],
 		Stages: []ShownStage{
 			{Stage: ideas, Projects: []ShownProject{firstIdea, secondIdea}},
 			{Stage: doing, Projects: []ShownProject{active}},
@@ -611,7 +628,7 @@ func TestShowGroupsPopulatedProjectsByStageWithNonnilArrays(t *testing.T) {
 		},
 	}
 	if !reflect.DeepEqual(shown, want) {
-		t.Errorf("Show() = %#v, want grouped result %#v", shown, want)
+		t.Errorf("ShowByID() = %#v, want grouped result %#v", shown, want)
 	}
 	for _, stage := range shown.Stages {
 		if stage.Projects == nil {

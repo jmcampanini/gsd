@@ -6,7 +6,14 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/charmbracelet/x/ansi"
 )
+
+// Ellipsize truncates value to width terminal cells with an ellipsis tail.
+func Ellipsize(value string, width int) string {
+	return ansi.Truncate(value, width, "…")
+}
 
 // Human escapes control characters into their visible quoted forms so
 // stored values cannot smuggle terminal control sequences into output.

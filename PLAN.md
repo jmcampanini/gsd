@@ -8,7 +8,7 @@ consolidation. This plan is temporary and is retired at consolidation.
 ## Progress
 
 - [x] Chunk 1 — The skeleton stands
-- [ ] Chunk 2 — Every hall opens
+- [x] Chunk 2 — Every hall opens
 - [ ] Chunk 3 — Every door opens
 - [ ] Chunk 4 — Type to find
 
@@ -31,12 +31,12 @@ until consolidation.
   with no header, since a collection is not itself an entity. A board,
   an area, and a project are *containers* — a compact selectable
   header above the rows, the header being the topmost cursor position;
-  Enter on the header opens the container's detail. The areas
+  Enter or `l` on the header opens the container's detail. The areas
   collection ends with a `(no area)` pseudo-row holding loose
   projects; its list carries a plain non-selectable title because
   there is no entity behind it. Tasks are leaves.
 - **Board container view.** A board opens as a stage-grouped list
-  composed from `board.Show`: stage headings in position order, open
+  composed from `board.ShowByID`: stage headings in position order, open
   projects in stage position order with derived done/total progress.
   This rendering is not throwaway — Milestone 13's column view
   arrives beside it, and how the two coexist is that milestone's
@@ -54,16 +54,18 @@ until consolidation.
   work lives; board rows in the collection render `NAME stage → …`
   like `boards list`; task rows mirror the CLI's list columns, so no
   fourth container-title projection appears. No count badges. Rows
-  truncate to the terminal width with `…` and never wrap.
-- **Navigation.** `j`/`k`/arrows move; Enter descends into a
+  truncate to the terminal width with `…` and never wrap. Long views
+  stay within the terminal height and follow the selected row.
+- **Navigation.** `j`/`k`/arrows move; Enter/`l` descends into a
   container or opens a detail; Esc/`h` goes back; Esc clears an
   active filter before it navigates; Esc at the root quits, while `q`
-  and Ctrl+C quit from anywhere. `l` is not an alias for Enter, and `←`/`→` stay
-  unbound, reserved for Milestone 13's columns. The view stack keeps
+  and Ctrl+C quit from anywhere. `←`/`→` stay unbound, reserved for
+  Milestone 13's columns. The view stack keeps
   one cursor per view, restored by entity identity when returning and
   clamped when the row has vanished.
 - **Freshness.** A view loads its data when entered and re-reads when
-  re-entered, including on pop-return. No polling, no watchers.
+  re-entered, including on pop-return. Entity views reload every field
+  by stable ID. No polling, no watchers.
 - **Errors.** A failure before the program starts exits 1 through the
   standard stderr path. An in-session view load failure renders its
   application error inline behind the red accent with navigation
@@ -120,7 +122,7 @@ until consolidation.
 ## Chunk 1 — The skeleton stands
 
 Human outcome: `gsd tui` opens to the root; `j`/`k`/arrows walk
-Inbox, Available, Logbook, Boards, and Areas; Enter opens the three
+Inbox, Available, Logbook, Boards, and Areas; Enter/`l` opens the three
 task views and the two collections; Esc returns; `q` (or Esc at the
 root) quits.
 
@@ -138,7 +140,7 @@ Implementation:
       `logbook.List` with rows mirroring the CLI columns; boards
       collection (`NAME stage → …` from `board.List`) and areas
       collection (active areas from `area.List`, then the `(no area)`
-      pseudo-row). Enter on rows inside these views waits for chunks
+      pseudo-row). Enter/`l` on rows inside these views waits for chunks
       2–3.
 - [x] `cmd/tui.go` and root wiring: `gsd tui` registered; guards
       before the factory (no arguments, `--json` refused, per-stream
@@ -156,7 +158,7 @@ dependencies; cmd tests for guards and wiring; e2e for real-terminal
 smoke):
 
 - [x] Model: five root rows in order; movement clamps at both ends;
-      Enter pushes each of the five views; Esc pops; Esc at root and
+      Enter/`l` pushes each of the five views; Esc/`h` pops; Esc at root and
       `q` quit; re-entering a view re-calls its loader; a load
       failure renders inline and Esc backs out.
 - [x] Model: boards rows show the stage chain in position order;
@@ -199,39 +201,52 @@ objects through two lenses.
 
 Implementation:
 
-- [ ] `internal/text`: promote `Ellipsize` (truncate with `…`) beside
+- [x] `internal/text`: promote `Ellipsize` (truncate with `…`) beside
       the escaping helper; migrate capture's footer call site;
       navigator rows truncate through it.
-- [ ] `internal/tui/navigator` container views: area (selectable
+- [x] `internal/tui/navigator` vertical viewport: bound rendered views
+      to terminal height and keep the selected row visible across
+      movement and resize.
+- [x] `internal/tui/navigator` container views: area (selectable
       header; open projects, then loose open tasks under section
       headings), project (header; open tasks), board (header; stage
       headings in position order with open projects and done/total
-      progress from `board.Show`), and the loose-projects list under
+      progress from `board.ShowByID`), and the loose-projects list under
       a plain non-selectable `(no area)` title.
-- [ ] Data composition: `project.List` (open, by area; `AreaID == nil`
+- [x] Data composition: `project.List` (open, by area; `AreaID == nil`
       filtered client-side for loose), `task.List` (open, by project
-      and by area), `board.Show`. Headers sit as the topmost cursor
-      position; Enter on them activates in chunk 3.
+      and by area), `board.ShowByID`. Headers sit as the topmost cursor
+      position; Enter/`l` on them activates in chunk 3.
 
 Verification (primary owners: navigator model tests; text tests for
 `Ellipsize`):
 
-- [ ] Model: area composition order (projects, then loose tasks) with
+- [x] Model: area composition order (projects, then loose tasks) with
       section headings; board grouping and ordering match
-      `board.Show` with progress rendered; project tasks in
+      `board.ShowByID` with progress rendered; project tasks in
       `position, id` order; `(no area)` holds exactly the area-less
       projects, boarded or not.
-- [ ] Model: the header is the topmost cursor position; drill in and
+- [x] Model: the header is the topmost cursor position; drill in and
       out from the collections; the cursor restores by identity after
       pop and clamps when the row is gone.
-- [ ] text: `Ellipsize` width and ellipsis semantics; capture's
+- [x] Model: area, project, and board containers reload by stable ID
+      and render renamed headers on pop-return.
+- [x] Model: root and structured container viewports remain height
+      bounded and keep selections visible after movement and resize.
+- [x] Board service/store: `ShowByID` validates and assembles the same
+      grouped projection through a real ID lookup.
+- [x] text: `Ellipsize` width and ellipsis semantics; capture's
       footer rendering unchanged at its migrated call site.
-- [ ] `make check` green.
+- [x] `make check` green.
 
 Human proof (chunk demo `.sandbox/demos/12-chunk-2.html`), exact
 commands:
 
 ```sh
+gsd --db .sandbox/demo12.db areas add "Home"
+gsd --db .sandbox/demo12.db areas add "Work"
+gsd --db .sandbox/demo12.db boards add software --stage research \
+    --stage doing --stage review
 gsd --db .sandbox/demo12.db projects add "Kitchen reno" --area 1
 gsd --db .sandbox/demo12.db projects add "Blog rewrite"
 gsd --db .sandbox/demo12.db projects add "gsd milestone 12" \
@@ -245,7 +260,7 @@ gsd --db .sandbox/demo12.db tui
     # Esc ×2; Areas → (no area); q
 ```
 
-- [ ] Agent verification before review: build the real binary, drive
+- [x] Agent verification before review: build the real binary, drive
       the command list in tmux against a fresh temporary database,
       capture the frames into the deck, and pass local `make check`.
 
@@ -261,12 +276,12 @@ Implementation:
       project, area, and board mirroring `show`'s field order per the
       settled design; empty fields collapse; notes escaped with line
       feeds preserved; the promotes marker matches the CLI.
-- [ ] Enter wiring: task, project, and area rows in every list —
+- [ ] Enter/`l` wiring: task, project, and area rows in every list —
       including logbook rows — open that entity's detail; container
       headers open the container's detail; detail has no cursor and
       no filter; Esc pops.
 - [ ] Data: `task.Show`, `project.Show` (with the board/stage
-      location), `area.Show`, `board.Show`.
+      location), `area.Show`, `board.ShowByID`.
 
 Verification (primary owner: navigator model tests with fake
 dependencies):
@@ -275,7 +290,7 @@ dependencies):
       `Board/Stage` row, defer-stage and promotes rows, the board's
       stage list — with empty-field collapse and control-character
       escaping in notes.
-- [ ] Model: Enter targets rows versus headers correctly; logbook
+- [ ] Model: Enter/`l` targets rows versus headers correctly; logbook
       rows open task and project details; an entity deleted
       mid-session renders its `not_found` inline and Esc backs out.
 - [ ] Model: pop-return re-calls the list loader, so a mutated entity
@@ -317,7 +332,7 @@ Implementation:
       hide, sections and headers stay, matched characters highlight,
       the cursor clamps to the matched set; a blank pattern is
       unfiltered; Esc clears the filter before navigating; any
-      navigation drops it; Enter on a filtered row behaves normally.
+      navigation drops it; Enter/`l` on a filtered row behaves normally.
 - [ ] `e2e/navigator_test.go`: the documented end-to-end workflow
       below as durable subprocess coverage inside `make check`.
 
@@ -360,7 +375,7 @@ durable coverage lives in `e2e/` inside `make check`:
 2. Drill Areas → area → project → task detail and back out with Esc
    at each level; each screen contains the expected rows and fields;
    the cursor lands back where it was.
-3. Enter on container headers: area, project, and board details match
+3. Enter/`l` on container headers: area, project, and board details match
    `show --json` (and `board show --json`) fields for the same
    identities.
 4. Mutate via the CLI mid-session — edit a note, move a boarded

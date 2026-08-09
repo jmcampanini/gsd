@@ -29,9 +29,9 @@ TUI verb, reorder, and command-line milestone acts on.
     chain; the areas collection ends with a `(no area)` pseudo-row
     holding loose projects behind a plain non-selectable title.
   - *Containers* (a board, an area, a project): a compact selectable
-    header for the container itself above the rows. Enter on the
-    header opens the container's detail; Enter on a row opens or
-    drills. An area lists its open projects, then its loose open
+    header for the container itself above the rows. Enter/`l` opens
+    the selected header's detail or opens/drills the selected row. An
+    area lists its open projects, then its loose open
     tasks; a board lists its open projects grouped by stage with
     progress counts, composed from existing operations. The board
     list is not throwaway — Milestone 13's column view arrives beside
@@ -40,10 +40,12 @@ TUI verb, reorder, and command-line milestone acts on.
     area, or board — mirroring `show` (fields, tags, dates). Notes
     render as plain escaped text; markdown is a parked exploration.
 - **Navigation**: `j`/`k`/arrows move (the header is the topmost cursor
-  position), Enter descends/opens, Esc/`h` goes back; at the root, Esc
-  quits and `h` is inert. `q` and Ctrl+C quit from anywhere. Keyboard-only.
+  position), Enter/`l` descends/opens, Esc/`h` goes back; at the root,
+  Esc quits and `h` is inert. `q` and Ctrl+C quit from anywhere.
+  Long views stay within the terminal height and follow the selected
+  row. Keyboard-only.
 - **Freshness**: data loads when a view is entered; re-entering
-  re-reads. No polling or watchers.
+  re-reads every entity field by stable ID. No polling or watchers.
 - **`/` is an incremental fuzzy filter** — snacks-picker semantics,
   not FTS: in-memory fuzzy subsequence matching with smart-case over
   the current view's visible rows, matched characters highlighted,
