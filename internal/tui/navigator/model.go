@@ -75,15 +75,55 @@ const (
 	viewLogbook
 	viewBoards
 	viewAreas
+	viewArea
+	viewProject
+	viewBoard
+	viewNoArea
 )
 
 type viewKey struct {
 	kind viewKind
+	id   int64
 }
 
+type viewDestination struct {
+	key   viewKey
+	title string
+}
+
+type rowStyle uint8
+
+const (
+	rowStandard rowStyle = iota
+	rowAreaHeader
+	rowProjectHeader
+	rowBoardHeader
+)
+
 type row struct {
-	identity string
-	cells    []string
+	identity    string
+	cells       []string
+	style       rowStyle
+	destination viewDestination
+	descends    bool
+}
+
+type section struct {
+	title       string
+	columns     []string
+	rightAlign  int
+	flexColumn  int
+	showColumns bool
+	showEmpty   bool
+	firstGap    int
+	rows        []row
+}
+
+type loadedView struct {
+	lookupTitle string
+	plainTitle  string
+	header      *row
+	sections    []section
 }
 
 type cursorState struct {
@@ -92,23 +132,20 @@ type cursorState struct {
 }
 
 type frame struct {
-	key        viewKey
-	generation uint64
-	loading    bool
-	err        error
-	columns    []string
-	rightAlign int
-	rows       []row
-	cursor     int
+	key         viewKey
+	lookupTitle string
+	generation  uint64
+	loading     bool
+	err         error
+	loadedView
+	cursor int
 }
 
 type loadResultMsg struct {
 	key        viewKey
 	generation uint64
-	columns    []string
-	rightAlign int
-	rows       []row
-	err        error
+	loadedView
+	err error
 }
 
 type model struct {
@@ -117,6 +154,7 @@ type model struct {
 	location     *time.Location
 	theme        tui.Theme
 	colorEnabled bool
+	width        int
 	generation   uint64
 	stack        []frame
 	cursors      map[viewKey]cursorState
@@ -132,7 +170,14 @@ func newModel(
 		location = time.Local
 	}
 	rootKey := viewKey{kind: viewRoot}
-	root := frame{key: rootKey, rows: rootRows(), rightAlign: -1}
+	root := frame{
+		key: rootKey,
+		loadedView: loadedView{sections: []section{{
+			rightAlign: -1,
+			flexColumn: 0,
+			rows:       rootRows(),
+		}}},
+	}
 	return model{
 		ctx:          ctx,
 		dependencies: dependencies,
@@ -157,6 +202,9 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.colorEnabled {
 			m.theme = tui.ThemeForBackground(message.IsDark())
 		}
+		return m, nil
+	case tea.WindowSizeMsg:
+		m.width = message.Width
 		return m, nil
 	case loadResultMsg:
 		return m.applyLoad(message), nil
@@ -185,30 +233,32 @@ func (m model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "k", "up":
 		m.move(-1)
 	case "enter":
-		if m.top().key.kind == viewRoot {
-			return m.pushRootSelection()
-		}
+		return m.pushSelection()
 	}
 	return m, nil
 }
 
 func (m *model) move(delta int) {
 	current := m.top()
-	if current.loading || current.err != nil || len(current.rows) == 0 {
+	rows := current.selectableRows()
+	if current.loading || current.err != nil || len(rows) == 0 {
 		return
 	}
-	current.cursor = clamp(current.cursor+delta, 0, len(current.rows)-1)
+	current.cursor = clamp(current.cursor+delta, 0, len(rows)-1)
 	m.rememberCursor(current)
 }
 
-func (m model) pushRootSelection() (tea.Model, tea.Cmd) {
+func (m model) pushSelection() (tea.Model, tea.Cmd) {
 	current := m.top()
-	if len(current.rows) == 0 {
+	selected, ok := current.selectedRow()
+	if !ok || !selected.descends {
 		return m, nil
 	}
-	kind := viewKind(current.cursor + int(viewInbox))
 	m.rememberCursor(current)
-	m.stack = append(m.stack, frame{key: viewKey{kind: kind}, rightAlign: -1})
+	m.stack = append(m.stack, frame{
+		key:         selected.destination.key,
+		lookupTitle: selected.destination.title,
+	})
 	return m.enterTop()
 }
 
@@ -224,8 +274,12 @@ func (m model) enterTop() (tea.Model, tea.Cmd) {
 	if current.key.kind == viewRoot {
 		current.loading = false
 		current.err = nil
-		current.rows = rootRows()
-		current.cursor = restoreCursor(current.rows, state)
+		current.loadedView = loadedView{sections: []section{{
+			rightAlign: -1,
+			flexColumn: 0,
+			rows:       rootRows(),
+		}}}
+		current.cursor = restoreCursor(current.selectableRows(), state)
 		m.rememberCursor(current)
 		return m, nil
 	}
@@ -234,64 +288,196 @@ func (m model) enterTop() (tea.Model, tea.Cmd) {
 	current.generation = m.generation
 	current.loading = true
 	current.err = nil
-	current.columns = nil
-	current.rows = nil
+	current.loadedView = loadedView{}
 	current.cursor = state.index
 	generation := current.generation
 	key := current.key
-	return m, m.loadCommand(key, generation)
+	lookupTitle := current.lookupTitle
+	return m, m.loadCommand(key, lookupTitle, generation)
 }
 
-func (m model) loadCommand(key viewKey, generation uint64) tea.Cmd {
+func (m model) loadCommand(key viewKey, lookupTitle string, generation uint64) tea.Cmd {
 	return func() tea.Msg {
-		result := loadResultMsg{key: key, generation: generation, rightAlign: -1}
-		switch key.kind {
-		case viewInbox:
-			items, err := m.dependencies.Tasks.Inbox(m.ctx)
-			result.columns = []string{"id", "title", "dates"}
-			result.rightAlign = 0
-			result.rows = taskRows(items)
-			result.err = err
-		case viewAvailable:
-			items, err := m.dependencies.Tasks.Available(m.ctx)
-			result.columns = []string{"id", "title", "dates"}
-			result.rightAlign = 0
-			result.rows = taskRows(items)
-			result.err = err
-		case viewLogbook:
-			entries, err := m.dependencies.Logbook.List(m.ctx)
-			result.columns = []string{"kind", "id", "title", "status", "date"}
-			result.rightAlign = 1
-			if err == nil {
-				result.rows, result.err = logbookRows(entries, m.location)
-			} else {
-				result.err = err
-			}
-		case viewBoards:
-			boards, err := m.dependencies.Boards.List(m.ctx)
-			result.columns = []string{"board", "stages"}
-			if err == nil {
-				result.rows = boardRows(boards)
-			} else {
-				result.err = err
-			}
-		case viewAreas:
-			areas, err := m.dependencies.Areas.List(m.ctx, area.ListOptions{Slice: area.ListSliceActive})
-			result.columns = []string{"id", "title", "state"}
-			result.rightAlign = 0
-			if err == nil {
-				result.rows = areaRows(areas)
-			} else {
-				result.err = err
-			}
-		case viewRoot:
-			result.err = fmt.Errorf("root view has no loader")
+		loaded, err := m.loadView(key, lookupTitle)
+		return loadResultMsg{
+			key:        key,
+			generation: generation,
+			loadedView: loaded,
+			err:        err,
 		}
-		if result.err != nil {
-			result.rows = nil
-		}
-		return result
 	}
+}
+
+func (m model) loadView(key viewKey, lookupTitle string) (loadedView, error) {
+	switch key.kind {
+	case viewInbox:
+		return m.loadInbox()
+	case viewAvailable:
+		return m.loadAvailable()
+	case viewLogbook:
+		return m.loadLogbook()
+	case viewBoards:
+		return m.loadBoards()
+	case viewAreas:
+		return m.loadAreas()
+	case viewArea:
+		return m.loadArea(key.id, lookupTitle)
+	case viewProject:
+		return m.loadProject(key.id, lookupTitle)
+	case viewBoard:
+		return m.loadBoard(key.id, lookupTitle)
+	case viewNoArea:
+		return m.loadNoArea()
+	case viewRoot:
+		return loadedView{}, fmt.Errorf("root view has no loader")
+	default:
+		return loadedView{}, fmt.Errorf("unknown view kind %d", key.kind)
+	}
+}
+
+func (m model) loadInbox() (loadedView, error) {
+	items, err := m.dependencies.Tasks.Inbox(m.ctx)
+	if err != nil {
+		return loadedView{}, err
+	}
+	return loadedView{sections: []section{taskViewSection(viewTaskRows(items))}}, nil
+}
+
+func (m model) loadAvailable() (loadedView, error) {
+	items, err := m.dependencies.Tasks.Available(m.ctx)
+	if err != nil {
+		return loadedView{}, err
+	}
+	return loadedView{sections: []section{taskViewSection(viewTaskRows(items))}}, nil
+}
+
+func (m model) loadLogbook() (loadedView, error) {
+	entries, err := m.dependencies.Logbook.List(m.ctx)
+	if err != nil {
+		return loadedView{}, err
+	}
+	rows, err := logbookRows(entries, m.location)
+	if err != nil {
+		return loadedView{}, err
+	}
+	return loadedView{sections: []section{{
+		columns:     []string{"kind", "id", "title", "status", "date"},
+		rightAlign:  1,
+		flexColumn:  2,
+		showColumns: true,
+		rows:        rows,
+	}}}, nil
+}
+
+func (m model) loadBoards() (loadedView, error) {
+	items, err := m.dependencies.Boards.List(m.ctx)
+	if err != nil {
+		return loadedView{}, err
+	}
+	return loadedView{sections: []section{{
+		columns:     []string{"board", "stages"},
+		rightAlign:  -1,
+		flexColumn:  1,
+		showColumns: true,
+		rows:        boardRows(items),
+	}}}, nil
+}
+
+func (m model) loadAreas() (loadedView, error) {
+	items, err := m.dependencies.Areas.List(m.ctx, area.ListOptions{Slice: area.ListSliceActive})
+	if err != nil {
+		return loadedView{}, err
+	}
+	return loadedView{sections: []section{{
+		columns:     []string{"id", "title", "state"},
+		rightAlign:  0,
+		flexColumn:  1,
+		showColumns: true,
+		rows:        areaRows(items),
+	}}}, nil
+}
+
+func (m model) loadArea(id int64, title string) (loadedView, error) {
+	projects, err := m.dependencies.Projects.List(m.ctx, project.ListOptions{
+		Status: project.ListStatusOpen,
+		AreaID: &id,
+	})
+	if err != nil {
+		return loadedView{}, err
+	}
+	tasks, err := m.dependencies.Tasks.List(m.ctx, task.ListOptions{
+		Status: task.ListStatusOpen,
+		AreaID: &id,
+	})
+	if err != nil {
+		return loadedView{}, err
+	}
+	header := containerHeader(rowAreaHeader, id, title)
+	return loadedView{
+		lookupTitle: title,
+		header:      &header,
+		sections: []section{
+			entitySection("projects", projectRows(projects), true),
+			listedTaskSection("tasks", listedTaskRows(tasks), true),
+		},
+	}, nil
+}
+
+func (m model) loadProject(id int64, title string) (loadedView, error) {
+	tasks, err := m.dependencies.Tasks.List(m.ctx, task.ListOptions{
+		Status:    task.ListStatusOpen,
+		ProjectID: &id,
+	})
+	if err != nil {
+		return loadedView{}, err
+	}
+	header := containerHeader(rowProjectHeader, id, title)
+	return loadedView{
+		lookupTitle: title,
+		header:      &header,
+		sections:    []section{listedTaskSection("", listedTaskRows(tasks), false)},
+	}, nil
+}
+
+func (m model) loadBoard(id int64, title string) (loadedView, error) {
+	shown, err := m.dependencies.Boards.Show(m.ctx, title)
+	if err != nil {
+		return loadedView{}, err
+	}
+	header := containerHeader(rowBoardHeader, id, shown.Board.Title)
+	sections := make([]section, 0, len(shown.Stages))
+	for _, stage := range shown.Stages {
+		sections = append(sections, section{
+			title:      stage.Title,
+			rightAlign: 1,
+			flexColumn: 2,
+			showEmpty:  true,
+			firstGap:   1,
+			rows:       boardProjectRows(stage.Projects),
+		})
+	}
+	return loadedView{
+		lookupTitle: shown.Board.Title,
+		header:      &header,
+		sections:    sections,
+	}, nil
+}
+
+func (m model) loadNoArea() (loadedView, error) {
+	projects, err := m.dependencies.Projects.List(m.ctx, project.ListOptions{Status: project.ListStatusOpen})
+	if err != nil {
+		return loadedView{}, err
+	}
+	loose := make([]project.Project, 0, len(projects))
+	for _, current := range projects {
+		if current.AreaID == nil {
+			loose = append(loose, current)
+		}
+	}
+	return loadedView{
+		plainTitle: "(no area)",
+		sections:   []section{entitySection("", projectRows(loose), false)},
+	}, nil
 }
 
 func (m model) applyLoad(message loadResultMsg) model {
@@ -301,11 +487,12 @@ func (m model) applyLoad(message loadResultMsg) model {
 	}
 	current.loading = false
 	current.err = message.err
-	current.columns = message.columns
-	current.rightAlign = message.rightAlign
-	current.rows = message.rows
+	current.loadedView = message.loadedView
+	if message.lookupTitle != "" {
+		current.lookupTitle = message.lookupTitle
+	}
 	state := m.cursors[current.key]
-	current.cursor = restoreCursor(current.rows, state)
+	current.cursor = restoreCursor(current.selectableRows(), state)
 	m.rememberCursor(current)
 	return m
 }
@@ -313,14 +500,41 @@ func (m model) applyLoad(message loadResultMsg) model {
 func (m *model) rememberCursor(current *frame) {
 	state := m.cursors[current.key]
 	state.index = current.cursor
-	if len(current.rows) > 0 && current.cursor >= 0 && current.cursor < len(current.rows) {
-		state.identity = current.rows[current.cursor].identity
+	rows := current.selectableRows()
+	if current.cursor >= 0 && current.cursor < len(rows) {
+		state.identity = rows[current.cursor].identity
 	}
 	m.cursors[current.key] = state
 }
 
 func (m *model) top() *frame {
 	return &m.stack[len(m.stack)-1]
+}
+
+func (f frame) selectableRows() []row {
+	count := 0
+	if f.header != nil {
+		count++
+	}
+	for _, current := range f.sections {
+		count += len(current.rows)
+	}
+	rows := make([]row, 0, count)
+	if f.header != nil {
+		rows = append(rows, *f.header)
+	}
+	for _, current := range f.sections {
+		rows = append(rows, current.rows...)
+	}
+	return rows
+}
+
+func (f frame) selectedRow() (row, bool) {
+	rows := f.selectableRows()
+	if f.cursor < 0 || f.cursor >= len(rows) {
+		return row{}, false
+	}
+	return rows[f.cursor], true
 }
 
 func restoreCursor(rows []row, state cursorState) int {
@@ -343,15 +557,15 @@ func clamp(value, low, high int) int {
 
 func rootRows() []row {
 	return []row{
-		{identity: "root:inbox", cells: []string{"Inbox"}},
-		{identity: "root:available", cells: []string{"Available"}},
-		{identity: "root:logbook", cells: []string{"Logbook"}},
-		{identity: "root:boards", cells: []string{"Boards"}},
-		{identity: "root:areas", cells: []string{"Areas"}},
+		descendingRow("root:inbox", []string{"Inbox"}, viewDestination{key: viewKey{kind: viewInbox}}),
+		descendingRow("root:available", []string{"Available"}, viewDestination{key: viewKey{kind: viewAvailable}}),
+		descendingRow("root:logbook", []string{"Logbook"}, viewDestination{key: viewKey{kind: viewLogbook}}),
+		descendingRow("root:boards", []string{"Boards"}, viewDestination{key: viewKey{kind: viewBoards}}),
+		descendingRow("root:areas", []string{"Areas"}, viewDestination{key: viewKey{kind: viewAreas}}),
 	}
 }
 
-func taskRows(items []task.ViewTask) []row {
+func viewTaskRows(items []task.ViewTask) []row {
 	rows := make([]row, 0, len(items))
 	for _, item := range items {
 		rows = append(rows, row{
@@ -360,6 +574,22 @@ func taskRows(items []task.ViewTask) []row {
 				strconv.FormatInt(item.ID, 10),
 				taskTitle(item.Task),
 				taskDates(item.Task),
+			},
+		})
+	}
+	return rows
+}
+
+func listedTaskRows(items []task.Task) []row {
+	rows := make([]row, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, row{
+			identity: "task:" + strconv.FormatInt(item.ID, 10),
+			cells: []string{
+				strconv.FormatInt(item.ID, 10),
+				taskTitle(item),
+				item.Status,
+				taskDates(item),
 			},
 		})
 	}
@@ -394,10 +624,11 @@ func boardRows(items []board.ListedBoard) []row {
 		for index := range item.Stages {
 			stageTitles[index] = item.Stages[index].Title
 		}
-		rows = append(rows, row{
-			identity: "board:" + strconv.FormatInt(item.ID, 10),
-			cells:    []string{item.Title, joinStages(stageTitles)},
-		})
+		rows = append(rows, descendingRow(
+			"board:"+strconv.FormatInt(item.ID, 10),
+			[]string{item.Title, joinStages(stageTitles)},
+			viewDestination{key: viewKey{kind: viewBoard, id: item.ID}, title: item.Title},
+		))
 	}
 	return rows
 }
@@ -409,10 +640,90 @@ func areaRows(items []area.Area) []row {
 		if item.ArchivedAt != nil {
 			state = "archived"
 		}
-		rows = append(rows, row{
-			identity: "area:" + strconv.FormatInt(item.ID, 10),
-			cells:    []string{strconv.FormatInt(item.ID, 10), item.Title, state},
-		})
+		rows = append(rows, descendingRow(
+			"area:"+strconv.FormatInt(item.ID, 10),
+			[]string{strconv.FormatInt(item.ID, 10), item.Title, state},
+			viewDestination{key: viewKey{kind: viewArea, id: item.ID}, title: item.Title},
+		))
 	}
-	return append(rows, row{identity: "area:none", cells: []string{"", "(no area)", ""}})
+	return append(rows, descendingRow(
+		"area:none",
+		[]string{"", "(no area)", ""},
+		viewDestination{key: viewKey{kind: viewNoArea}, title: "(no area)"},
+	))
+}
+
+func projectRows(items []project.Project) []row {
+	rows := make([]row, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, descendingRow(
+			"project:"+strconv.FormatInt(item.ID, 10),
+			[]string{strconv.FormatInt(item.ID, 10), item.Title, item.Status},
+			viewDestination{key: viewKey{kind: viewProject, id: item.ID}, title: item.Title},
+		))
+	}
+	return rows
+}
+
+func boardProjectRows(items []board.ShownProject) []row {
+	rows := make([]row, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, descendingRow(
+			"project:"+strconv.FormatInt(item.ID, 10),
+			[]string{
+				"◆",
+				strconv.FormatInt(item.ID, 10),
+				item.Title,
+				fmt.Sprintf("%d/%d", item.Progress.Done, item.Progress.Total),
+			},
+			viewDestination{key: viewKey{kind: viewProject, id: item.ID}, title: item.Title},
+		))
+	}
+	return rows
+}
+
+func descendingRow(identity string, cells []string, destination viewDestination) row {
+	return row{identity: identity, cells: cells, destination: destination, descends: true}
+}
+
+func containerHeader(style rowStyle, id int64, title string) row {
+	return row{
+		identity: "header:" + strconv.FormatInt(id, 10),
+		cells:    []string{strconv.FormatInt(id, 10), title},
+		style:    style,
+	}
+}
+
+func taskViewSection(rows []row) section {
+	return section{
+		columns:     []string{"id", "title", "dates"},
+		rightAlign:  0,
+		flexColumn:  1,
+		showColumns: true,
+		rows:        rows,
+	}
+}
+
+func listedTaskSection(title string, rows []row, showEmpty bool) section {
+	return section{
+		title:       title,
+		columns:     []string{"id", "title", "status", "dates"},
+		rightAlign:  0,
+		flexColumn:  1,
+		showColumns: true,
+		showEmpty:   showEmpty,
+		rows:        rows,
+	}
+}
+
+func entitySection(title string, rows []row, showEmpty bool) section {
+	return section{
+		title:       title,
+		columns:     []string{"id", "title", "status"},
+		rightAlign:  0,
+		flexColumn:  1,
+		showColumns: true,
+		showEmpty:   showEmpty,
+		rows:        rows,
+	}
 }

@@ -8,7 +8,7 @@ consolidation. This plan is temporary and is retired at consolidation.
 ## Progress
 
 - [x] Chunk 1 — The skeleton stands
-- [ ] Chunk 2 — Every hall opens
+- [x] Chunk 2 — Every hall opens
 - [ ] Chunk 3 — Every door opens
 - [ ] Chunk 4 — Type to find
 
@@ -199,16 +199,16 @@ objects through two lenses.
 
 Implementation:
 
-- [ ] `internal/text`: promote `Ellipsize` (truncate with `…`) beside
+- [x] `internal/text`: promote `Ellipsize` (truncate with `…`) beside
       the escaping helper; migrate capture's footer call site;
       navigator rows truncate through it.
-- [ ] `internal/tui/navigator` container views: area (selectable
+- [x] `internal/tui/navigator` container views: area (selectable
       header; open projects, then loose open tasks under section
       headings), project (header; open tasks), board (header; stage
       headings in position order with open projects and done/total
       progress from `board.Show`), and the loose-projects list under
       a plain non-selectable `(no area)` title.
-- [ ] Data composition: `project.List` (open, by area; `AreaID == nil`
+- [x] Data composition: `project.List` (open, by area; `AreaID == nil`
       filtered client-side for loose), `task.List` (open, by project
       and by area), `board.Show`. Headers sit as the topmost cursor
       position; Enter on them activates in chunk 3.
@@ -216,22 +216,26 @@ Implementation:
 Verification (primary owners: navigator model tests; text tests for
 `Ellipsize`):
 
-- [ ] Model: area composition order (projects, then loose tasks) with
+- [x] Model: area composition order (projects, then loose tasks) with
       section headings; board grouping and ordering match
       `board.Show` with progress rendered; project tasks in
       `position, id` order; `(no area)` holds exactly the area-less
       projects, boarded or not.
-- [ ] Model: the header is the topmost cursor position; drill in and
+- [x] Model: the header is the topmost cursor position; drill in and
       out from the collections; the cursor restores by identity after
       pop and clamps when the row is gone.
-- [ ] text: `Ellipsize` width and ellipsis semantics; capture's
+- [x] text: `Ellipsize` width and ellipsis semantics; capture's
       footer rendering unchanged at its migrated call site.
-- [ ] `make check` green.
+- [x] `make check` green.
 
 Human proof (chunk demo `.sandbox/demos/12-chunk-2.html`), exact
 commands:
 
 ```sh
+gsd --db .sandbox/demo12.db areas add "Home"
+gsd --db .sandbox/demo12.db areas add "Work"
+gsd --db .sandbox/demo12.db boards add software --stage research \
+    --stage doing --stage review
 gsd --db .sandbox/demo12.db projects add "Kitchen reno" --area 1
 gsd --db .sandbox/demo12.db projects add "Blog rewrite"
 gsd --db .sandbox/demo12.db projects add "gsd milestone 12" \
@@ -245,7 +249,7 @@ gsd --db .sandbox/demo12.db tui
     # Esc ×2; Areas → (no area); q
 ```
 
-- [ ] Agent verification before review: build the real binary, drive
+- [x] Agent verification before review: build the real binary, drive
       the command list in tmux against a fresh temporary database,
       capture the frames into the deck, and pass local `make check`.
 

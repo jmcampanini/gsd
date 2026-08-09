@@ -3,6 +3,7 @@ package navigator
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -20,10 +21,14 @@ import (
 type fakeTasks struct {
 	inboxResponses     [][]task.ViewTask
 	availableResponses [][]task.ViewTask
+	listResponses      [][]task.Task
 	inboxErr           error
 	availableErr       error
+	listErr            error
 	inboxCalls         int
 	availableCalls     int
+	listCalls          int
+	listOptions        []task.ListOptions
 }
 
 func (f *fakeTasks) Inbox(context.Context) ([]task.ViewTask, error) {
@@ -38,21 +43,32 @@ func (f *fakeTasks) Available(context.Context) ([]task.ViewTask, error) {
 	return response, f.availableErr
 }
 
-func (*fakeTasks) List(context.Context, task.ListOptions) ([]task.Task, error) {
-	return nil, nil
+func (f *fakeTasks) List(_ context.Context, options task.ListOptions) ([]task.Task, error) {
+	response := responseAt(f.listResponses, f.listCalls)
+	f.listCalls++
+	f.listOptions = append(f.listOptions, options)
+	return response, f.listErr
 }
 
 func (*fakeTasks) Show(context.Context, int64) (task.Task, error) {
 	return task.Task{}, nil
 }
 
-type fakeProjects struct{}
-
-func (fakeProjects) List(context.Context, project.ListOptions) ([]project.Project, error) {
-	return nil, nil
+type fakeProjects struct {
+	responses [][]project.Project
+	err       error
+	calls     int
+	options   []project.ListOptions
 }
 
-func (fakeProjects) Show(context.Context, int64) (project.Detail, error) {
+func (f *fakeProjects) List(_ context.Context, options project.ListOptions) ([]project.Project, error) {
+	response := responseAt(f.responses, f.calls)
+	f.calls++
+	f.options = append(f.options, options)
+	return response, f.err
+}
+
+func (*fakeProjects) Show(context.Context, int64) (project.Detail, error) {
 	return project.Detail{}, nil
 }
 
@@ -74,9 +90,13 @@ func (*fakeAreas) Show(context.Context, int64) (area.Area, error) {
 }
 
 type fakeBoards struct {
-	items []board.ListedBoard
-	err   error
-	calls int
+	items      []board.ListedBoard
+	showResult board.Show
+	err        error
+	showErr    error
+	calls      int
+	showCalls  int
+	showTitles []string
 }
 
 func (f *fakeBoards) List(context.Context) ([]board.ListedBoard, error) {
@@ -84,8 +104,10 @@ func (f *fakeBoards) List(context.Context) ([]board.ListedBoard, error) {
 	return f.items, f.err
 }
 
-func (*fakeBoards) Show(context.Context, string) (board.Show, error) {
-	return board.Show{}, nil
+func (f *fakeBoards) Show(_ context.Context, title string) (board.Show, error) {
+	f.showCalls++
+	f.showTitles = append(f.showTitles, title)
+	return f.showResult, f.showErr
 }
 
 type fakeLogbook struct {
@@ -99,22 +121,30 @@ func (f *fakeLogbook) List(context.Context) ([]logbook.Entry, error) {
 	return f.items, f.err
 }
 
-func testDependencies() (Dependencies, *fakeTasks, *fakeAreas, *fakeBoards, *fakeLogbook) {
+func testDependencies() (
+	Dependencies,
+	*fakeTasks,
+	*fakeProjects,
+	*fakeAreas,
+	*fakeBoards,
+	*fakeLogbook,
+) {
 	tasks := &fakeTasks{}
+	projects := &fakeProjects{}
 	areas := &fakeAreas{}
 	boards := &fakeBoards{}
 	entries := &fakeLogbook{}
 	return Dependencies{
 		Tasks:    tasks,
-		Projects: fakeProjects{},
+		Projects: projects,
 		Areas:    areas,
 		Boards:   boards,
 		Logbook:  entries,
-	}, tasks, areas, boards, entries
+	}, tasks, projects, areas, boards, entries
 }
 
 func TestRootNavigationPushPopAndQuit(t *testing.T) {
-	dependencies, tasks, areas, boards, entries := testDependencies()
+	dependencies, tasks, _, areas, boards, entries := testDependencies()
 	wantRoot := "> Inbox\n  Available\n  Logbook\n  Boards\n  Areas\n"
 	initial := newModel(context.Background(), dependencies, false, time.UTC)
 	if got := initial.View().Content; got != wantRoot {
@@ -143,11 +173,7 @@ func TestRootNavigationPushPopAndQuit(t *testing.T) {
 		if got := loadCalls[index](); got != before+1 {
 			t.Errorf("root row %d loader calls = %d, want %d", index, got, before+1)
 		}
-		updated, command := press(t, updated, "enter")
-		if command != nil || len(updated.stack) != 2 {
-			t.Errorf("Enter in child stack/command = %d/%v, want inert", len(updated.stack), command)
-		}
-		updated, command = press(t, updated, "esc")
+		updated, command := press(t, updated, "esc")
 		if command != nil || len(updated.stack) != 1 {
 			t.Errorf("Esc child stack/command = %d/%v, want root", len(updated.stack), command)
 		}
@@ -181,7 +207,7 @@ func TestRootNavigationPushPopAndQuit(t *testing.T) {
 }
 
 func TestViewReentryReloadsAndIgnoresStaleResponses(t *testing.T) {
-	dependencies, tasks, _, _, _ := testDependencies()
+	dependencies, tasks, _, _, _, _ := testDependencies()
 	tasks.inboxResponses = [][]task.ViewTask{
 		{{Task: task.Task{ID: 1, Title: "stale"}}},
 		{{Task: task.Task{ID: 2, Title: "fresh"}}},
@@ -211,7 +237,7 @@ func TestViewReentryReloadsAndIgnoresStaleResponses(t *testing.T) {
 }
 
 func TestCursorRestoresByIdentityAndClampsWhenSelectionDisappears(t *testing.T) {
-	dependencies, tasks, _, _, _ := testDependencies()
+	dependencies, tasks, _, _, _, _ := testDependencies()
 	tasks.inboxResponses = [][]task.ViewTask{
 		{
 			{Task: task.Task{ID: 1, Title: "one"}},
@@ -241,7 +267,7 @@ func TestCursorRestoresByIdentityAndClampsWhenSelectionDisappears(t *testing.T) 
 }
 
 func TestLoadFailureIsSanitizedInlineAndNavigationRemainsAlive(t *testing.T) {
-	dependencies, tasks, _, _, _ := testDependencies()
+	dependencies, tasks, _, _, _, _ := testDependencies()
 	tasks.inboxErr = errors.New("database\x1b[31m failed\nretry")
 	current := newModel(context.Background(), dependencies, true, time.UTC)
 	current, load := press(t, current, "enter")
@@ -258,7 +284,7 @@ func TestLoadFailureIsSanitizedInlineAndNavigationRemainsAlive(t *testing.T) {
 }
 
 func TestTaskAndLogbookRowsMirrorCLIColumns(t *testing.T) {
-	dependencies, tasks, _, _, entries := testDependencies()
+	dependencies, tasks, _, _, _, entries := testDependencies()
 	due := "2026-08-08"
 	deferUntil := "2026-08-09"
 	stage := "Review\tNow"
@@ -307,7 +333,7 @@ func TestTaskAndLogbookRowsMirrorCLIColumns(t *testing.T) {
 }
 
 func TestBoardAndAreaRowsUseServiceOrderContractsAndApprovedShape(t *testing.T) {
-	dependencies, _, areas, boards, _ := testDependencies()
+	dependencies, _, _, areas, boards, _ := testDependencies()
 	boards.items = []board.ListedBoard{
 		{Board: board.Board{ID: 1, Title: "First", Position: 1}},
 		{
@@ -349,7 +375,7 @@ func TestBoardAndAreaRowsUseServiceOrderContractsAndApprovedShape(t *testing.T) 
 }
 
 func TestEmptyListsMatchCLIAndAreasRetainsPseudoRow(t *testing.T) {
-	dependencies, _, _, _, _ := testDependencies()
+	dependencies, _, _, _, _, _ := testDependencies()
 	for _, rootIndex := range []int{0, 1, 2, 3} {
 		current := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), rootIndex)
 		if got := current.View().Content; got != "" {
@@ -364,7 +390,7 @@ func TestEmptyListsMatchCLIAndAreasRetainsPseudoRow(t *testing.T) {
 }
 
 func TestSelectedMarkerUsesAccentWithoutStylingWholeRowAndBackgroundCanChange(t *testing.T) {
-	dependencies, _, _, _, _ := testDependencies()
+	dependencies, _, _, _, _, _ := testDependencies()
 	current := newModel(context.Background(), dependencies, true, time.UTC)
 	if current.Init() == nil {
 		t.Fatal("colored Init command = nil, want background detection")
@@ -390,6 +416,180 @@ func TestSelectedMarkerUsesAccentWithoutStylingWholeRowAndBackgroundCanChange(t 
 	dimLoading := lipgloss.NewStyle().Foreground(darkTheme.Dim).Render("loading…")
 	if got, want := loading.View().Content, "  "+dimLoading+"\n"; got != want {
 		t.Errorf("colored loading view = %q, want %q", got, want)
+	}
+}
+
+func TestAreaAndProjectContainersComposeDrillRestoreAndClamp(t *testing.T) {
+	dependencies, tasks, projects, areas, _, _ := testDependencies()
+	areas.items = []area.Area{{ID: 7, Title: "Home"}}
+	projects.responses = [][]project.Project{
+		{{ID: 11, AreaID: pointerTo(int64(7)), Title: "Kitchen reno", Status: "open"}},
+		{{ID: 11, AreaID: pointerTo(int64(7)), Title: "Kitchen reno", Status: "open"}},
+		{},
+	}
+	due := "2026-08-12"
+	looseTask := task.Task{ID: 21, AreaID: pointerTo(int64(7)), Title: "Water plants", Status: "open"}
+	projectTask := task.Task{
+		ID: 31, ProjectID: pointerTo(int64(11)), Title: "Buy pulls", Status: "open", DueOn: &due,
+	}
+	tasks.listResponses = [][]task.Task{
+		{looseTask},
+		{projectTask},
+		{looseTask},
+		{projectTask},
+		{},
+	}
+
+	current := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), 4)
+	current = enterSelection(t, current)
+	view := current.View().Content
+	if len(projects.options) != 1 || projects.options[0].Status != project.ListStatusOpen ||
+		projects.options[0].AreaID == nil || *projects.options[0].AreaID != 7 {
+		t.Fatalf("area project options = %#v, want open area 7", projects.options)
+	}
+	if len(tasks.listOptions) != 1 || tasks.listOptions[0].Status != task.ListStatusOpen ||
+		tasks.listOptions[0].AreaID == nil || *tasks.listOptions[0].AreaID != 7 {
+		t.Fatalf("area task options = %#v, want open area 7", tasks.listOptions)
+	}
+	if !containsInOrder(view, "● 7  Home", "projects", "Kitchen reno", "tasks", "Water plants") {
+		t.Fatalf("area view = %q, want header, projects, then loose tasks", view)
+	}
+	if !strings.Contains(view, "id  title") || !strings.Contains(view, "status") {
+		t.Errorf("area view = %q, want CLI project/task columns", view)
+	}
+
+	unchanged, command := press(t, current, "enter")
+	if command != nil || len(unchanged.stack) != 3 {
+		t.Fatalf("area header Enter stack/command = %d/%v, want inert until detail chunk", len(unchanged.stack), command)
+	}
+	current, _ = press(t, unchanged, "j")
+	if selected := selectedLine(current.View().Content); !strings.Contains(selected, "Kitchen reno") {
+		t.Fatalf("selection after area header = %q, want first project", selected)
+	}
+	current = enterSelection(t, current)
+	if current.top().key != (viewKey{kind: viewProject, id: 11}) {
+		t.Fatalf("project key = %#v, want project 11", current.top().key)
+	}
+	if len(tasks.listOptions) != 2 || tasks.listOptions[1].ProjectID == nil ||
+		*tasks.listOptions[1].ProjectID != 11 || tasks.listOptions[1].Status != task.ListStatusOpen {
+		t.Fatalf("project task options = %#v, want open project 11", tasks.listOptions)
+	}
+	if view := current.View().Content; !containsInOrder(view, "◆ 11  Kitchen reno", "Buy pulls", "open", "due 2026-08-12") {
+		t.Errorf("project view = %q, want header then ordered task list", view)
+	}
+
+	current, _ = press(t, current, "j")
+	unchanged, command = press(t, current, "enter")
+	if command != nil || len(unchanged.stack) != 4 {
+		t.Errorf("task Enter stack/command = %d/%v, want inert until detail chunk", len(unchanged.stack), command)
+	}
+	current = popAndReload(t, unchanged)
+	if selected := selectedLine(current.View().Content); !strings.Contains(selected, "Kitchen reno") {
+		t.Fatalf("area selection after project pop = %q, want restored project", selected)
+	}
+
+	current = enterSelection(t, current)
+	current = popAndReload(t, current)
+	if current.top().cursor != 0 || !strings.Contains(selectedLine(current.View().Content), "● 7  Home") {
+		t.Fatalf("area cursor/view after project removal = %d/%q, want clamped header", current.top().cursor, current.View().Content)
+	}
+}
+
+func TestBoardContainerUsesShowGroupingProgressAndDrillsToProject(t *testing.T) {
+	dependencies, _, _, _, boards, _ := testDependencies()
+	boards.items = []board.ListedBoard{{
+		Board: board.Board{ID: 4, Title: "software"},
+		Stages: []board.Stage{
+			{ID: 41, BoardID: 4, Title: "research"},
+			{ID: 42, BoardID: 4, Title: "doing"},
+			{ID: 43, BoardID: 4, Title: "review"},
+		},
+	}}
+	stageID := int64(42)
+	boards.showResult = board.Show{
+		Board: board.Board{ID: 4, Title: "software"},
+		Stages: []board.ShownStage{
+			{Stage: board.Stage{ID: 41, BoardID: 4, Title: "research"}, Projects: []board.ShownProject{}},
+			{Stage: board.Stage{ID: 42, BoardID: 4, Title: "doing"}, Projects: []board.ShownProject{
+				{Project: project.Project{ID: 12, StageID: &stageID, Title: "Milestone 12", Status: "open"}, Progress: board.ProjectProgress{Done: 5, Total: 8}},
+				{Project: project.Project{ID: 14, StageID: &stageID, Title: "Homelab", Status: "open"}, Progress: board.ProjectProgress{Done: 2, Total: 6}},
+			}},
+			{Stage: board.Stage{ID: 43, BoardID: 4, Title: "review"}, Projects: []board.ShownProject{}},
+		},
+	}
+
+	current := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), 3)
+	current = enterSelection(t, current)
+	if boards.showCalls != 1 || !slices.Equal(boards.showTitles, []string{"software"}) {
+		t.Fatalf("board Show calls/titles = %d/%v, want software once", boards.showCalls, boards.showTitles)
+	}
+	view := current.View().Content
+	if !containsInOrder(view, "software", "research", "(empty)", "doing", "Milestone 12", "5/8", "Homelab", "2/6", "review", "(empty)") {
+		t.Fatalf("board view = %q, want service stage/project order with progress", view)
+	}
+	unchanged, command := press(t, current, "enter")
+	if command != nil || len(unchanged.stack) != 3 {
+		t.Fatalf("board header Enter stack/command = %d/%v, want inert until detail chunk", len(unchanged.stack), command)
+	}
+	current, _ = press(t, unchanged, "j")
+	if selected := selectedLine(current.View().Content); !strings.Contains(selected, "Milestone 12") {
+		t.Fatalf("first board project selection = %q, want first shown project", selected)
+	}
+	current = enterSelection(t, current)
+	if current.top().key != (viewKey{kind: viewProject, id: 12}) {
+		t.Errorf("board drill key = %#v, want project 12", current.top().key)
+	}
+}
+
+func TestNoAreaContainsExactlyLooseProjectsAcrossBoardMembership(t *testing.T) {
+	dependencies, _, projects, _, _, _ := testDependencies()
+	areaID := int64(7)
+	stageID := int64(42)
+	projects.responses = [][]project.Project{{
+		{ID: 1, AreaID: &areaID, Title: "Area project", Status: "open"},
+		{ID: 2, Title: "Loose unboarded", Status: "open"},
+		{ID: 3, StageID: &stageID, Title: "Loose boarded", Status: "open"},
+	}}
+
+	current := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), 4)
+	current = enterSelection(t, current)
+	if len(projects.options) != 1 || projects.options[0].Status != project.ListStatusOpen ||
+		projects.options[0].AreaID != nil {
+		t.Fatalf("no-area project options = %#v, want all open for client filtering", projects.options)
+	}
+	view := current.View().Content
+	if strings.Contains(view, "Area project") || !containsInOrder(view, "(no area)", "Loose unboarded", "Loose boarded") {
+		t.Fatalf("no-area view = %q, want exactly loose projects in service order", view)
+	}
+	if strings.HasPrefix(strings.Split(view, "\n")[0], "> ") {
+		t.Errorf("no-area title = %q, want plain non-selectable title", strings.Split(view, "\n")[0])
+	}
+	if selected := selectedLine(view); !strings.Contains(selected, "Loose unboarded") {
+		t.Errorf("no-area first selection = %q, want first loose project", selected)
+	}
+	current = enterSelection(t, current)
+	if current.top().key != (viewKey{kind: viewProject, id: 2}) {
+		t.Errorf("no-area drill key = %#v, want project 2", current.top().key)
+	}
+}
+
+func TestRowsEllipsizeFlexibleContentBeforeTrailingMetadata(t *testing.T) {
+	dependencies, tasks, _, _, _, _ := testDependencies()
+	due := "2026-08-12"
+	tasks.inboxResponses = [][]task.ViewTask{{{
+		Task: task.Task{ID: 12, Title: strings.Repeat("renovation ", 8), DueOn: &due},
+	}}}
+	current := newModel(context.Background(), dependencies, false, time.UTC)
+	updated, _ := current.Update(tea.WindowSizeMsg{Width: 34, Height: 12})
+	current = enterRootRow(t, updated.(model), 0)
+	for line := range strings.SplitSeq(strings.TrimSuffix(current.View().Content, "\n"), "\n") {
+		if width := lipgloss.Width(line); width > 34 {
+			t.Errorf("rendered line width = %d, want at most 34: %q", width, line)
+		}
+	}
+	selected := selectedLine(current.View().Content)
+	if !strings.Contains(selected, "…") || !strings.Contains(selected, "due 2026-08-12") {
+		t.Errorf("width-aware row = %q, want ellipsized title with due metadata retained", selected)
 	}
 }
 
@@ -441,6 +641,33 @@ func enterRootRow(t *testing.T, current model, index int) model {
 	current = pressTimes(t, current, "j", index)
 	current, load := press(t, current, "enter")
 	return deliver(t, current, load)
+}
+
+func enterSelection(t *testing.T, current model) model {
+	t.Helper()
+	current, load := press(t, current, "enter")
+	return deliver(t, current, load)
+}
+
+func popAndReload(t *testing.T, current model) model {
+	t.Helper()
+	current, load := press(t, current, "esc")
+	return deliver(t, current, load)
+}
+
+func pointerTo[T any](value T) *T {
+	return &value
+}
+
+func containsInOrder(content string, values ...string) bool {
+	for _, value := range values {
+		index := strings.Index(content, value)
+		if index < 0 {
+			return false
+		}
+		content = content[index+len(value):]
+	}
+	return true
 }
 
 func assertQuit(t *testing.T, command tea.Cmd) {
