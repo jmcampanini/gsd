@@ -31,7 +31,7 @@ until consolidation.
   with no header, since a collection is not itself an entity. A board,
   an area, and a project are *containers* — a compact selectable
   header above the rows, the header being the topmost cursor position;
-  Enter on the header opens the container's detail. The areas
+  Enter or `l` on the header opens the container's detail. The areas
   collection ends with a `(no area)` pseudo-row holding loose
   projects; its list carries a plain non-selectable title because
   there is no entity behind it. Tasks are leaves.
@@ -55,11 +55,11 @@ until consolidation.
   like `boards list`; task rows mirror the CLI's list columns, so no
   fourth container-title projection appears. No count badges. Rows
   truncate to the terminal width with `…` and never wrap.
-- **Navigation.** `j`/`k`/arrows move; Enter descends into a
+- **Navigation.** `j`/`k`/arrows move; Enter/`l` descends into a
   container or opens a detail; Esc/`h` goes back; Esc clears an
   active filter before it navigates; Esc at the root quits, while `q`
-  and Ctrl+C quit from anywhere. `l` is not an alias for Enter, and `←`/`→` stay
-  unbound, reserved for Milestone 13's columns. The view stack keeps
+  and Ctrl+C quit from anywhere. `←`/`→` stay unbound, reserved for
+  Milestone 13's columns. The view stack keeps
   one cursor per view, restored by entity identity when returning and
   clamped when the row has vanished.
 - **Freshness.** A view loads its data when entered and re-reads when
@@ -120,7 +120,7 @@ until consolidation.
 ## Chunk 1 — The skeleton stands
 
 Human outcome: `gsd tui` opens to the root; `j`/`k`/arrows walk
-Inbox, Available, Logbook, Boards, and Areas; Enter opens the three
+Inbox, Available, Logbook, Boards, and Areas; Enter/`l` opens the three
 task views and the two collections; Esc returns; `q` (or Esc at the
 root) quits.
 
@@ -138,7 +138,7 @@ Implementation:
       `logbook.List` with rows mirroring the CLI columns; boards
       collection (`NAME stage → …` from `board.List`) and areas
       collection (active areas from `area.List`, then the `(no area)`
-      pseudo-row). Enter on rows inside these views waits for chunks
+      pseudo-row). Enter/`l` on rows inside these views waits for chunks
       2–3.
 - [x] `cmd/tui.go` and root wiring: `gsd tui` registered; guards
       before the factory (no arguments, `--json` refused, per-stream
@@ -156,7 +156,7 @@ dependencies; cmd tests for guards and wiring; e2e for real-terminal
 smoke):
 
 - [x] Model: five root rows in order; movement clamps at both ends;
-      Enter pushes each of the five views; Esc pops; Esc at root and
+      Enter/`l` pushes each of the five views; Esc/`h` pops; Esc at root and
       `q` quit; re-entering a view re-calls its loader; a load
       failure renders inline and Esc backs out.
 - [x] Model: boards rows show the stage chain in position order;
@@ -211,7 +211,7 @@ Implementation:
 - [x] Data composition: `project.List` (open, by area; `AreaID == nil`
       filtered client-side for loose), `task.List` (open, by project
       and by area), `board.Show`. Headers sit as the topmost cursor
-      position; Enter on them activates in chunk 3.
+      position; Enter/`l` on them activates in chunk 3.
 
 Verification (primary owners: navigator model tests; text tests for
 `Ellipsize`):
@@ -265,7 +265,7 @@ Implementation:
       project, area, and board mirroring `show`'s field order per the
       settled design; empty fields collapse; notes escaped with line
       feeds preserved; the promotes marker matches the CLI.
-- [ ] Enter wiring: task, project, and area rows in every list —
+- [ ] Enter/`l` wiring: task, project, and area rows in every list —
       including logbook rows — open that entity's detail; container
       headers open the container's detail; detail has no cursor and
       no filter; Esc pops.
@@ -279,7 +279,7 @@ dependencies):
       `Board/Stage` row, defer-stage and promotes rows, the board's
       stage list — with empty-field collapse and control-character
       escaping in notes.
-- [ ] Model: Enter targets rows versus headers correctly; logbook
+- [ ] Model: Enter/`l` targets rows versus headers correctly; logbook
       rows open task and project details; an entity deleted
       mid-session renders its `not_found` inline and Esc backs out.
 - [ ] Model: pop-return re-calls the list loader, so a mutated entity
@@ -321,7 +321,7 @@ Implementation:
       hide, sections and headers stay, matched characters highlight,
       the cursor clamps to the matched set; a blank pattern is
       unfiltered; Esc clears the filter before navigating; any
-      navigation drops it; Enter on a filtered row behaves normally.
+      navigation drops it; Enter/`l` on a filtered row behaves normally.
 - [ ] `e2e/navigator_test.go`: the documented end-to-end workflow
       below as durable subprocess coverage inside `make check`.
 
@@ -364,7 +364,7 @@ durable coverage lives in `e2e/` inside `make check`:
 2. Drill Areas → area → project → task detail and back out with Esc
    at each level; each screen contains the expected rows and fields;
    the cursor lands back where it was.
-3. Enter on container headers: area, project, and board details match
+3. Enter/`l` on container headers: area, project, and board details match
    `show --json` (and `board show --json`) fields for the same
    identities.
 4. Mutate via the CLI mid-session — edit a note, move a boarded

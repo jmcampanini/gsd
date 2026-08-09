@@ -232,7 +232,7 @@ func (m model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.move(1)
 	case "k", "up":
 		m.move(-1)
-	case "enter":
+	case "enter", "l":
 		return m.pushSelection()
 	}
 	return m, nil

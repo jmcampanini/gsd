@@ -206,6 +206,51 @@ func TestRootNavigationPushPopAndQuit(t *testing.T) {
 	}
 }
 
+func TestHorizontalVimKeysDrillInAndOutAtEveryImplementedLevel(t *testing.T) {
+	dependencies, _, projects, areas, _, _ := testDependencies()
+	areaID := int64(7)
+	areas.items = []area.Area{{ID: areaID, Title: "Home"}}
+	projects.responses = [][]project.Project{{{
+		ID: 11, AreaID: &areaID, Title: "Kitchen reno", Status: "open",
+	}}}
+
+	current := pressTimes(t, newModel(context.Background(), dependencies, false, time.UTC), "j", 4)
+	current, load := press(t, current, "l")
+	current = deliver(t, current, load)
+	if current.top().key.kind != viewAreas {
+		t.Fatalf("root l key = %#v, want areas collection", current.top().key)
+	}
+
+	current, load = press(t, current, "l")
+	current = deliver(t, current, load)
+	if current.top().key != (viewKey{kind: viewArea, id: areaID}) {
+		t.Fatalf("collection l key = %#v, want area 7", current.top().key)
+	}
+
+	current, _ = press(t, current, "j")
+	current, load = press(t, current, "l")
+	current = deliver(t, current, load)
+	if current.top().key != (viewKey{kind: viewProject, id: 11}) {
+		t.Fatalf("container l key = %#v, want project 11", current.top().key)
+	}
+
+	for _, wantKind := range []viewKind{viewArea, viewAreas} {
+		current, load = press(t, current, "h")
+		current = deliver(t, current, load)
+		if current.top().key.kind != wantKind {
+			t.Fatalf("h key kind = %d, want %d", current.top().key.kind, wantKind)
+		}
+	}
+	current, command := press(t, current, "h")
+	if command != nil || current.top().key.kind != viewRoot {
+		t.Fatalf("collection h stack/command = %d/%v, want root", len(current.stack), command)
+	}
+	current, command = press(t, current, "h")
+	if command != nil || len(current.stack) != 1 {
+		t.Errorf("root h stack/command = %d/%v, want inert", len(current.stack), command)
+	}
+}
+
 func TestViewReentryReloadsAndIgnoresStaleResponses(t *testing.T) {
 	dependencies, tasks, _, _, _, _ := testDependencies()
 	tasks.inboxResponses = [][]task.ViewTask{
