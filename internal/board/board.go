@@ -92,6 +92,7 @@ func (o Occupancy) Any() bool {
 type Transaction interface {
 	AddBoard(context.Context, AddFields, string) (Board, error)
 	FindBoard(context.Context, string) (Board, error)
+	FindBoardByID(context.Context, int64) (Board, error)
 	ListBoards(context.Context) ([]Board, error)
 	EditBoard(context.Context, int64, EditFields, string) (Board, error)
 	ReorderBoard(context.Context, int64, domain.Placement, string) (Board, error)
@@ -118,6 +119,7 @@ type Application interface {
 	Add(context.Context, AddFields) (Addition, error)
 	List(context.Context) ([]ListedBoard, error)
 	Show(context.Context, string) (Show, error)
+	ShowByID(context.Context, int64) (Show, error)
 	Edit(context.Context, string, EditFields) (Board, error)
 	Reorder(context.Context, string, Placement) (Board, error)
 	Delete(context.Context, string) (Deletion, error)

@@ -55,10 +55,14 @@ func (*fakeTasks) Show(context.Context, int64) (task.Task, error) {
 }
 
 type fakeProjects struct {
-	responses [][]project.Project
-	err       error
-	calls     int
-	options   []project.ListOptions
+	responses     [][]project.Project
+	showResponses []project.Detail
+	err           error
+	showErr       error
+	calls         int
+	showCalls     int
+	options       []project.ListOptions
+	showIDs       []int64
 }
 
 func (f *fakeProjects) List(_ context.Context, options project.ListOptions) ([]project.Project, error) {
@@ -68,15 +72,22 @@ func (f *fakeProjects) List(_ context.Context, options project.ListOptions) ([]p
 	return response, f.err
 }
 
-func (*fakeProjects) Show(context.Context, int64) (project.Detail, error) {
-	return project.Detail{}, nil
+func (f *fakeProjects) Show(_ context.Context, id int64) (project.Detail, error) {
+	response := valueAt(f.showResponses, f.showCalls)
+	f.showCalls++
+	f.showIDs = append(f.showIDs, id)
+	return response, f.showErr
 }
 
 type fakeAreas struct {
-	items   []area.Area
-	err     error
-	calls   int
-	options []area.ListOptions
+	items         []area.Area
+	showResponses []area.Area
+	err           error
+	showErr       error
+	calls         int
+	showCalls     int
+	options       []area.ListOptions
+	showIDs       []int64
 }
 
 func (f *fakeAreas) List(_ context.Context, options area.ListOptions) ([]area.Area, error) {
@@ -85,18 +96,21 @@ func (f *fakeAreas) List(_ context.Context, options area.ListOptions) ([]area.Ar
 	return f.items, f.err
 }
 
-func (*fakeAreas) Show(context.Context, int64) (area.Area, error) {
-	return area.Area{}, nil
+func (f *fakeAreas) Show(_ context.Context, id int64) (area.Area, error) {
+	response := valueAt(f.showResponses, f.showCalls)
+	f.showCalls++
+	f.showIDs = append(f.showIDs, id)
+	return response, f.showErr
 }
 
 type fakeBoards struct {
-	items      []board.ListedBoard
-	showResult board.Show
-	err        error
-	showErr    error
-	calls      int
-	showCalls  int
-	showTitles []string
+	items         []board.ListedBoard
+	showResponses []board.Show
+	err           error
+	showErr       error
+	calls         int
+	showCalls     int
+	showIDs       []int64
 }
 
 func (f *fakeBoards) List(context.Context) ([]board.ListedBoard, error) {
@@ -104,10 +118,11 @@ func (f *fakeBoards) List(context.Context) ([]board.ListedBoard, error) {
 	return f.items, f.err
 }
 
-func (f *fakeBoards) Show(_ context.Context, title string) (board.Show, error) {
+func (f *fakeBoards) ShowByID(_ context.Context, id int64) (board.Show, error) {
+	response := valueAt(f.showResponses, f.showCalls)
 	f.showCalls++
-	f.showTitles = append(f.showTitles, title)
-	return f.showResult, f.showErr
+	f.showIDs = append(f.showIDs, id)
+	return response, f.showErr
 }
 
 type fakeLogbook struct {
@@ -210,9 +225,13 @@ func TestHorizontalVimKeysDrillInAndOutAtEveryImplementedLevel(t *testing.T) {
 	dependencies, _, projects, areas, _, _ := testDependencies()
 	areaID := int64(7)
 	areas.items = []area.Area{{ID: areaID, Title: "Home"}}
+	areas.showResponses = []area.Area{{ID: areaID, Title: "Home"}}
 	projects.responses = [][]project.Project{{{
 		ID: 11, AreaID: &areaID, Title: "Kitchen reno", Status: "open",
 	}}}
+	projects.showResponses = []project.Detail{{
+		Project: project.Project{ID: 11, AreaID: &areaID, Title: "Kitchen reno", Status: "open"},
+	}}
 
 	current := pressTimes(t, newModel(context.Background(), dependencies, false, time.UTC), "j", 4)
 	current, load := press(t, current, "l")
@@ -467,10 +486,18 @@ func TestSelectedMarkerUsesAccentWithoutStylingWholeRowAndBackgroundCanChange(t 
 func TestAreaAndProjectContainersComposeDrillRestoreAndClamp(t *testing.T) {
 	dependencies, tasks, projects, areas, _, _ := testDependencies()
 	areas.items = []area.Area{{ID: 7, Title: "Home"}}
+	areas.showResponses = []area.Area{
+		{ID: 7, Title: "Home"},
+		{ID: 7, Title: "House"},
+	}
 	projects.responses = [][]project.Project{
 		{{ID: 11, AreaID: pointerTo(int64(7)), Title: "Kitchen reno", Status: "open"}},
 		{{ID: 11, AreaID: pointerTo(int64(7)), Title: "Kitchen reno", Status: "open"}},
 		{},
+	}
+	projects.showResponses = []project.Detail{
+		{Project: project.Project{ID: 11, Title: "Kitchen reno", Status: "open"}},
+		{Project: project.Project{ID: 11, Title: "Kitchen refreshed", Status: "open"}},
 	}
 	due := "2026-08-12"
 	looseTask := task.Task{ID: 21, AreaID: pointerTo(int64(7)), Title: "Water plants", Status: "open"}
@@ -488,6 +515,9 @@ func TestAreaAndProjectContainersComposeDrillRestoreAndClamp(t *testing.T) {
 	current := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), 4)
 	current = enterSelection(t, current)
 	view := current.View().Content
+	if !slices.Equal(areas.showIDs, []int64{7}) {
+		t.Fatalf("area Show IDs = %v, want 7", areas.showIDs)
+	}
 	if len(projects.options) != 1 || projects.options[0].Status != project.ListStatusOpen ||
 		projects.options[0].AreaID == nil || *projects.options[0].AreaID != 7 {
 		t.Fatalf("area project options = %#v, want open area 7", projects.options)
@@ -515,6 +545,9 @@ func TestAreaAndProjectContainersComposeDrillRestoreAndClamp(t *testing.T) {
 	if current.top().key != (viewKey{kind: viewProject, id: 11}) {
 		t.Fatalf("project key = %#v, want project 11", current.top().key)
 	}
+	if !slices.Equal(projects.showIDs, []int64{11}) {
+		t.Fatalf("project Show IDs = %v, want 11", projects.showIDs)
+	}
 	if len(tasks.listOptions) != 2 || tasks.listOptions[1].ProjectID == nil ||
 		*tasks.listOptions[1].ProjectID != 11 || tasks.listOptions[1].Status != task.ListStatusOpen {
 		t.Fatalf("project task options = %#v, want open project 11", tasks.listOptions)
@@ -532,16 +565,23 @@ func TestAreaAndProjectContainersComposeDrillRestoreAndClamp(t *testing.T) {
 	if selected := selectedLine(current.View().Content); !strings.Contains(selected, "Kitchen reno") {
 		t.Fatalf("area selection after project pop = %q, want restored project", selected)
 	}
+	if !strings.Contains(current.View().Content, "● 7  House") || !slices.Equal(areas.showIDs, []int64{7, 7}) {
+		t.Fatalf("refreshed area view/IDs = %q/%v, want renamed header by stable ID", current.View().Content, areas.showIDs)
+	}
 
 	current = enterSelection(t, current)
+	if !strings.Contains(current.View().Content, "◆ 11  Kitchen refreshed") ||
+		!slices.Equal(projects.showIDs, []int64{11, 11}) {
+		t.Fatalf("refreshed project view/IDs = %q/%v, want renamed header by stable ID", current.View().Content, projects.showIDs)
+	}
 	current = popAndReload(t, current)
-	if current.top().cursor != 0 || !strings.Contains(selectedLine(current.View().Content), "● 7  Home") {
-		t.Fatalf("area cursor/view after project removal = %d/%q, want clamped header", current.top().cursor, current.View().Content)
+	if current.top().cursor != 0 || !strings.Contains(selectedLine(current.View().Content), "● 7  House") {
+		t.Fatalf("area cursor/view after project removal = %d/%q, want clamped refreshed header", current.top().cursor, current.View().Content)
 	}
 }
 
 func TestBoardContainerUsesShowGroupingProgressAndDrillsToProject(t *testing.T) {
-	dependencies, _, _, _, boards, _ := testDependencies()
+	dependencies, _, projects, _, boards, _ := testDependencies()
 	boards.items = []board.ListedBoard{{
 		Board: board.Board{ID: 4, Title: "software"},
 		Stages: []board.Stage{
@@ -551,7 +591,7 @@ func TestBoardContainerUsesShowGroupingProgressAndDrillsToProject(t *testing.T) 
 		},
 	}}
 	stageID := int64(42)
-	boards.showResult = board.Show{
+	shown := board.Show{
 		Board: board.Board{ID: 4, Title: "software"},
 		Stages: []board.ShownStage{
 			{Stage: board.Stage{ID: 41, BoardID: 4, Title: "research"}, Projects: []board.ShownProject{}},
@@ -562,11 +602,17 @@ func TestBoardContainerUsesShowGroupingProgressAndDrillsToProject(t *testing.T) 
 			{Stage: board.Stage{ID: 43, BoardID: 4, Title: "review"}, Projects: []board.ShownProject{}},
 		},
 	}
+	renamed := shown
+	renamed.Board.Title = "platform"
+	boards.showResponses = []board.Show{shown, renamed}
+	projects.showResponses = []project.Detail{{
+		Project: project.Project{ID: 12, StageID: &stageID, Title: "Milestone 12", Status: "open"},
+	}}
 
 	current := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), 3)
 	current = enterSelection(t, current)
-	if boards.showCalls != 1 || !slices.Equal(boards.showTitles, []string{"software"}) {
-		t.Fatalf("board Show calls/titles = %d/%v, want software once", boards.showCalls, boards.showTitles)
+	if boards.showCalls != 1 || !slices.Equal(boards.showIDs, []int64{4}) {
+		t.Fatalf("board ShowByID calls/IDs = %d/%v, want board 4 once", boards.showCalls, boards.showIDs)
 	}
 	view := current.View().Content
 	if !containsInOrder(view, "software", "research", "(empty)", "doing", "Milestone 12", "5/8", "Homelab", "2/6", "review", "(empty)") {
@@ -583,6 +629,12 @@ func TestBoardContainerUsesShowGroupingProgressAndDrillsToProject(t *testing.T) 
 	current = enterSelection(t, current)
 	if current.top().key != (viewKey{kind: viewProject, id: 12}) {
 		t.Errorf("board drill key = %#v, want project 12", current.top().key)
+	}
+	current = popAndReload(t, current)
+	if !strings.Contains(current.View().Content, "platform") ||
+		strings.Contains(current.View().Content, "software") ||
+		!slices.Equal(boards.showIDs, []int64{4, 4}) {
+		t.Errorf("refreshed board view/IDs = %q/%v, want renamed board by stable ID", current.View().Content, boards.showIDs)
 	}
 }
 
@@ -641,6 +693,14 @@ func TestRowsEllipsizeFlexibleContentBeforeTrailingMetadata(t *testing.T) {
 func responseAt[T any](responses [][]T, call int) []T {
 	if len(responses) == 0 {
 		return nil
+	}
+	return responses[min(call, len(responses)-1)]
+}
+
+func valueAt[T any](responses []T, call int) T {
+	if len(responses) == 0 {
+		var zero T
+		return zero
 	}
 	return responses[min(call, len(responses)-1)]
 }

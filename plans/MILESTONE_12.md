@@ -43,7 +43,7 @@ TUI verb, reorder, and command-line milestone acts on.
   position), Enter/`l` descends/opens, Esc/`h` goes back; at the root,
   Esc quits and `h` is inert. `q` and Ctrl+C quit from anywhere. Keyboard-only.
 - **Freshness**: data loads when a view is entered; re-entering
-  re-reads. No polling or watchers.
+  re-reads every entity field by stable ID. No polling or watchers.
 - **`/` is an incremental fuzzy filter** — snacks-picker semantics,
   not FTS: in-memory fuzzy subsequence matching with smart-case over
   the current view's visible rows, matched characters highlighted,

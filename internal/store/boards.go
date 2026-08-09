@@ -51,6 +51,10 @@ func (s *Boards) FindBoard(ctx context.Context, name string) (board.Board, error
 	return s.poolCore().FindBoard(ctx, name)
 }
 
+func (s *Boards) FindBoardByID(ctx context.Context, id int64) (board.Board, error) {
+	return s.poolCore().FindBoardByID(ctx, id)
+}
+
 func (s *Boards) ListBoards(ctx context.Context) ([]board.Board, error) {
 	return s.poolCore().ListBoards(ctx)
 }
@@ -219,7 +223,7 @@ func (s *boardsCore) FindBoard(ctx context.Context, name string) (board.Board, e
 	return found, nil
 }
 
-func (s *boardsCore) findBoardByID(ctx context.Context, id int64) (board.Board, error) {
+func (s *boardsCore) FindBoardByID(ctx context.Context, id int64) (board.Board, error) {
 	found, err := scanBoard(s.executor.QueryRowContext(
 		ctx,
 		"SELECT "+boardColumns+" FROM boards WHERE id = ?",
@@ -283,7 +287,7 @@ func (s *boardsCore) EditBoard(
 		return board.Board{}, fmt.Errorf("edit board: %w", err)
 	}
 
-	if _, findErr := s.findBoardByID(ctx, id); findErr != nil {
+	if _, findErr := s.FindBoardByID(ctx, id); findErr != nil {
 		return board.Board{}, findErr
 	}
 	if fields.Title == nil {
@@ -306,11 +310,11 @@ func (s *boardsCore) ReorderBoard(
 	placement domain.Placement,
 	timestamp string,
 ) (board.Board, error) {
-	if _, err := s.findBoardByID(ctx, id); err != nil {
+	if _, err := s.FindBoardByID(ctx, id); err != nil {
 		return board.Board{}, err
 	}
 	if placement.Anchor == domain.PlacementAfter || placement.Anchor == domain.PlacementBefore {
-		if _, err := s.findBoardByID(ctx, placement.ReferenceID); err != nil {
+		if _, err := s.FindBoardByID(ctx, placement.ReferenceID); err != nil {
 			return board.Board{}, err
 		}
 		if id == placement.ReferenceID {
@@ -338,11 +342,11 @@ func (s *boardsCore) ReorderBoard(
 	if _, err := s.executor.ExecContext(ctx, "UPDATE boards SET "+clause, arguments...); err != nil {
 		return board.Board{}, fmt.Errorf("reorder board: %w", err)
 	}
-	return s.findBoardByID(ctx, id)
+	return s.FindBoardByID(ctx, id)
 }
 
 func (s *boardsCore) DeleteBoard(ctx context.Context, id int64) (board.Board, error) {
-	deleted, err := s.findBoardByID(ctx, id)
+	deleted, err := s.FindBoardByID(ctx, id)
 	if err != nil {
 		return board.Board{}, err
 	}
@@ -357,7 +361,7 @@ func (s *boardsCore) AddStage(
 	boardID int64,
 	title, timestamp string,
 ) (board.Stage, error) {
-	if _, err := s.findBoardByID(ctx, boardID); err != nil {
+	if _, err := s.FindBoardByID(ctx, boardID); err != nil {
 		return board.Stage{}, err
 	}
 	created, err := scanStage(s.executor.QueryRowContext(ctx, `
@@ -401,7 +405,7 @@ FROM stages s
 JOIN boards b ON b.id = s.board_id
 WHERE s.board_id = ? AND s.title = ? COLLATE NOCASE`, boardID, name))
 	if errors.Is(err, sql.ErrNoRows) {
-		owner, findErr := s.findBoardByID(ctx, boardID)
+		owner, findErr := s.FindBoardByID(ctx, boardID)
 		if findErr != nil {
 			return board.Stage{}, "", findErr
 		}

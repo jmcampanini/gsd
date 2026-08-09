@@ -34,7 +34,7 @@ type AreaReader interface {
 
 type BoardReader interface {
 	List(context.Context) ([]board.ListedBoard, error)
-	Show(context.Context, string) (board.Show, error)
+	ShowByID(context.Context, int64) (board.Show, error)
 }
 
 type LogbookReader interface {
@@ -86,11 +86,6 @@ type viewKey struct {
 	id   int64
 }
 
-type viewDestination struct {
-	key   viewKey
-	title string
-}
-
 type rowStyle uint8
 
 const (
@@ -104,7 +99,7 @@ type row struct {
 	identity    string
 	cells       []string
 	style       rowStyle
-	destination viewDestination
+	destination viewKey
 	descends    bool
 }
 
@@ -120,10 +115,9 @@ type section struct {
 }
 
 type loadedView struct {
-	lookupTitle string
-	plainTitle  string
-	header      *row
-	sections    []section
+	plainTitle string
+	header     *row
+	sections   []section
 }
 
 type cursorState struct {
@@ -132,11 +126,10 @@ type cursorState struct {
 }
 
 type frame struct {
-	key         viewKey
-	lookupTitle string
-	generation  uint64
-	loading     bool
-	err         error
+	key        viewKey
+	generation uint64
+	loading    bool
+	err        error
 	loadedView
 	cursor int
 }
@@ -255,10 +248,7 @@ func (m model) pushSelection() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.rememberCursor(current)
-	m.stack = append(m.stack, frame{
-		key:         selected.destination.key,
-		lookupTitle: selected.destination.title,
-	})
+	m.stack = append(m.stack, frame{key: selected.destination})
 	return m.enterTop()
 }
 
@@ -292,13 +282,12 @@ func (m model) enterTop() (tea.Model, tea.Cmd) {
 	current.cursor = state.index
 	generation := current.generation
 	key := current.key
-	lookupTitle := current.lookupTitle
-	return m, m.loadCommand(key, lookupTitle, generation)
+	return m, m.loadCommand(key, generation)
 }
 
-func (m model) loadCommand(key viewKey, lookupTitle string, generation uint64) tea.Cmd {
+func (m model) loadCommand(key viewKey, generation uint64) tea.Cmd {
 	return func() tea.Msg {
-		loaded, err := m.loadView(key, lookupTitle)
+		loaded, err := m.loadView(key)
 		return loadResultMsg{
 			key:        key,
 			generation: generation,
@@ -308,7 +297,7 @@ func (m model) loadCommand(key viewKey, lookupTitle string, generation uint64) t
 	}
 }
 
-func (m model) loadView(key viewKey, lookupTitle string) (loadedView, error) {
+func (m model) loadView(key viewKey) (loadedView, error) {
 	switch key.kind {
 	case viewInbox:
 		return m.loadInbox()
@@ -321,11 +310,11 @@ func (m model) loadView(key viewKey, lookupTitle string) (loadedView, error) {
 	case viewAreas:
 		return m.loadAreas()
 	case viewArea:
-		return m.loadArea(key.id, lookupTitle)
+		return m.loadArea(key.id)
 	case viewProject:
-		return m.loadProject(key.id, lookupTitle)
+		return m.loadProject(key.id)
 	case viewBoard:
-		return m.loadBoard(key.id, lookupTitle)
+		return m.loadBoard(key.id)
 	case viewNoArea:
 		return m.loadNoArea()
 	case viewRoot:
@@ -397,7 +386,11 @@ func (m model) loadAreas() (loadedView, error) {
 	}}}, nil
 }
 
-func (m model) loadArea(id int64, title string) (loadedView, error) {
+func (m model) loadArea(id int64) (loadedView, error) {
+	shown, err := m.dependencies.Areas.Show(m.ctx, id)
+	if err != nil {
+		return loadedView{}, err
+	}
 	projects, err := m.dependencies.Projects.List(m.ctx, project.ListOptions{
 		Status: project.ListStatusOpen,
 		AreaID: &id,
@@ -412,10 +405,9 @@ func (m model) loadArea(id int64, title string) (loadedView, error) {
 	if err != nil {
 		return loadedView{}, err
 	}
-	header := containerHeader(rowAreaHeader, id, title)
+	header := containerHeader(rowAreaHeader, id, shown.Title)
 	return loadedView{
-		lookupTitle: title,
-		header:      &header,
+		header: &header,
 		sections: []section{
 			entitySection("projects", projectRows(projects), true),
 			listedTaskSection("tasks", listedTaskRows(tasks), true),
@@ -423,7 +415,11 @@ func (m model) loadArea(id int64, title string) (loadedView, error) {
 	}, nil
 }
 
-func (m model) loadProject(id int64, title string) (loadedView, error) {
+func (m model) loadProject(id int64) (loadedView, error) {
+	shown, err := m.dependencies.Projects.Show(m.ctx, id)
+	if err != nil {
+		return loadedView{}, err
+	}
 	tasks, err := m.dependencies.Tasks.List(m.ctx, task.ListOptions{
 		Status:    task.ListStatusOpen,
 		ProjectID: &id,
@@ -431,16 +427,15 @@ func (m model) loadProject(id int64, title string) (loadedView, error) {
 	if err != nil {
 		return loadedView{}, err
 	}
-	header := containerHeader(rowProjectHeader, id, title)
+	header := containerHeader(rowProjectHeader, id, shown.Title)
 	return loadedView{
-		lookupTitle: title,
-		header:      &header,
-		sections:    []section{listedTaskSection("", listedTaskRows(tasks), false)},
+		header:   &header,
+		sections: []section{listedTaskSection("", listedTaskRows(tasks), false)},
 	}, nil
 }
 
-func (m model) loadBoard(id int64, title string) (loadedView, error) {
-	shown, err := m.dependencies.Boards.Show(m.ctx, title)
+func (m model) loadBoard(id int64) (loadedView, error) {
+	shown, err := m.dependencies.Boards.ShowByID(m.ctx, id)
 	if err != nil {
 		return loadedView{}, err
 	}
@@ -457,9 +452,8 @@ func (m model) loadBoard(id int64, title string) (loadedView, error) {
 		})
 	}
 	return loadedView{
-		lookupTitle: shown.Board.Title,
-		header:      &header,
-		sections:    sections,
+		header:   &header,
+		sections: sections,
 	}, nil
 }
 
@@ -488,9 +482,6 @@ func (m model) applyLoad(message loadResultMsg) model {
 	current.loading = false
 	current.err = message.err
 	current.loadedView = message.loadedView
-	if message.lookupTitle != "" {
-		current.lookupTitle = message.lookupTitle
-	}
 	state := m.cursors[current.key]
 	current.cursor = restoreCursor(current.selectableRows(), state)
 	m.rememberCursor(current)
@@ -557,11 +548,11 @@ func clamp(value, low, high int) int {
 
 func rootRows() []row {
 	return []row{
-		descendingRow("root:inbox", []string{"Inbox"}, viewDestination{key: viewKey{kind: viewInbox}}),
-		descendingRow("root:available", []string{"Available"}, viewDestination{key: viewKey{kind: viewAvailable}}),
-		descendingRow("root:logbook", []string{"Logbook"}, viewDestination{key: viewKey{kind: viewLogbook}}),
-		descendingRow("root:boards", []string{"Boards"}, viewDestination{key: viewKey{kind: viewBoards}}),
-		descendingRow("root:areas", []string{"Areas"}, viewDestination{key: viewKey{kind: viewAreas}}),
+		descendingRow("root:inbox", []string{"Inbox"}, viewKey{kind: viewInbox}),
+		descendingRow("root:available", []string{"Available"}, viewKey{kind: viewAvailable}),
+		descendingRow("root:logbook", []string{"Logbook"}, viewKey{kind: viewLogbook}),
+		descendingRow("root:boards", []string{"Boards"}, viewKey{kind: viewBoards}),
+		descendingRow("root:areas", []string{"Areas"}, viewKey{kind: viewAreas}),
 	}
 }
 
@@ -627,7 +618,7 @@ func boardRows(items []board.ListedBoard) []row {
 		rows = append(rows, descendingRow(
 			"board:"+strconv.FormatInt(item.ID, 10),
 			[]string{item.Title, joinStages(stageTitles)},
-			viewDestination{key: viewKey{kind: viewBoard, id: item.ID}, title: item.Title},
+			viewKey{kind: viewBoard, id: item.ID},
 		))
 	}
 	return rows
@@ -643,13 +634,13 @@ func areaRows(items []area.Area) []row {
 		rows = append(rows, descendingRow(
 			"area:"+strconv.FormatInt(item.ID, 10),
 			[]string{strconv.FormatInt(item.ID, 10), item.Title, state},
-			viewDestination{key: viewKey{kind: viewArea, id: item.ID}, title: item.Title},
+			viewKey{kind: viewArea, id: item.ID},
 		))
 	}
 	return append(rows, descendingRow(
 		"area:none",
 		[]string{"", "(no area)", ""},
-		viewDestination{key: viewKey{kind: viewNoArea}, title: "(no area)"},
+		viewKey{kind: viewNoArea},
 	))
 }
 
@@ -659,7 +650,7 @@ func projectRows(items []project.Project) []row {
 		rows = append(rows, descendingRow(
 			"project:"+strconv.FormatInt(item.ID, 10),
 			[]string{strconv.FormatInt(item.ID, 10), item.Title, item.Status},
-			viewDestination{key: viewKey{kind: viewProject, id: item.ID}, title: item.Title},
+			viewKey{kind: viewProject, id: item.ID},
 		))
 	}
 	return rows
@@ -676,13 +667,13 @@ func boardProjectRows(items []board.ShownProject) []row {
 				item.Title,
 				fmt.Sprintf("%d/%d", item.Progress.Done, item.Progress.Total),
 			},
-			viewDestination{key: viewKey{kind: viewProject, id: item.ID}, title: item.Title},
+			viewKey{kind: viewProject, id: item.ID},
 		))
 	}
 	return rows
 }
 
-func descendingRow(identity string, cells []string, destination viewDestination) row {
+func descendingRow(identity string, cells []string, destination viewKey) row {
 	return row{identity: identity, cells: cells, destination: destination, descends: true}
 }
 

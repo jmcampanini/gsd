@@ -36,7 +36,7 @@ until consolidation.
   projects; its list carries a plain non-selectable title because
   there is no entity behind it. Tasks are leaves.
 - **Board container view.** A board opens as a stage-grouped list
-  composed from `board.Show`: stage headings in position order, open
+  composed from `board.ShowByID`: stage headings in position order, open
   projects in stage position order with derived done/total progress.
   This rendering is not throwaway — Milestone 13's column view
   arrives beside it, and how the two coexist is that milestone's
@@ -63,7 +63,8 @@ until consolidation.
   one cursor per view, restored by entity identity when returning and
   clamped when the row has vanished.
 - **Freshness.** A view loads its data when entered and re-reads when
-  re-entered, including on pop-return. No polling, no watchers.
+  re-entered, including on pop-return. Entity views reload every field
+  by stable ID. No polling, no watchers.
 - **Errors.** A failure before the program starts exits 1 through the
   standard stderr path. An in-session view load failure renders its
   application error inline behind the red accent with navigation
@@ -206,11 +207,11 @@ Implementation:
       header; open projects, then loose open tasks under section
       headings), project (header; open tasks), board (header; stage
       headings in position order with open projects and done/total
-      progress from `board.Show`), and the loose-projects list under
+      progress from `board.ShowByID`), and the loose-projects list under
       a plain non-selectable `(no area)` title.
 - [x] Data composition: `project.List` (open, by area; `AreaID == nil`
       filtered client-side for loose), `task.List` (open, by project
-      and by area), `board.Show`. Headers sit as the topmost cursor
+      and by area), `board.ShowByID`. Headers sit as the topmost cursor
       position; Enter/`l` on them activates in chunk 3.
 
 Verification (primary owners: navigator model tests; text tests for
@@ -218,12 +219,16 @@ Verification (primary owners: navigator model tests; text tests for
 
 - [x] Model: area composition order (projects, then loose tasks) with
       section headings; board grouping and ordering match
-      `board.Show` with progress rendered; project tasks in
+      `board.ShowByID` with progress rendered; project tasks in
       `position, id` order; `(no area)` holds exactly the area-less
       projects, boarded or not.
 - [x] Model: the header is the topmost cursor position; drill in and
       out from the collections; the cursor restores by identity after
       pop and clamps when the row is gone.
+- [x] Model: area, project, and board containers reload by stable ID
+      and render renamed headers on pop-return.
+- [x] Board service/store: `ShowByID` validates and assembles the same
+      grouped projection through a real ID lookup.
 - [x] text: `Ellipsize` width and ellipsis semantics; capture's
       footer rendering unchanged at its migrated call site.
 - [x] `make check` green.
@@ -270,7 +275,7 @@ Implementation:
       headers open the container's detail; detail has no cursor and
       no filter; Esc pops.
 - [ ] Data: `task.Show`, `project.Show` (with the board/stage
-      location), `area.Show`, `board.Show`.
+      location), `area.Show`, `board.ShowByID`.
 
 Verification (primary owner: navigator model tests with fake
 dependencies):
