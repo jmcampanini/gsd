@@ -382,7 +382,7 @@ func (m model) renderFrame(current *frame) ([]string, int) {
 	selectedLine := -1
 	selectionOffset := 0
 	if view.header != nil {
-		headerSelectable := !current.filter.enabled || current.filter.input.Value() == "" || headerMatched(*view.header)
+		headerSelectable := !current.filterApplied() || headerMatched(*view.header)
 		selected := headerSelectable && current.cursor == selectionOffset
 		if selected {
 			selectedLine = len(lines)

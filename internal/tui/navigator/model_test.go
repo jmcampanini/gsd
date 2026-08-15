@@ -692,7 +692,7 @@ func TestFilterModesHighlightMatchesAndLeaveDetailsInert(t *testing.T) {
 	detail := newModel(context.Background(), dependencies, false, time.UTC)
 	detail.stack = append(detail.stack, frame{
 		key:        viewKey{kind: viewTaskDetail, id: 1},
-		loadedView: loadedView{detail: &detailView{kind: detailTask, id: 1, title: "Call plumber"}},
+		loadedView: loadedView{detail: &detailView{kind: detailTask, title: "Call plumber"}},
 	})
 	detail, command = press(t, detail, "/")
 	if command != nil || detail.top().filter.enabled {

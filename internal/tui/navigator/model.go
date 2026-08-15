@@ -143,7 +143,6 @@ type detailField struct {
 
 type detailView struct {
 	kind     detailKind
-	id       int64
 	title    string
 	status   string
 	promotes bool
@@ -361,7 +360,8 @@ func (m model) pushSelection() (tea.Model, tea.Cmd) {
 	}
 	if current.filter.enabled {
 		current.filter = filterState{}
-		current.cursor = clampCursor(rowIndex(current.selectableRows(), selected.identity), len(current.selectableRows()))
+		rows := current.selectableRows()
+		current.cursor = clampCursor(rowIndex(rows, selected.identity), len(rows))
 		m.ensureCursorVisible(current)
 	}
 	m.rememberCursor(current)
@@ -709,8 +709,12 @@ func (m *model) filterChanged(current *frame, selectedIdentity string, previousI
 	m.ensureCursorVisible(current)
 }
 
+func (f frame) filterApplied() bool {
+	return f.filter.enabled && f.filter.input.Value() != ""
+}
+
 func (f frame) filteredView() loadedView {
-	if !f.filter.enabled || f.filter.input.Value() == "" {
+	if !f.filterApplied() {
 		return f.loadedView
 	}
 	filtered := loadedView{header: f.header, detail: f.detail, sections: make([]section, len(f.sections))}
@@ -746,7 +750,7 @@ func (f frame) selectableRows() []row {
 	}
 	view := f.filteredView()
 	count := 0
-	includeHeader := view.header != nil && (!f.filter.enabled || f.filter.input.Value() == "" || headerMatched(*view.header))
+	includeHeader := view.header != nil && (!f.filterApplied() || headerMatched(*view.header))
 	if includeHeader {
 		count++
 	}
