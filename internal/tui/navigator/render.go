@@ -188,7 +188,7 @@ func (m model) filterInputWidth(input textinput.Model) int {
 
 func filterInputViewport(value string, position, width int) (string, int) {
 	clusters := inputGraphemes(value)
-	position = clamp(position, 0, len([]rune(value)))
+	position = clamp(position, 0, utf8.RuneCountInString(value))
 	prefixEnd := 0
 	for prefixEnd < len(clusters) && position > clusters[prefixEnd].runeStart {
 		prefixEnd++
@@ -229,7 +229,7 @@ type inputGrapheme struct {
 
 func inputGraphemes(value string) []inputGrapheme {
 	iterator := uniseg.NewGraphemes(value)
-	clusters := make([]inputGrapheme, 0, len([]rune(value)))
+	clusters := make([]inputGrapheme, 0, utf8.RuneCountInString(value))
 	runeStart := 0
 	for iterator.Next() {
 		current := iterator.Str()
@@ -238,7 +238,7 @@ func inputGraphemes(value string) []inputGrapheme {
 			width:     iterator.Width(),
 			runeStart: runeStart,
 		})
-		runeStart += len([]rune(current))
+		runeStart += utf8.RuneCountInString(current)
 	}
 	return clusters
 }
