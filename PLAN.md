@@ -425,6 +425,21 @@ Verification (primary owner: navigator model tests):
 Human outcome: `/` plus a few characters narrows any view to the
 thing you meant; clearing restores the view exactly.
 
+Settled with the human, 2026-08-15 (filter-gesture interview). The
+pattern is a committed filter over a persistent view (k9s / vim-search
+lineage) with picker-style Enter, over two axes: the filter is applied
+or not, and focus sits in the query input or on the filtered list.
+Every gesture out of the input — `↑`/`↓`, Esc, `/` — commits the
+filter into retained filtered navigation, where `j`/`k`/`l`/`q` regain
+their navigation meanings; the arrows also move the selection one
+step, so the first press lands on the next match. Enter opens the
+selected match from either mode. Committing a blank query clears the
+filter entirely. `/` from the list returns to editing with the query
+intact, and Esc peels one layer per press: editing → filtered list →
+cleared → back. Where this conflicts with the 2026-08-08 record above
+(Esc clearing straight from editing; `/` as the only toggle), this
+chunk supersedes it.
+
 Implementation:
 
 - [x] `go.mod`: `github.com/sahilm/fuzzy` becomes a direct dependency
@@ -437,10 +452,11 @@ Implementation:
       keystroke re-scores the view's visible row text; non-matches
       hide, sections and headers stay, matched characters highlight,
       the cursor clamps to the matched set; a blank pattern is
-      unfiltered; Esc clears the filter before navigating; any
-      navigation drops it; a second `/` toggles from query editing to
-      retained filtered navigation, where the normal navigation keys
-      resume; Enter opens from either mode.
+      unfiltered; `↑`/`↓`, Esc, and `/` commit editing into retained
+      filtered navigation (the arrows also move the selection); Enter
+      opens from either mode; committing a blank query clears; Esc on
+      the list clears before navigating; any navigation drops the
+      filter.
 - [x] `e2e/navigator_test.go`: the documented end-to-end workflow
       below as durable subprocess coverage inside `make check`.
 
@@ -451,10 +467,11 @@ tests; e2e for the complete workflow):
       `Call plumber`), the smart-case rule, and position reporting;
       scores are not pinned.
 - [x] Model: per-keystroke narrowing; headers and sections persist;
-      clearing restores rows and cursor; Esc clears then backs;
-      `/` toggles retained filtered navigation and restores the normal
-      navigation keys; descending drops the filter; root, collections,
-      and containers all filter; detail does not.
+      clearing restores rows and cursor; the arrows commit editing
+      and keep moving within the matched set; Esc commits, then
+      clears, then backs; `/` returns to editing with the query
+      intact; a blank commit clears; descending drops the filter;
+      root, collections, and containers all filter; detail does not.
 - [x] e2e: the full workflow passes against the real binary.
 - [x] `make check` green.
 
@@ -463,8 +480,11 @@ commands:
 
 ```sh
 gsd --db .sandbox/demo12.db tui
-    # Available; / then "plmb" — the plumber task remains;
-    # Esc clears; Esc back; Areas → Home; / "reno" —
+    # Available; / then "pl" — the plumber, cabinet pulls, and
+    # plants tasks all remain; ↓ pops focus to the filtered list
+    # and walks it; ⏎ opens the selected match; Esc back;
+    # / "plmb" — the plumber task remains; Esc retains filtered
+    # navigation; Esc clears; Esc back; Areas → Home; / "reno" —
     # Kitchen reno remains; / returns to navigation mode; q
 ```
 
@@ -490,8 +510,10 @@ durable coverage lives in `e2e/` inside `make check`:
 4. Mutate via the CLI mid-session — edit a note, move a boarded
    project; re-entering the affected views reflects the change.
 5. `/` narrows the current view per keystroke by fuzzy subsequence;
-   clearing restores the view; Esc clears the filter before it
-   navigates back.
+   `↓` commits the query and moves within the matched list; Enter
+   opens the selected match; Esc peels one layer per press —
+   filtered list, cleared, then back — and clearing restores the
+   view exactly.
 6. Guards: positional arguments, `--json`, and non-TTY invocation are
    usage errors (exit 2) naming the CLI; `--help` never opens the
    database; `q` and Esc at the root exit 0.

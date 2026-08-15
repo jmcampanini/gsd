@@ -497,8 +497,16 @@ func TestFilterNarrowsPerKeystrokeAndEscRestoresRowsAndCursor(t *testing.T) {
 	}
 
 	current, command := press(t, current, "esc")
+	if command != nil || !current.top().filter.enabled || current.top().filter.editing {
+		t.Fatalf("Esc while editing filter/command = %#v/%v, want committed filtered navigation", current.top().filter, command)
+	}
+	committed := current.View()
+	if committed.Cursor != nil || !strings.Contains(committed.Content, "Call plumber") || strings.Contains(committed.Content, "Plan meal") {
+		t.Fatalf("committed view = %q, want retained filter without an input cursor", committed.Content)
+	}
+	current, command = press(t, current, "esc")
 	if command != nil || current.top().filter.enabled {
-		t.Fatalf("Esc filter state/command = %#v/%v, want cleared without navigation", current.top().filter, command)
+		t.Fatalf("second Esc filter state/command = %#v/%v, want cleared without navigation", current.top().filter, command)
 	}
 	restored := current.View().Content
 	if !strings.Contains(restored, "Call plumber") || !strings.Contains(restored, "Plan meal") {
@@ -509,7 +517,73 @@ func TestFilterNarrowsPerKeystrokeAndEscRestoresRowsAndCursor(t *testing.T) {
 	}
 	current, command = press(t, current, "esc")
 	if command != nil || current.top().key.kind != viewRoot {
-		t.Fatalf("second Esc key/command = %#v/%v, want parent", current.top().key, command)
+		t.Fatalf("third Esc key/command = %#v/%v, want parent", current.top().key, command)
+	}
+}
+
+func TestArrowKeysCommitTheFilterAndKeepMovingWithinMatches(t *testing.T) {
+	dependencies, tasks, _, _, _, _ := testDependencies()
+	tasks.availableResponses = [][]task.ViewTask{{
+		{Task: task.Task{ID: 1, Title: "Call plumber", Status: "open"}},
+		{Task: task.Task{ID: 2, Title: "Plan meal", Status: "open"}},
+		{Task: task.Task{ID: 3, Title: "Buy cabinet pulls", Status: "open"}},
+		{Task: task.Task{ID: 4, Title: "Read book", Status: "open"}},
+	}}
+	current := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), 1)
+	current, _ = press(t, current, "/")
+	for _, key := range []string{"p", "l"} {
+		current, _ = press(t, current, key)
+	}
+	if view := current.View().Content; strings.Contains(view, "Read book") {
+		t.Fatalf("filtered view = %q, want nonmatch hidden", view)
+	}
+
+	current, command := press(t, current, "down")
+	if command != nil || !current.top().filter.enabled || current.top().filter.editing {
+		t.Fatalf("down while editing filter/command = %#v/%v, want committed filtered navigation", current.top().filter, command)
+	}
+	if current.View().Cursor != nil {
+		t.Fatal("committed view cursor != nil, want focus on the list")
+	}
+	if selected := selectedLine(current.View().Content); !strings.Contains(selected, "Plan meal") {
+		t.Fatalf("selection after down = %q, want the next match", selected)
+	}
+	current, _ = press(t, current, "j")
+	if selected := selectedLine(current.View().Content); !strings.Contains(selected, "Buy cabinet pulls") {
+		t.Fatalf("selection after j = %q, want movement within the matched set", selected)
+	}
+
+	current, _ = press(t, current, "/")
+	if !current.top().filter.editing || current.top().filter.input.Value() != "pl" {
+		t.Fatalf("filter after / = %#v, want editing with the retained query", current.top().filter)
+	}
+	current, _ = press(t, current, "up")
+	if selected := selectedLine(current.View().Content); current.top().filter.editing || !strings.Contains(selected, "Plan meal") {
+		t.Fatalf("selection after up = %q (editing %v), want a committed move up", selected, current.top().filter.editing)
+	}
+
+	current, command = press(t, current, "enter")
+	if command == nil || current.top().key != (viewKey{kind: viewTaskDetail, id: 2}) {
+		t.Fatalf("enter key/command = %#v/%v, want the selected match opened", current.top().key, command)
+	}
+}
+
+func TestCommittingABlankQueryClearsTheFilter(t *testing.T) {
+	dependencies, tasks, _, _, _, _ := testDependencies()
+	tasks.availableResponses = [][]task.ViewTask{{
+		{Task: task.Task{ID: 1, Title: "Call plumber", Status: "open"}},
+		{Task: task.Task{ID: 2, Title: "Plan meal", Status: "open"}},
+	}}
+	current := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), 1)
+	current, _ = press(t, current, "/")
+	current, _ = press(t, current, "down")
+	if top := current.top(); top.filter.enabled || top.cursor != 1 {
+		t.Fatalf("blank down filter/cursor = %#v/%d, want cleared filter and moved cursor", top.filter, top.cursor)
+	}
+	current, _ = press(t, current, "/")
+	current, command := press(t, current, "esc")
+	if top := current.top(); command != nil || top.filter.enabled {
+		t.Fatalf("blank Esc filter/command = %#v/%v, want cleared without navigation", top.filter, command)
 	}
 }
 
@@ -549,6 +623,7 @@ func TestFilterPreservesStructureAndDropsOnDescent(t *testing.T) {
 		t.Fatalf("filtered collection = %q, want only Work", view)
 	}
 	current, _ = press(t, current, "esc")
+	current, _ = press(t, current, "esc")
 
 	current, load = press(t, current, "enter")
 	current = deliver(t, current, load)
@@ -562,6 +637,7 @@ func TestFilterPreservesStructureAndDropsOnDescent(t *testing.T) {
 	if selected, ok := current.top().selectedRow(); !ok || selected.destination.kind != viewAreaDetail {
 		t.Fatalf("matching header destination = %#v/%v, want area detail", selected.destination, ok)
 	}
+	current, _ = press(t, current, "esc")
 	current, _ = press(t, current, "esc")
 	current, _ = press(t, current, "/")
 	for _, key := range []string{"r", "e", "n", "o"} {

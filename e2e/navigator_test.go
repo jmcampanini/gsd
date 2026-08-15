@@ -40,12 +40,43 @@ func TestNavigatorWorkflowInTerminal(t *testing.T) {
 	session.waitForPane(func(pane string) bool {
 		return pane != availablePane && strings.Contains(pane, "Call plumber") && strings.Contains(pane, "Plan meal")
 	})
+	session.sendLiteral("pl")
+	session.waitForPane(func(pane string) bool {
+		return strings.Contains(pane, "/ pl") && strings.Contains(pane, "Call plumber") && strings.Contains(pane, "Plan meal")
+	})
+
+	session.sendKeys("Down")
+	committedPane := session.waitForPane(func(pane string) bool {
+		return strings.Contains(pane, "▌ • Plan meal") && strings.Contains(pane, "esc clear")
+	})
+	if !strings.Contains(committedPane, "Call plumber") {
+		t.Fatalf("committed pane = %q, want the other match retained", committedPane)
+	}
+
+	session.sendKeys("Enter")
+	session.waitForPane(func(pane string) bool {
+		return containsInOrder(pane, "Available", "Plan meal", "id") && !strings.Contains(pane, "Call plumber")
+	})
+	session.sendKeys("Escape")
+	session.waitForPane(func(pane string) bool {
+		return strings.Contains(pane, "Call plumber") && strings.Contains(pane, "Plan meal") && !strings.Contains(pane, "esc clear")
+	})
+
+	session.sendKeys("/")
 	session.sendLiteral("plmb")
 	filteredAvailablePane := session.waitForPane(func(pane string) bool {
 		return strings.Contains(pane, "Call plumber") && !strings.Contains(pane, "Plan meal")
 	})
 	if !strings.Contains(filteredAvailablePane, "Call plumber") || strings.Contains(filteredAvailablePane, "Plan meal") {
 		t.Fatalf("filtered Available pane = %q, want plumber present and nonmatch absent", filteredAvailablePane)
+	}
+
+	session.sendKeys("Escape")
+	escCommittedPane := session.waitForPane(func(pane string) bool {
+		return strings.Contains(pane, "esc clear") && !strings.Contains(pane, "Plan meal")
+	})
+	if !strings.Contains(escCommittedPane, "Call plumber") {
+		t.Fatalf("Esc-committed pane = %q, want retained filtered navigation", escCommittedPane)
 	}
 
 	session.sendKeys("Escape")

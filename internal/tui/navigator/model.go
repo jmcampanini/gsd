@@ -273,16 +273,16 @@ func (m model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if current.filter.editing {
 		switch key {
-		case "esc":
-			m.clearFilter(current)
+		case "esc", "/":
+			m.commitFilter(current)
 			return m, nil
-		case "/":
-			if current.filter.input.Value() == "" {
-				m.clearFilter(current)
-			} else {
-				current.filter.editing = false
-				current.filter.input.Blur()
-			}
+		case "up":
+			m.commitFilter(current)
+			m.move(-1)
+			return m, nil
+		case "down":
+			m.commitFilter(current)
+			m.move(1)
 			return m, nil
 		case "enter":
 			return m.pushSelection()
@@ -679,6 +679,15 @@ func (m *model) startFilter(current *frame) {
 		current.filter.input.Focus()
 	}
 	m.resizeFilterInput(current)
+}
+
+func (m *model) commitFilter(current *frame) {
+	if current.filter.input.Value() == "" {
+		m.clearFilter(current)
+		return
+	}
+	current.filter.editing = false
+	current.filter.input.Blur()
 }
 
 func (m *model) clearFilter(current *frame) {
