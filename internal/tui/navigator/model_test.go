@@ -494,6 +494,46 @@ func TestSelectedRowUsesPickerFillWithBandsAndBackgroundCanChange(t *testing.T) 
 	}
 }
 
+func TestUrgencyDatesAndLogbookGlyphsRenderAccents(t *testing.T) {
+	dependencies, tasks, _, _, _, entries := testDependencies()
+	upcoming := "2026-09-01"
+	overdue := "2026-08-10"
+	tasks.availableResponses = [][]task.ViewTask{{
+		{Task: task.Task{ID: 1, Title: "Passport", Status: "open", DueOn: &upcoming}},
+		{Task: task.Task{ID: 2, Title: "Taxes", Status: "open", DueOn: &overdue}},
+	}}
+	theme := tui.ThemeForBackground(true)
+
+	current := newModel(context.Background(), dependencies, true, time.UTC)
+	current.now = func() time.Time { return time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC) }
+	view := enterRootRow(t, current, 1).View().Content
+	selectedDue := lipgloss.NewStyle().
+		Background(theme.InputBg).
+		Foreground(theme.Yellow).
+		Render("due 2026-09-01")
+	if !strings.Contains(view, selectedDue) {
+		t.Errorf("available view = %q, want yellow due date on the selected fill", view)
+	}
+	overdueDue := lipgloss.NewStyle().Foreground(theme.Red).Bold(true).Render("due 2026-08-10")
+	if !strings.Contains(view, overdueDue) {
+		t.Errorf("available view = %q, want bold red overdue date", view)
+	}
+
+	entries.items = []logbook.Entry{
+		{Kind: "task", ID: 7, Title: "Old chore", Status: "done", ResolvedAt: "2026-08-14T10:00:00Z"},
+		{Kind: "project", ID: 8, Title: "Blog", Status: "cancelled", ResolvedAt: "2026-08-13T10:00:00Z"},
+	}
+	logbookView := enterRootRow(t, newModel(context.Background(), dependencies, true, time.UTC), 2).View().Content
+	doneGlyph := lipgloss.NewStyle().
+		Background(theme.InputBg).
+		Foreground(theme.Green).
+		Render("✓ ")
+	cancelledGlyph := lipgloss.NewStyle().Foreground(theme.Red).Render("✗ ")
+	if !strings.Contains(logbookView, doneGlyph) || !strings.Contains(logbookView, cancelledGlyph) {
+		t.Errorf("logbook view = %q, want green done and red cancelled glyphs", logbookView)
+	}
+}
+
 func TestAreaAndProjectContainersComposeDrillRestoreAndClamp(t *testing.T) {
 	dependencies, tasks, projects, areas, _, _ := testDependencies()
 	areas.items = []area.Area{{ID: 7, Title: "Home"}}

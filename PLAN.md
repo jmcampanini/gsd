@@ -10,8 +10,7 @@ consolidation. This plan is temporary and is retired at consolidation.
 - [x] Chunk 1 — The skeleton stands
 - [x] Chunk 2 — Every hall opens
 - [x] Chunk 3 — Every door opens
-- [ ] Chunk 4 — The lights come on (boards treatment and accent tests
-      remain)
+- [x] Chunk 4 — The lights come on
 - [ ] Chunk 5 — Type to find
 
 There is no chunk 0: the Milestone 11 foundation review scheduled
@@ -398,8 +397,10 @@ Implementation:
       `current-state.html` from the real binary).
 - [x] Board vertical treatment ("Quiet": `▥` glyph, bare empty
       stages).
-- [ ] Colored accent coverage: urgency dates and logbook glyphs.
-- [ ] Chunk demo deck per the capture precedent.
+- [x] Colored accent coverage: urgency dates and logbook glyphs.
+- [x] Chunk demo deck (`.sandbox/demos/12-chunk-4.html`), rebuilt
+      from the current-state frames by
+      `.sandbox/design/build-demo.py`.
 
 Verification (primary owner: navigator model tests):
 
@@ -407,7 +408,13 @@ Verification (primary owner: navigator model tests):
       and theme swap, record rows, detail field order, container
       spacing, `(no area)` treatments, error hints.
 - [x] `make check` green at every human checkpoint.
-- [ ] Final agent-verified tmux pass after the board treatment.
+- [x] Final agent-verified tmux pass
+      (`.sandbox/design/verify-chunk4.sh`): root chrome and rows,
+      areas → area → project → task detail drill with breadcrumbs,
+      id-as-field, esc cursor restore, mid-session CLI edit
+      reflected on re-entry, board glyph/stages/bare-empty, board
+      detail, `q` exit 0, `--json` and positional-argument guards
+      exit 2 — all passing against a fresh database.
 
 ## Chunk 5 — Type to find
 
