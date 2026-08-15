@@ -205,6 +205,7 @@ when their trigger fires:
 | 16 | [Serve](MILESTONE_16.md) | Loopback HTTP API | A consumer that can't exec the CLI (browser frontend, remote agent) |
 | 17 | [Query](MILESTONE_17.md) | Read-only SQL escape hatch | Daily use demonstrates the need for raw SQL |
 | 18 | [History](MILESTONE_18.md) | Change tracking over time | A question about the past that current state and the logbook cannot answer |
+| 19 | [Tree](MILESTONE_19.md) | Tree operating mode for the TUI | Daily navigator use shows the drill-in/out loop is slower than folding one expandable tree |
 
 ## Data policy
 

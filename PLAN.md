@@ -10,7 +10,9 @@ consolidation. This plan is temporary and is retired at consolidation.
 - [x] Chunk 1 — The skeleton stands
 - [x] Chunk 2 — Every hall opens
 - [x] Chunk 3 — Every door opens
-- [ ] Chunk 4 — Type to find
+- [ ] Chunk 4 — The lights come on (boards treatment and accent tests
+      remain)
+- [ ] Chunk 5 — Type to find
 
 There is no chunk 0: the Milestone 11 foundation review scheduled
 nothing; the deferred items carry forward in `MILESTONE_12.md` with
@@ -314,7 +316,100 @@ gsd --db .sandbox/demo12.db edit 2 --note "under the sink"
       the command list in tmux against a fresh temporary database,
       capture the frames into the deck, and pass local `make check`.
 
-## Chunk 4 — Type to find
+## Chunk 4 — The lights come on
+
+Human outcome: the navigator wears a deliberate design language — a
+badged breadcrumb band above, a key-hint band below, Picker-style
+filled selection, glyph-led record rows, and urgency accents — in
+both Catppuccin themes, in a full terminal and a tmux popup.
+
+Settled with the human over live captures, 2026-08-15. The design
+language is **Picker with the capture badge** (fzf/telescope lineage
+grafted onto the settled quiet-chrome vocabulary). Where this record
+conflicts with the 2026-08-08 settled design above, this chunk
+supersedes it; the superseded points are called out inline.
+
+- **Chrome.** Top band on `InputBg`: the ` gsd ` badge
+  (`AccentText` on `Accent`, capture's idiom) then a breadcrumb of
+  entity titles — dim parents, bold current, `…` left-collapse when
+  narrow, adjacent duplicate segments merged (a container header's
+  detail does not repeat the title). The root shows the badge alone.
+  Bottom band: dim per-view key hints pinned to the terminal's last
+  row (`j/k move · ⏎ open · esc quit|back`; `j/k scroll · esc back`
+  on detail; `esc back` alone on a failed view). The bottom band is
+  the designated home of chunk 5's `/` filter, Milestone 15's `:`
+  command line, and Milestone 14's mutation feedback. Content gets
+  height minus three; the spacer under the top band collapses first;
+  below three rows the bands drop entirely. No-color mode renders
+  identical text unstyled.
+- **Selection.** An accent `▌` edge plus an `InputBg` fill across
+  the full row width; plain cells brighten to `Text`, accent-colored
+  cells keep their color. Supersedes the marker-only selection
+  ("accent marker without styling the whole row") pinned at
+  Milestone 10.
+- **Record rows.** Every list row is glyph · title · dim trailing
+  annotations, the same anatomy as detail headlines: `•` task, `◆`
+  project, `●` area, `○` the all-dim `(no area)` pseudo-row;
+  logbook rows recolor the glyph (`✓` green, `✗` red) and trail dim
+  kind and date; board collection rows trail the dim stage chain;
+  board container rows trail dim progress. Column-header rows and
+  contextually invariant columns (collection `state`, container
+  `open`) are gone. Ids appear only in detail views — the headline
+  is glyph + title, `id` leads the field list, and breadcrumbs use
+  titles. Supersedes "task rows mirror the CLI's list columns".
+- **Urgency.** Due dates render `Yellow` (new theme token: Latte
+  `#df8e1d`, Frappé `#e5c890`); an open task due on or before today
+  (local time, injected clock) renders bold red, matching the CLI's
+  overdue rule.
+- **Containers.** Blank line after the selectable header, blank line
+  between sections, rows indented two cells under titled section
+  headings; unnamed sections stay flush. The `(no area)` container
+  dropped its plain non-selectable title — the breadcrumb names the
+  view — and the plain-title rendering machinery is deleted.
+- **Board modes.** The vertical stage-grouped view keeps the
+  container treatment ("Quiet" variant): boards gain the `▥` glyph
+  on the collection row, container header, and detail headline, and
+  empty stages render as bare dim headings — `(empty)` is
+  board-only suppressed, area sections keep it. The horizontal
+  column/card mode is Milestone 13's capability and inherits this
+  language; its plan gate receives the settled mock (columns are
+  stages, two-line cards of title over dim progress, Picker fill on
+  the selected card, bold heading on the selected column, unchanged
+  bands), recorded in `MILESTONE_13.md`. The fully tree-based
+  operating mode (`l` expand / `h` collapse over one tree) is the
+  optional Milestone 19.
+
+Implementation:
+
+- [x] `internal/tui`: `Yellow` theme token (Latte/Frappé pair).
+- [x] `internal/tui/navigator`: top/bottom bands with height
+      budgeting; breadcrumb crumbs carried on rows and frames,
+      refreshed from container headers on reload; per-view hints.
+- [x] Picker selection fill; per-cell accent styling that survives
+      the fill; record-row builders; column-header removal.
+- [x] Detail views: glyph + title headline, `id` as first field,
+      title breadcrumbs with duplicate collapse.
+- [x] Container spacing (breathing room + indent) with width math
+      accounting for the indent.
+- [x] Polish: `○ (no area)` pseudo-row, error-view hints, Latte
+      verified against a live light-background terminal.
+- [x] `.sandbox/design/demo.sh` (seeded human-testing entry) and
+      `.sandbox/design/capture-state.sh` (regenerates
+      `current-state.html` from the real binary).
+- [x] Board vertical treatment ("Quiet": `▥` glyph, bare empty
+      stages).
+- [ ] Colored accent coverage: urgency dates and logbook glyphs.
+- [ ] Chunk demo deck per the capture precedent.
+
+Verification (primary owner: navigator model tests):
+
+- [x] Exact-output pins updated: framed root, bands, selection fill
+      and theme swap, record rows, detail field order, container
+      spacing, `(no area)` treatments, error hints.
+- [x] `make check` green at every human checkpoint.
+- [ ] Final agent-verified tmux pass after the board treatment.
+
+## Chunk 5 — Type to find
 
 Human outcome: `/` plus a few characters narrows any view to the
 thing you meant; clearing restores the view exactly.
@@ -349,7 +444,7 @@ tests; e2e for the complete workflow):
 - [ ] e2e: the full workflow passes against the real binary.
 - [ ] `make check` green.
 
-Human proof (chunk demo `.sandbox/demos/12-chunk-4.html`), exact
+Human proof (chunk demo `.sandbox/demos/12-chunk-5.html`), exact
 commands:
 
 ```sh

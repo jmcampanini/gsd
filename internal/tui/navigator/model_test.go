@@ -168,7 +168,7 @@ func testDependencies() (
 
 func TestRootNavigationPushPopAndQuit(t *testing.T) {
 	dependencies, tasks, _, areas, boards, entries := testDependencies()
-	wantRoot := "> Inbox\n  Available\n  Logbook\n  Boards\n  Areas\n"
+	wantRoot := " gsd\n\n▌ Inbox\n  Available\n  Logbook\n  Boards\n  Areas\n\n j/k move · ⏎ open · esc quit\n"
 	initial := newModel(context.Background(), dependencies, false, time.UTC)
 	if got := initial.View().Content; got != wantRoot {
 		t.Fatalf("root view = %q, want %q", got, wantRoot)
@@ -188,7 +188,7 @@ func TestRootNavigationPushPopAndQuit(t *testing.T) {
 		if updated.top().key.kind != wantKind {
 			t.Fatalf("root row %d pushed kind %d, want %d", index, updated.top().key.kind, wantKind)
 		}
-		if got := updated.View().Content; got != "  loading…\n" {
+		if got := updated.View().Content; !strings.Contains(got, "  loading…") {
 			t.Errorf("loading view = %q, want dim loading row", got)
 		}
 		before := loadCalls[index]()
@@ -346,8 +346,8 @@ func TestLoadFailureIsSanitizedInlineAndNavigationRemainsAlive(t *testing.T) {
 	current = deliver(t, current, load)
 	redAccent := lipgloss.NewStyle().Foreground(tui.ThemeForBackground(true).Red).Render("! ")
 	wantError := redAccent + `database\x1b[31m failed\nretry`
-	if got := current.View().Content; got != wantError+"\n" {
-		t.Errorf("error view = %q, want %q", got, wantError+"\n")
+	if got := current.View().Content; !strings.Contains(got, wantError+"\n") {
+		t.Errorf("error view = %q, want inline %q", got, wantError)
 	}
 	current, command := press(t, current, "esc")
 	if command != nil || len(current.stack) != 1 {
@@ -355,7 +355,7 @@ func TestLoadFailureIsSanitizedInlineAndNavigationRemainsAlive(t *testing.T) {
 	}
 }
 
-func TestTaskAndLogbookRowsMirrorCLIColumns(t *testing.T) {
+func TestTaskAndLogbookRowsUseRecordShape(t *testing.T) {
 	dependencies, tasks, _, _, _, entries := testDependencies()
 	due := "2026-08-08"
 	deferUntil := "2026-08-09"
@@ -373,14 +373,12 @@ func TestTaskAndLogbookRowsMirrorCLIColumns(t *testing.T) {
 	for _, rootIndex := range []int{0, 1} {
 		current := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), rootIndex)
 		view := current.View().Content
-		for _, fragment := range []string{
-			"id  title",
-			`12  Ship\x1b ↑`,
-			`due 2026-08-08 defer 2026-08-09 defer→Review\tNow`,
-		} {
-			if !strings.Contains(view, fragment) {
-				t.Errorf("task view %q missing %q", view, fragment)
-			}
+		fragment := `• Ship\x1b ↑  due 2026-08-08 defer 2026-08-09 defer→Review\tNow`
+		if !strings.Contains(view, fragment) {
+			t.Errorf("task view %q missing %q", view, fragment)
+		}
+		if strings.Contains(view, "12") {
+			t.Errorf("task view %q, want no id in rows", view)
 		}
 	}
 
@@ -394,13 +392,8 @@ func TestTaskAndLogbookRowsMirrorCLIColumns(t *testing.T) {
 	location := time.FixedZone("west", -7*60*60)
 	current := enterRootRow(t, newModel(context.Background(), dependencies, false, location), 2)
 	view := current.View().Content
-	for _, fragment := range []string{
-		"kind  id  title       status  date",
-		"task   7  Done thing  done    2026-08-07",
-	} {
-		if !strings.Contains(view, fragment) {
-			t.Errorf("logbook view %q missing %q", view, fragment)
-		}
+	if !strings.Contains(view, "✓ Done thing  task  2026-08-07") {
+		t.Errorf("logbook view %q, want status glyph, title, dim kind and date", view)
 	}
 }
 
@@ -421,10 +414,8 @@ func TestBoardAndAreaRowsUseServiceOrderContractsAndApprovedShape(t *testing.T) 
 	if strings.Index(boardView, "First") > strings.Index(boardView, "Second") {
 		t.Errorf("board view order = %q, want position order", boardView)
 	}
-	for _, fragment := range []string{"board   stages", "Second  Research → Doing → Review"} {
-		if !strings.Contains(boardView, fragment) {
-			t.Errorf("board view %q missing %q", boardView, fragment)
-		}
+	if !strings.Contains(boardView, "Second  Research → Doing → Review") {
+		t.Errorf("board view %q, want title then stage chain", boardView)
 	}
 
 	areas.items = []area.Area{
@@ -439,7 +430,7 @@ func TestBoardAndAreaRowsUseServiceOrderContractsAndApprovedShape(t *testing.T) 
 		strings.Index(areaView, "Work") > strings.Index(areaView, "(no area)") {
 		t.Errorf("area view order = %q, want active positions then pseudo-row", areaView)
 	}
-	for _, fragment := range []string{"id  title      state", "4  Home", "8  Work", "(no area)"} {
+	for _, fragment := range []string{"● Home", "● Work", "(no area)"} {
 		if !strings.Contains(areaView, fragment) {
 			t.Errorf("area view %q missing %q", areaView, fragment)
 		}
@@ -448,46 +439,58 @@ func TestBoardAndAreaRowsUseServiceOrderContractsAndApprovedShape(t *testing.T) 
 
 func TestEmptyListsMatchCLIAndAreasRetainsPseudoRow(t *testing.T) {
 	dependencies, _, _, _, _, _ := testDependencies()
-	for _, rootIndex := range []int{0, 1, 2, 3} {
+	labels := []string{"Inbox", "Available", "Logbook", "Boards"}
+	for rootIndex, label := range labels {
 		current := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), rootIndex)
-		if got := current.View().Content; got != "" {
-			t.Errorf("empty root row %d view = %q, want no table", rootIndex, got)
+		want := " gsd  " + label + "\n\n\n j/k move · ⏎ open · esc back\n"
+		if got := current.View().Content; got != want {
+			t.Errorf("empty root row %d view = %q, want framed empty view %q", rootIndex, got, want)
 		}
 	}
 	areas := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), 4)
-	if got := areas.View().Content; !strings.Contains(got, "id  title      state") ||
-		!strings.Contains(got, ">     (no area)") {
-		t.Errorf("empty areas view = %q, want header and selected pseudo-row", got)
+	if got := areas.View().Content; !strings.Contains(got, "▌ ○ (no area)") {
+		t.Errorf("empty areas view = %q, want selected hollow pseudo-row", got)
 	}
 }
 
-func TestSelectedMarkerUsesAccentWithoutStylingWholeRowAndBackgroundCanChange(t *testing.T) {
+func TestSelectedRowUsesPickerFillWithBandsAndBackgroundCanChange(t *testing.T) {
 	dependencies, _, _, _, _, _ := testDependencies()
 	current := newModel(context.Background(), dependencies, true, time.UTC)
 	if current.Init() == nil {
 		t.Fatal("colored Init command = nil, want background detection")
 	}
+	selectedRow := func(theme tui.Theme, body string) string {
+		edge := lipgloss.NewStyle().Foreground(theme.Accent).Background(theme.InputBg).Render("▌ ")
+		fill := lipgloss.NewStyle().Foreground(theme.Text).Background(theme.InputBg).Render(body)
+		return edge + fill
+	}
 	darkTheme := tui.ThemeForBackground(true)
-	darkMarker := lipgloss.NewStyle().Foreground(darkTheme.Accent).Render("> ")
-	if got := current.View().Content; !strings.HasPrefix(got, darkMarker+"Inbox") {
-		t.Errorf("dark selected row = %q, want accent marker then plain label", got)
+	if got := current.View().Content; !strings.Contains(got, selectedRow(darkTheme, "Inbox")) {
+		t.Errorf("dark selected row = %q, want accent edge with row fill", got)
+	}
+	badge := lipgloss.NewStyle().
+		Background(darkTheme.Accent).
+		Foreground(darkTheme.AccentText).
+		Render(" gsd ")
+	if got := current.View().Content; !strings.Contains(got, badge) {
+		t.Errorf("dark root view = %q, want gsd badge in top band", got)
 	}
 	updated, _ := current.Update(tea.BackgroundColorMsg{Color: lipgloss.Color("#ffffff")})
 	current = updated.(model)
-	lightMarker := lipgloss.NewStyle().Foreground(tui.ThemeForBackground(false).Accent).Render("> ")
-	if got := current.View().Content; !strings.HasPrefix(got, lightMarker+"Inbox") {
-		t.Errorf("light selected row = %q, want detected accent marker", got)
+	lightTheme := tui.ThemeForBackground(false)
+	if got := current.View().Content; !strings.Contains(got, selectedRow(lightTheme, "Inbox")) {
+		t.Errorf("light selected row = %q, want detected theme fill", got)
 	}
 	current, _ = press(t, current, "j")
-	lines := strings.Split(current.View().Content, "\n")
-	if lines[0] != "  Inbox" || !strings.HasPrefix(lines[1], lightMarker+"Available") {
-		t.Errorf("moved marker lines = %#v, want persistent marker only on selection", lines)
+	view := current.View().Content
+	if !strings.Contains(view, "\n  Inbox\n") || !strings.Contains(view, selectedRow(lightTheme, "Available")) {
+		t.Errorf("moved selection view = %q, want fill only on selection", view)
 	}
 
 	loading, _ := press(t, newModel(context.Background(), dependencies, true, time.UTC), "enter")
 	dimLoading := lipgloss.NewStyle().Foreground(darkTheme.Dim).Render("loading…")
-	if got, want := loading.View().Content, "  "+dimLoading+"\n"; got != want {
-		t.Errorf("colored loading view = %q, want %q", got, want)
+	if got := loading.View().Content; !strings.Contains(got, "  "+dimLoading+"\n") {
+		t.Errorf("colored loading view = %q, want dim loading row", got)
 	}
 }
 
@@ -535,11 +538,12 @@ func TestAreaAndProjectContainersComposeDrillRestoreAndClamp(t *testing.T) {
 		tasks.listOptions[0].AreaID == nil || *tasks.listOptions[0].AreaID != 7 {
 		t.Fatalf("area task options = %#v, want open area 7", tasks.listOptions)
 	}
-	if !containsInOrder(view, "● 7  Home", "projects", "Kitchen reno", "tasks", "Water plants") {
-		t.Fatalf("area view = %q, want header, projects, then loose tasks", view)
-	}
-	if !strings.Contains(view, "id  title") || !strings.Contains(view, "status") {
-		t.Errorf("area view = %q, want CLI project/task columns", view)
+	if !containsInOrder(
+		view,
+		"● Home\n\n  projects\n    ◆ Kitchen reno",
+		"\n\n  tasks\n    • Water plants",
+	) {
+		t.Fatalf("area view = %q, want spaced header then indented projects and loose tasks", view)
 	}
 
 	detail, command := press(t, current, "enter")
@@ -561,8 +565,8 @@ func TestAreaAndProjectContainersComposeDrillRestoreAndClamp(t *testing.T) {
 		*tasks.listOptions[1].ProjectID != 11 || tasks.listOptions[1].Status != task.ListStatusOpen {
 		t.Fatalf("project task options = %#v, want open project 11", tasks.listOptions)
 	}
-	if view := current.View().Content; !containsInOrder(view, "◆ 11  Kitchen reno", "Buy pulls", "open", "due 2026-08-12") {
-		t.Errorf("project view = %q, want header then ordered task list", view)
+	if view := current.View().Content; !containsInOrder(view, "◆ Kitchen reno\n\n  • Buy pulls", "due 2026-08-12") {
+		t.Errorf("project view = %q, want spaced header then unindented task list", view)
 	}
 
 	current, _ = press(t, current, "j")
@@ -576,17 +580,17 @@ func TestAreaAndProjectContainersComposeDrillRestoreAndClamp(t *testing.T) {
 	if selected := selectedLine(current.View().Content); !strings.Contains(selected, "Kitchen reno") {
 		t.Fatalf("area selection after project pop = %q, want restored project", selected)
 	}
-	if !strings.Contains(current.View().Content, "● 7  House") || !slices.Equal(areas.showIDs, []int64{7, 7}) {
+	if !strings.Contains(current.View().Content, "● House") || !slices.Equal(areas.showIDs, []int64{7, 7}) {
 		t.Fatalf("refreshed area view/IDs = %q/%v, want renamed header by stable ID", current.View().Content, areas.showIDs)
 	}
 
 	current = enterSelection(t, current)
-	if !strings.Contains(current.View().Content, "◆ 11  Kitchen refreshed") ||
+	if !strings.Contains(current.View().Content, "◆ Kitchen refreshed") ||
 		!slices.Equal(projects.showIDs, []int64{11, 11, 11}) {
 		t.Fatalf("refreshed project view/IDs = %q/%v, want renamed header by stable ID", current.View().Content, projects.showIDs)
 	}
 	current = popAndReload(t, current)
-	if current.top().cursor != 0 || !strings.Contains(selectedLine(current.View().Content), "● 7  House") {
+	if current.top().cursor != 0 || !strings.Contains(selectedLine(current.View().Content), "● House") {
 		t.Fatalf("area cursor/view after project removal = %d/%q, want clamped refreshed header", current.top().cursor, current.View().Content)
 	}
 }
@@ -626,8 +630,11 @@ func TestBoardContainerUsesShowGroupingProgressAndDrillsToProject(t *testing.T) 
 		t.Fatalf("board ShowByID calls/IDs = %d/%v, want board 4 once", boards.showCalls, boards.showIDs)
 	}
 	view := current.View().Content
-	if !containsInOrder(view, "software", "research", "(empty)", "doing", "Milestone 12", "5/8", "Homelab", "2/6", "review", "(empty)") {
-		t.Fatalf("board view = %q, want service stage/project order with progress", view)
+	if !containsInOrder(view, "▥ software", "research", "doing", "Milestone 12", "5/8", "Homelab", "2/6", "review") {
+		t.Fatalf("board view = %q, want glyph header then service stage/project order with progress", view)
+	}
+	if strings.Contains(view, "(empty)") {
+		t.Errorf("board view = %q, want bare headings for empty stages", view)
 	}
 	detail, command := press(t, current, "enter")
 	if command == nil || detail.top().key != (viewKey{kind: viewBoardDetail, id: 4}) {
@@ -669,8 +676,8 @@ func TestNoAreaContainsExactlyLooseProjectsAcrossBoardMembership(t *testing.T) {
 	if strings.Contains(view, "Area project") || !containsInOrder(view, "(no area)", "Loose unboarded", "Loose boarded") {
 		t.Fatalf("no-area view = %q, want exactly loose projects in service order", view)
 	}
-	if strings.HasPrefix(strings.Split(view, "\n")[0], "> ") {
-		t.Errorf("no-area title = %q, want plain non-selectable title", strings.Split(view, "\n")[0])
+	if strings.Count(view, "(no area)") != 1 {
+		t.Errorf("no-area view = %q, want (no area) only in the breadcrumb", view)
 	}
 	if selected := selectedLine(view); !strings.Contains(selected, "Loose unboarded") {
 		t.Errorf("no-area first selection = %q, want first loose project", selected)
@@ -774,8 +781,8 @@ func TestDetailFieldOrderValuesCollapseAndEscaping(t *testing.T) {
 	}))
 	if !containsInOrder(
 		taskView,
-		"✓ 9  Ship\\x1b ↑",
-		"project", "note", "due on", "defer until", "defer stage", "promotes",
+		"✓ Ship\\x1b ↑",
+		"id", "project", "note", "due on", "defer until", "defer stage", "promotes",
 		"done at", "cancelled at", "status", "position", "created at", "updated at", "tags",
 	) {
 		t.Fatalf("task detail field order = %q", taskView)
@@ -796,7 +803,7 @@ func TestDetailFieldOrderValuesCollapseAndEscaping(t *testing.T) {
 		},
 		Location: &project.Location{BoardTitle: "Soft\x1bware", StageTitle: "Doing\nNow"},
 	}))
-	if !containsInOrder(projectView, "◆ 7  Milestone", "board", "note", "status", "position", "created at", "updated at", "tags") ||
+	if !containsInOrder(projectView, "◆ Milestone", "id", "board", "note", "status", "position", "created at", "updated at", "tags") ||
 		!strings.Contains(projectView, "Soft\\x1bware/Doing\\nNow") {
 		t.Fatalf("project detail = %q, want ordered escaped board location", projectView)
 	}
@@ -811,7 +818,7 @@ func TestDetailFieldOrderValuesCollapseAndEscaping(t *testing.T) {
 		ID: 4, Title: "Home", Note: "house", ArchivedAt: &archivedAt, Position: 1,
 		CreatedAt: "created", UpdatedAt: "updated", Tags: []string{"personal"},
 	}))
-	if !containsInOrder(areaView, "✗ 4  Home", "note", "archived at", "position", "created at", "updated at", "tags") {
+	if !containsInOrder(areaView, "✗ Home", "id", "note", "archived at", "position", "created at", "updated at", "tags") {
 		t.Fatalf("area detail field order = %q", areaView)
 	}
 
@@ -823,7 +830,7 @@ func TestDetailFieldOrderValuesCollapseAndEscaping(t *testing.T) {
 			{Stage: board.Stage{Title: "Review"}},
 		},
 	}))
-	if !containsInOrder(boardView, "Software", "note", "position", "stages", "Research → Doing → Review", "created at", "updated at") {
+	if !containsInOrder(boardView, "▥ Software", "id", "note", "position", "stages", "Research → Doing → Review", "created at", "updated at") {
 		t.Fatalf("board detail field order = %q", boardView)
 	}
 	if strings.Contains(boardView, "tags") {
@@ -911,8 +918,9 @@ func TestDetailRoutingFreshnessAndNotFoundNavigation(t *testing.T) {
 	missing := enterRootRow(t, newModel(context.Background(), missingDependencies, false, time.UTC), 0)
 	missing, load = press(t, missing, "enter")
 	missing = deliver(t, missing, load)
-	if got := missing.View().Content; got != "! task 99 not found\n" {
-		t.Fatalf("missing detail = %q, want inline not_found", got)
+	want := " gsd  Inbox ▸ gone\n\n! task 99 not found\n\n esc back\n"
+	if got := missing.View().Content; got != want {
+		t.Fatalf("missing detail = %q, want %q", got, want)
 	}
 	missing, load = press(t, missing, "esc")
 	if missing.top().key.kind != viewInbox || load == nil {
@@ -942,12 +950,12 @@ func TestDetailViewportScrollsWithoutCursor(t *testing.T) {
 	}
 	current = pressTimes(t, current, "j", 99)
 	lines, _ := current.renderLines(current.top())
-	if current.top().offset != len(lines)-3 {
-		t.Errorf("detail bottom offset = %d, want %d", current.top().offset, len(lines)-3)
+	if current.top().offset != len(lines)-1 {
+		t.Errorf("detail bottom offset = %d, want %d", current.top().offset, len(lines)-1)
 	}
 	current, _ = press(t, current, "up")
-	if current.top().offset != len(lines)-4 {
-		t.Errorf("detail up offset = %d, want %d", current.top().offset, len(lines)-4)
+	if current.top().offset != len(lines)-2 {
+		t.Errorf("detail up offset = %d, want %d", current.top().offset, len(lines)-2)
 	}
 }
 
@@ -1055,7 +1063,7 @@ func assertQuit(t *testing.T, command tea.Cmd) {
 
 func selectedLine(view string) string {
 	for line := range strings.SplitSeq(view, "\n") {
-		if strings.HasPrefix(line, "> ") {
+		if strings.HasPrefix(line, "▌ ") {
 			return line
 		}
 	}

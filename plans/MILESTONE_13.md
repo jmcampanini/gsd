@@ -32,6 +32,19 @@ the whiteboard.
   applies inside the board view are settled at plan gate
   (**proposed**: `/` filters cards, columns stay fixed).
 
+## Design language (settled in Milestone 12)
+
+The column view inherits Navigator's design language — the `gsd`
+badge and breadcrumb band above, the key-hint band below, Picker
+selection, and the record-row vocabulary including the `▥` board
+glyph. The settled mock: columns are the board's stages with dim
+headings (bold on the selected column); cards are two lines, project
+title over dim `done/total` progress; the selected card takes the
+accent-edge row fill; `h`/`l` and the reserved `←`/`→` cross
+columns while `j`/`k` walk cards. Empty stages render as bare
+headings, matching the vertical board view, which remains available;
+how the two modes coexist stays this milestone's plan-gate decision.
+
 ## Chunks
 
 1. **Board view scaffold** — column layout, card rendering with

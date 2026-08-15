@@ -11,7 +11,8 @@ import (
 )
 
 func taskDetail(current task.Task) detailView {
-	fields := make([]detailField, 0, 14)
+	fields := make([]detailField, 0, 15)
+	fields = appendDetailField(fields, "id", strconv.FormatInt(current.ID, 10))
 	fields = appendDetailField(fields, "project", nullableInt64(current.ProjectID))
 	fields = appendDetailField(fields, "area", nullableInt64(current.AreaID))
 	fields = appendDetailNote(fields, current.Note)
@@ -38,7 +39,8 @@ func taskDetail(current task.Task) detailView {
 
 func projectDetail(shown project.Detail) detailView {
 	current := shown.Project
-	fields := make([]detailField, 0, 10)
+	fields := make([]detailField, 0, 11)
+	fields = appendDetailField(fields, "id", strconv.FormatInt(current.ID, 10))
 	fields = appendDetailField(fields, "area", nullableInt64(current.AreaID))
 	location := ""
 	if shown.Location != nil {
@@ -63,7 +65,8 @@ func projectDetail(shown project.Detail) detailView {
 }
 
 func areaDetail(current area.Area) detailView {
-	fields := make([]detailField, 0, 6)
+	fields := make([]detailField, 0, 7)
+	fields = appendDetailField(fields, "id", strconv.FormatInt(current.ID, 10))
 	fields = appendDetailNote(fields, current.Note)
 	fields = appendDetailField(fields, "archived at", nullableString(current.ArchivedAt))
 	fields = appendDetailField(fields, "position", strconv.FormatInt(current.Position, 10))
@@ -85,7 +88,8 @@ func boardDetail(shown board.Show) detailView {
 	for index := range shown.Stages {
 		stages[index] = shown.Stages[index].Title
 	}
-	fields := make([]detailField, 0, 5)
+	fields := make([]detailField, 0, 6)
+	fields = appendDetailField(fields, "id", strconv.FormatInt(current.ID, 10))
 	fields = appendDetailNote(fields, current.Note)
 	fields = appendDetailField(fields, "position", strconv.FormatInt(current.Position, 10))
 	fields = appendDetailField(fields, "stages", joinStages(stages))
