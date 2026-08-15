@@ -453,6 +453,196 @@ func TestEmptyListsMatchCLIAndAreasRetainsPseudoRow(t *testing.T) {
 	}
 }
 
+func TestFilterNarrowsPerKeystrokeAndEscRestoresRowsAndCursor(t *testing.T) {
+	dependencies, tasks, _, _, _, _ := testDependencies()
+	tasks.availableResponses = [][]task.ViewTask{{
+		{Task: task.Task{ID: 1, Title: "Call plumber", Status: "open"}},
+		{Task: task.Task{ID: 2, Title: "Plan meal", Status: "open"}},
+	}}
+	current := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), 1)
+	current, _ = press(t, current, "j")
+	if selected := selectedLine(current.View().Content); !strings.Contains(selected, "Plan meal") {
+		t.Fatalf("selection before filter = %q, want Plan meal", selected)
+	}
+
+	current, _ = press(t, current, "/")
+	for _, key := range []string{"p", "l", "m"} {
+		current, _ = press(t, current, key)
+		if view := current.View().Content; !strings.Contains(view, "Call plumber") {
+			t.Fatalf("view after %q = %q, want incremental plumber match", key, view)
+		}
+	}
+	current, _ = press(t, current, "b")
+	filtered := current.View()
+	if !current.top().filter.editing || !strings.Contains(filtered.Content, "/ plmb") {
+		t.Fatalf("active filter = %#v/%q, want editing band", current.top().filter, filtered.Content)
+	}
+	if !strings.Contains(filtered.Content, "Call plumber") || strings.Contains(filtered.Content, "Plan meal") {
+		t.Fatalf("filtered view = %q, want only Call plumber", filtered.Content)
+	}
+	if selected := selectedLine(filtered.Content); !strings.Contains(selected, "Call plumber") {
+		t.Fatalf("filtered selection = %q, want matched row", selected)
+	}
+	if filtered.Cursor == nil {
+		t.Fatal("editing cursor = nil, want terminal cursor in input band")
+	}
+	for range 4 {
+		current, _ = press(t, current, "backspace")
+	}
+	if view := current.View().Content; !strings.Contains(view, "Call plumber") || !strings.Contains(view, "Plan meal") {
+		t.Fatalf("blank filter view = %q, want unfiltered rows while editing", view)
+	}
+	for _, key := range []string{"p", "l", "m", "b"} {
+		current, _ = press(t, current, key)
+	}
+
+	current, command := press(t, current, "esc")
+	if command != nil || current.top().filter.enabled {
+		t.Fatalf("Esc filter state/command = %#v/%v, want cleared without navigation", current.top().filter, command)
+	}
+	restored := current.View().Content
+	if !strings.Contains(restored, "Call plumber") || !strings.Contains(restored, "Plan meal") {
+		t.Fatalf("restored view = %q, want every source row", restored)
+	}
+	if selected := selectedLine(restored); !strings.Contains(selected, "Plan meal") {
+		t.Fatalf("restored selection = %q, want original cursor", selected)
+	}
+	current, command = press(t, current, "esc")
+	if command != nil || current.top().key.kind != viewRoot {
+		t.Fatalf("second Esc key/command = %#v/%v, want parent", current.top().key, command)
+	}
+}
+
+func TestFilterPreservesStructureAndDropsOnDescent(t *testing.T) {
+	dependencies, tasks, projects, areas, _, _ := testDependencies()
+	areas.items = []area.Area{{ID: 7, Title: "Home"}, {ID: 8, Title: "Work"}}
+	areas.showResponses = []area.Area{{ID: 7, Title: "Home"}}
+	projects.responses = [][]project.Project{{
+		{ID: 11, AreaID: pointerTo(int64(7)), Title: "Kitchen reno", Status: "open"},
+		{ID: 12, AreaID: pointerTo(int64(7)), Title: "Refresh entry", Status: "open"},
+	}}
+	projects.showResponses = []project.Detail{{Project: project.Project{ID: 11, Title: "Kitchen reno", Status: "open"}}}
+	tasks.listResponses = [][]task.Task{{{ID: 21, AreaID: pointerTo(int64(7)), Title: "Water plants", Status: "open"}}}
+
+	current := newModel(context.Background(), dependencies, false, time.UTC)
+	current, _ = press(t, current, "/")
+	for _, key := range []string{"a", "r", "e", "a", "s"} {
+		current, _ = press(t, current, key)
+	}
+	if view := current.View().Content; !strings.Contains(view, "Areas") || strings.Contains(view, "Inbox") {
+		t.Fatalf("filtered root = %q, want only Areas", view)
+	}
+	current, _ = press(t, current, "/")
+	if current.View().Cursor != nil || current.top().filter.editing {
+		t.Fatal("navigation-mode filter retained an editing cursor")
+	}
+	current, load := press(t, current, "l")
+	current = deliver(t, current, load)
+	if current.top().key.kind != viewAreas || current.stack[0].filter.enabled {
+		t.Fatalf("root descent = %#v/filter %v, want Areas with parent filter dropped", current.top().key, current.stack[0].filter.enabled)
+	}
+	current, _ = press(t, current, "/")
+	for _, key := range []string{"w", "o", "r", "k"} {
+		current, _ = press(t, current, key)
+	}
+	if view := current.View().Content; !strings.Contains(view, "Work") || strings.Contains(view, "Home") {
+		t.Fatalf("filtered collection = %q, want only Work", view)
+	}
+	current, _ = press(t, current, "esc")
+
+	current, load = press(t, current, "enter")
+	current = deliver(t, current, load)
+	current, _ = press(t, current, "/")
+	for _, key := range []string{"h", "o", "m", "e"} {
+		current, _ = press(t, current, key)
+	}
+	if selected := selectedLine(current.View().Content); !strings.Contains(selected, "● Home") {
+		t.Fatalf("matching header selection = %q, want selectable Home header", selected)
+	}
+	if selected, ok := current.top().selectedRow(); !ok || selected.destination.kind != viewAreaDetail {
+		t.Fatalf("matching header destination = %#v/%v, want area detail", selected.destination, ok)
+	}
+	current, _ = press(t, current, "esc")
+	current, _ = press(t, current, "/")
+	for _, key := range []string{"r", "e", "n", "o"} {
+		current, _ = press(t, current, key)
+	}
+	view := current.View().Content
+	if !containsInOrder(view, "● Home", "projects", "Kitchen reno", "tasks") {
+		t.Fatalf("filtered area structure = %q, want header and section headings preserved", view)
+	}
+	if strings.Contains(view, "Refresh entry") || strings.Contains(view, "Water plants") {
+		t.Fatalf("filtered area = %q, want nonmatching rows hidden", view)
+	}
+	if selected := selectedLine(view); !strings.Contains(selected, "Kitchen reno") {
+		t.Fatalf("filtered container selection = %q, want matched project rather than header", selected)
+	}
+
+	current, _ = press(t, current, "/")
+	current, load = press(t, current, "l")
+	current = deliver(t, current, load)
+	if current.top().key != (viewKey{kind: viewProject, id: 11}) || current.stack[len(current.stack)-2].filter.enabled {
+		t.Fatalf("filtered descent = %#v/parent filter %v, want project with filter dropped", current.top().key, current.stack[len(current.stack)-2].filter.enabled)
+	}
+}
+
+func TestFilterModesHighlightMatchesAndLeaveDetailsInert(t *testing.T) {
+	dependencies, tasks, _, _, _, _ := testDependencies()
+	tasks.availableResponses = [][]task.ViewTask{{{Task: task.Task{ID: 1, Title: "Call plumber", Status: "open"}}}}
+	current := enterRootRow(t, newModel(context.Background(), dependencies, true, time.UTC), 1)
+	current, _ = press(t, current, "/")
+	for _, key := range []string{"p", "l", "m", "b"} {
+		current, _ = press(t, current, key)
+	}
+	theme := tui.ThemeForBackground(true)
+	matchedSelected := lipgloss.NewStyle().
+		Foreground(theme.Accent).
+		Background(theme.InputBg).
+		Bold(true).
+		Render("p")
+	if view := current.View().Content; !strings.Contains(view, matchedSelected) {
+		t.Fatalf("colored filtered view = %q, want bold accent match on selection fill", view)
+	}
+
+	editing, _ := press(t, newModel(context.Background(), dependencies, false, time.UTC), "/")
+	editing, command := press(t, editing, "q")
+	if command != nil || editing.top().filter.input.Value() != "q" {
+		t.Fatalf("q while editing command/query = %v/%q, want query text", command, editing.top().filter.input.Value())
+	}
+	editing, _ = press(t, editing, "/")
+	_, command = press(t, editing, "q")
+	assertQuit(t, command)
+
+	detail := newModel(context.Background(), dependencies, false, time.UTC)
+	detail.stack = append(detail.stack, frame{
+		key:        viewKey{kind: viewTaskDetail, id: 1},
+		loadedView: loadedView{detail: &detailView{kind: detailTask, id: 1, title: "Call plumber"}},
+	})
+	detail, command = press(t, detail, "/")
+	if command != nil || detail.top().filter.enabled {
+		t.Fatalf("slash on detail filter/command = %v/%v, want inert", detail.top().filter.enabled, command)
+	}
+}
+
+func TestFilterInputViewportTracksDisplayWidthAndHorizontalOverflow(t *testing.T) {
+	visible, cursor := filterInputViewport("a界b", 2, 8)
+	if visible != "a界b" || cursor != 3 {
+		t.Fatalf("wide viewport/cursor = %q/%d, want full value with cursor at display cell 3", visible, cursor)
+	}
+	visible, cursor = filterInputViewport("a👩‍💻b", 4, 8)
+	if visible != "a👩‍💻b" || cursor != 3 {
+		t.Fatalf("grapheme viewport/cursor = %q/%d, want full value with cursor at display cell 3", visible, cursor)
+	}
+	visible, cursor = filterInputViewport("abcdefgh", 8, 4)
+	if visible != "efgh" || cursor != 4 {
+		t.Fatalf("overflow end viewport/cursor = %q/%d, want efgh/4", visible, cursor)
+	}
+	visible, cursor = filterInputViewport("abcdefgh", 6, 4)
+	if visible != "cdef" || cursor != 4 {
+		t.Fatalf("overflow edited viewport/cursor = %q/%d, want cdef/4", visible, cursor)
+	}
+}
+
 func TestSelectedRowUsesPickerFillWithBandsAndBackgroundCanChange(t *testing.T) {
 	dependencies, _, _, _, _, _ := testDependencies()
 	current := newModel(context.Background(), dependencies, true, time.UTC)
@@ -1034,6 +1224,8 @@ func press(t *testing.T, current model, key string) (model, tea.Cmd) {
 		message = tea.KeyPressMsg{Code: tea.KeyUp}
 	case "down":
 		message = tea.KeyPressMsg{Code: tea.KeyDown}
+	case "backspace":
+		message = tea.KeyPressMsg{Code: tea.KeyBackspace}
 	}
 	updated, command := current.Update(message)
 	return updated.(model), command

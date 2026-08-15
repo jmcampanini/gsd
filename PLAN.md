@@ -11,7 +11,7 @@ consolidation. This plan is temporary and is retired at consolidation.
 - [x] Chunk 2 — Every hall opens
 - [x] Chunk 3 — Every door opens
 - [x] Chunk 4 — The lights come on
-- [ ] Chunk 5 — Type to find
+- [x] Chunk 5 — Type to find
 
 There is no chunk 0: the Milestone 11 foundation review scheduled
 nothing; the deferred items carry forward in `MILESTONE_12.md` with
@@ -80,7 +80,11 @@ until consolidation.
   keeps its structure: sections and headers stay, non-matching rows
   hide, the cursor clamps to the matched set; a blank pattern means
   no filter; the filter is per-view and drops on any navigation.
-  List-shaped views filter; detail does not. The filter is
+  `/` toggles between query editing and retained filtered navigation:
+  printable keys are query text while editing, while `j`/`k`/`l`/`q`
+  regain their navigation meanings after toggling back; Enter opens
+  the selected match from either mode, Esc clears, and Ctrl+C always
+  quits. List-shaped views filter; detail does not. The filter is
   view-local: a global picker is parked, revisited at Milestone 15's
   command line. The FTS index goes untouched by the TUI — the
   milestone's index-lifetime question is moot, `gsd search` remains
@@ -423,33 +427,36 @@ thing you meant; clearing restores the view exactly.
 
 Implementation:
 
-- [ ] `go.mod`: `github.com/sahilm/fuzzy` becomes a direct dependency
+- [x] `go.mod`: `github.com/sahilm/fuzzy` becomes a direct dependency
       via `make tidy`.
-- [ ] `internal/tui/navigator` matcher: fuzzy subsequence wrapper
+- [x] `internal/tui/navigator` matcher: fuzzy subsequence wrapper
       with the smart-case rule, returning the matched set and match
       positions; scores stay internal until a ranked surface needs
       them.
-- [ ] Filter mode on list views: `/` opens the input band; each
+- [x] Filter mode on list views: `/` opens the input band; each
       keystroke re-scores the view's visible row text; non-matches
       hide, sections and headers stay, matched characters highlight,
       the cursor clamps to the matched set; a blank pattern is
       unfiltered; Esc clears the filter before navigating; any
-      navigation drops it; Enter/`l` on a filtered row behaves normally.
-- [ ] `e2e/navigator_test.go`: the documented end-to-end workflow
+      navigation drops it; a second `/` toggles from query editing to
+      retained filtered navigation, where the normal navigation keys
+      resume; Enter opens from either mode.
+- [x] `e2e/navigator_test.go`: the documented end-to-end workflow
       below as durable subprocess coverage inside `make check`.
 
 Verification (primary owners: matcher unit tests; navigator model
 tests; e2e for the complete workflow):
 
-- [ ] Matcher: subsequence semantics (`plmb` matches
+- [x] Matcher: subsequence semantics (`plmb` matches
       `Call plumber`), the smart-case rule, and position reporting;
       scores are not pinned.
-- [ ] Model: per-keystroke narrowing; headers and sections persist;
+- [x] Model: per-keystroke narrowing; headers and sections persist;
       clearing restores rows and cursor; Esc clears then backs;
-      descending drops the filter; root, collections, and containers
-      all filter; detail does not.
-- [ ] e2e: the full workflow passes against the real binary.
-- [ ] `make check` green.
+      `/` toggles retained filtered navigation and restores the normal
+      navigation keys; descending drops the filter; root, collections,
+      and containers all filter; detail does not.
+- [x] e2e: the full workflow passes against the real binary.
+- [x] `make check` green.
 
 Human proof (chunk demo `.sandbox/demos/12-chunk-5.html`), exact
 commands:
@@ -458,10 +465,10 @@ commands:
 gsd --db .sandbox/demo12.db tui
     # Available; / then "plmb" — the plumber task remains;
     # Esc clears; Esc back; Areas → Home; / "reno" —
-    # Kitchen reno remains; q
+    # Kitchen reno remains; / returns to navigation mode; q
 ```
 
-- [ ] Agent verification before review: build the real binary, drive
+- [x] Agent verification before review: build the real binary, drive
       the command list in tmux against a fresh temporary database,
       capture the frames into the deck, and pass local `make check`.
 
