@@ -2,6 +2,7 @@ package navigator
 
 import (
 	"slices"
+	"strings"
 	"unicode"
 
 	"github.com/sahilm/fuzzy"
@@ -17,7 +18,7 @@ func matchRows(pattern string, source []string) []rowMatch {
 		return nil
 	}
 
-	caseSensitive := slices.ContainsFunc([]rune(pattern), unicode.IsUpper)
+	caseSensitive := strings.IndexFunc(pattern, unicode.IsUpper) >= 0
 	matches := fuzzy.FindNoSort(pattern, source)
 	results := make([]rowMatch, 0, len(matches))
 	for _, match := range matches {

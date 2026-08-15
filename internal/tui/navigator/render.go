@@ -268,11 +268,7 @@ func (m model) newFilterInput() textinput.Model {
 	input.SetVirtualCursor(false)
 	input.Prompt = " / "
 	input.Focus()
-	width := 0
-	if m.width > 0 {
-		width = max(m.width-lipgloss.Width(input.Prompt)-1, 0)
-	}
-	input.SetWidth(width)
+	input.SetWidth(max(m.filterInputWidth(input), 0))
 	return input
 }
 
@@ -280,11 +276,7 @@ func (m model) resizeFilterInput(current *frame) {
 	if !current.filter.enabled {
 		return
 	}
-	width := 0
-	if m.width > 0 {
-		width = max(m.width-lipgloss.Width(current.filter.input.Prompt)-1, 0)
-	}
-	current.filter.input.SetWidth(width)
+	current.filter.input.SetWidth(max(m.filterInputWidth(current.filter.input), 0))
 }
 
 func (m model) hints() string {
@@ -378,7 +370,11 @@ func (m model) renderRoot(current *frame) ([]string, int) {
 
 func (m model) renderFrame(current *frame) ([]string, int) {
 	view := current.filteredView()
-	lines := make([]string, 0, len(current.selectableRows())+len(view.sections)+2)
+	lineCapacity := len(view.sections) + 2
+	for _, currentSection := range view.sections {
+		lineCapacity += len(currentSection.rows)
+	}
+	lines := make([]string, 0, lineCapacity)
 	selectedLine := -1
 	selectionOffset := 0
 	if view.header != nil {
