@@ -15,6 +15,7 @@ type Theme struct {
 	Cursor     color.Color
 	Green      color.Color
 	Red        color.Color
+	Yellow     color.Color
 }
 
 func ThemeForBackground(isDark bool) Theme {
@@ -27,5 +28,6 @@ func ThemeForBackground(isDark bool) Theme {
 		Dim:        lightDark(lipgloss.Color("#8c8fa1"), lipgloss.Color("#838ba7")),
 		Green:      lightDark(lipgloss.Color("#40a02b"), lipgloss.Color("#a6d189")),
 		Red:        lightDark(lipgloss.Color("#d20f39"), lipgloss.Color("#e78284")),
+		Yellow:     lightDark(lipgloss.Color("#df8e1d"), lipgloss.Color("#e5c890")),
 	}
 }

@@ -62,7 +62,14 @@ TUI verb, reorder, and command-line milestone acts on.
    area, project, and `(no area)`.
 3. **Every door opens** — the uniform `show`-mirroring detail view for
    all four kinds.
-4. **Type to find** — `/` fuzzy filtering of the current view.
+4. **The lights come on** — the TUI design language, settled
+   mid-milestone with the human and carried forward by every later
+   TUI surface: chrome bands (badge, breadcrumb, key hints),
+   Picker-style filled selection, glyph-led record rows with ids
+   confined to detail views, urgency accents, and container spacing.
+   Root `PLAN.md`'s chunk record is authoritative for what it
+   supersedes in the plan-gate design.
+5. **Type to find** — `/` fuzzy filtering of the current view.
 
 ## Carried from Milestone 11
 

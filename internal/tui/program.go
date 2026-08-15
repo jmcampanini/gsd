@@ -36,25 +36,12 @@ type runnableProgram interface {
 	Run() (tea.Model, error)
 }
 
-type programFactory func(context.Context, tea.Model, ProgramOptions) runnableProgram
-
 func RunProgram(ctx context.Context, model tea.Model, options ProgramOptions) (tea.Model, error) {
-	return runProgram(ctx, model, options, func(
-		ctx context.Context,
-		model tea.Model,
-		options ProgramOptions,
-	) runnableProgram {
-		return NewProgram(ctx, model, options)
-	})
+	return runProgram(NewProgram(ctx, model, options))
 }
 
-func runProgram(
-	ctx context.Context,
-	model tea.Model,
-	options ProgramOptions,
-	newProgram programFactory,
-) (tea.Model, error) {
-	finalModel, programErr := newProgram(ctx, model, options).Run()
+func runProgram(program runnableProgram) (tea.Model, error) {
+	finalModel, programErr := program.Run()
 	configured, ok := finalModel.(programModel)
 	if !ok {
 		if programErr != nil {
