@@ -80,26 +80,26 @@ color-capable sessions behave identically to before.
 
 Implementation:
 
-- [ ] `internal/tui/program.go`: `ProgramOptions` replaces
+- [x] `internal/tui/program.go`: `ProgramOptions` replaces
       `Color ColorMode` with resolved
       `Profile colorprofile.Profile` and a terminal-destination
       flag; `NewProgram` always applies
       `tea.WithColorProfile(options.Profile)`; the shared capability
       predicate lives here (suggested: a `ProgramOptions` method
       plus the bare function `cmd` reuses).
-- [ ] `internal/tui/capture.go`: `RunCapture` derives `colorEnabled`
+- [x] `internal/tui/capture.go`: `RunCapture` derives `colorEnabled`
       from the predicate; model, submission, and `runCapture`
       orchestration untouched.
-- [ ] `internal/tui/navigator/model.go`: `Run` derives
+- [x] `internal/tui/navigator/model.go`: `Run` derives
       `colorEnabled` the same way.
-- [ ] `cmd/presentation.go`: extend the resolution so TUI commands
+- [x] `cmd/presentation.go`: extend the resolution so TUI commands
       obtain profile, terminal flag, and scrubbed environment in one
       pass (e.g. fold profile into `colorResolution`);
       `presentation.output` routes its background-detection branch
       through the shared predicate; the decision enum
       (`ColorDisabled`/`ColorDetected`/`ColorForced`) relocates into
       `cmd` since `tui` no longer consumes it.
-- [ ] `cmd/capture.go`, `cmd/tui.go`: guards unchanged; build
+- [x] `cmd/capture.go`, `cmd/tui.go`: guards unchanged; build
       `ProgramOptions` from the resolved profile, terminal flag, and
       environment.
 - [ ] Call-site audit recorded in the PR: exactly three
@@ -111,16 +111,16 @@ Implementation:
 Verification (primary owners: predicate and model tests in
 `internal/tui`; command wiring tests in `cmd`):
 
-- [ ] Predicate: full matrix — `NoTTY`, `ASCII`, `ANSI`, `ANSI256`,
+- [x] Predicate: full matrix — `NoTTY`, `ASCII`, `ANSI`, `ANSI256`,
       `TrueColor`, each with terminal and non-terminal
       destination — exactly ANSI-and-above on a terminal passes.
-- [ ] Model tests: capture and navigator `Init` return the
+- [x] Model tests: capture and navigator `Init` return the
       background request exactly when the derived capability holds,
       and nothing ever issues a second request (adapt
       `TestCaptureInitRequestsBackgroundOnlyWithColor` and the
       navigator equivalent).
-- [ ] `cmd/capture_test.go`: extend
-      `TestCaptureCommandPassesRuntimeDependenciesAndColorMode` with
+- [x] `cmd/capture_test.go`: extend
+      `TestCaptureCommandPassesRuntimeDependenciesAndColorCapability` with
       an injected `detectProfile`: detected `TrueColor`/`ANSI256`/
       `ANSI` reach the runner query-capable; detected `ASCII` and
       `NoTTY` reach it incapable; `NO_COLOR`, `TERM=dumb`, and
@@ -128,15 +128,15 @@ Verification (primary owners: predicate and model tests in
       is capable; the environment stays scrubbed. `--color always`
       into a pipe keeps exiting 2 before the factory or runner is
       touched (existing rejection test owns it).
-- [ ] `cmd/tui_test.go`: mirror the same matrix in
+- [x] `cmd/tui_test.go`: mirror the same matrix in
       `TestTUICommandPassesApplicationsRuntimeOptionsAndLocation`.
-- [ ] Ordinary rendering preserved:
+- [x] Ordinary rendering preserved:
       `TestPresentationQueriesBackgroundOnceOnlyForStyledTerminalStdout`
       stays green through the shared predicate.
-- [ ] Existing e2e suite unchanged and green: tmux capture workflow
+- [x] Existing e2e suite unchanged and green: tmux capture workflow
       (terminal restoration, clean pane, exit codes) and the
       noninteractive rejection tests (nothing written on refusal).
-- [ ] `make check` green.
+- [x] `make check` green.
 
 Human proof (chunk demo `.sandbox/demos/issue-80.html`), exact
 commands:
@@ -159,7 +159,7 @@ NO_COLOR=1 gsd --db .sandbox/issue80.db tui
     # plain navigator; q
 ```
 
-- [ ] Agent verification before review: build the real binary, drive
+- [x] Agent verification before review: build the real binary, drive
       the command list in tmux against a fresh temporary database,
       capture the frames into the deck, and pass local `make check`.
 

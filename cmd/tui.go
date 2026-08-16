@@ -58,7 +58,8 @@ func newTUICommand(
 					Output:      command.OutOrStdout(),
 					Environment: resolution.environment,
 					Screen:      tui.ScreenAlt,
-					Color:       resolution.decision,
+					Profile:     resolution.profile,
+					Terminal:    resolution.terminal,
 				}, location)
 			})
 		},

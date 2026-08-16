@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/colorprofile"
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/tui"
 	"github.com/jmcampanini/gsd/internal/tui/navigator"
@@ -23,35 +24,82 @@ func TestTUICommandPassesApplicationsRuntimeOptionsAndLocation(t *testing.T) {
 		name            string
 		environment     []string
 		args            []string
-		wantColor       tui.ColorMode
+		detected        colorprofile.Profile
+		wantProfile     colorprofile.Profile
+		wantDetection   bool
 		wantEnvironment []string
 	}{
 		{
-			name:            "automatic terminal color",
+			name:            "detected TrueColor",
 			environment:     []string{"TERM=xterm-256color", "KEEP=value"},
 			args:            []string{"tui"},
-			wantColor:       tui.ColorDetected,
+			detected:        colorprofile.TrueColor,
+			wantProfile:     colorprofile.TrueColor,
+			wantDetection:   true,
 			wantEnvironment: []string{"TERM=xterm-256color", "KEEP=value"},
+		},
+		{
+			name:            "detected ANSI256",
+			environment:     []string{"TERM=xterm-256color", "KEEP=value"},
+			args:            []string{"tui"},
+			detected:        colorprofile.ANSI256,
+			wantProfile:     colorprofile.ANSI256,
+			wantDetection:   true,
+			wantEnvironment: []string{"TERM=xterm-256color", "KEEP=value"},
+		},
+		{
+			name:            "detected ANSI",
+			environment:     []string{"TERM=xterm", "KEEP=value"},
+			args:            []string{"tui"},
+			detected:        colorprofile.ANSI,
+			wantProfile:     colorprofile.ANSI,
+			wantDetection:   true,
+			wantEnvironment: []string{"TERM=xterm", "KEEP=value"},
+		},
+		{
+			name:            "detected ASCII",
+			environment:     []string{"TERM=xterm", "KEEP=value"},
+			args:            []string{"tui"},
+			detected:        colorprofile.ASCII,
+			wantProfile:     colorprofile.ASCII,
+			wantDetection:   true,
+			wantEnvironment: []string{"TERM=xterm", "KEEP=value"},
+		},
+		{
+			name:            "detected NoTTY",
+			environment:     []string{"TERM=xterm", "KEEP=value"},
+			args:            []string{"tui"},
+			detected:        colorprofile.NoTTY,
+			wantProfile:     colorprofile.NoTTY,
+			wantDetection:   true,
+			wantEnvironment: []string{"TERM=xterm", "KEEP=value"},
 		},
 		{
 			name:            "NO_COLOR disables color",
 			environment:     []string{"NO_COLOR=1", "TERM=xterm-256color", "KEEP=value"},
 			args:            []string{"tui"},
-			wantColor:       tui.ColorDisabled,
+			wantProfile:     colorprofile.NoTTY,
 			wantEnvironment: []string{"TERM=xterm-256color", "KEEP=value"},
+		},
+		{
+			name:            "TERM dumb disables color",
+			environment:     []string{"TERM=dumb", "KEEP=value"},
+			args:            []string{"tui"},
+			wantProfile:     colorprofile.NoTTY,
+			wantEnvironment: []string{"TERM=dumb", "KEEP=value"},
 		},
 		{
 			name:            "explicit always overrides environment",
 			environment:     []string{"NO_COLOR=1", "TERM=dumb", "KEEP=value"},
 			args:            []string{"tui", "--color", "always"},
-			wantColor:       tui.ColorForced,
+			wantProfile:     colorprofile.TrueColor,
 			wantEnvironment: []string{"TERM=dumb", "KEEP=value"},
 		},
 		{
 			name:            "explicit never disables color",
 			environment:     []string{"TERM=xterm-256color", "KEEP=value"},
 			args:            []string{"tui", "--color=never"},
-			wantColor:       tui.ColorDisabled,
+			wantProfile:     colorprofile.NoTTY,
 			wantEnvironment: []string{"TERM=xterm-256color", "KEEP=value"},
 		},
 	}
@@ -92,6 +140,11 @@ func TestTUICommandPassesApplicationsRuntimeOptionsAndLocation(t *testing.T) {
 			presentation.isTerminalWriter = func(writer io.Writer) bool {
 				outputChecked = writer == &stdout
 				return outputChecked
+			}
+			detections := 0
+			presentation.detectProfile = func(io.Writer, []string) colorprofile.Profile {
+				detections++
+				return test.detected
 			}
 
 			location := time.FixedZone("test", 2*60*60)
@@ -144,8 +197,21 @@ func TestTUICommandPassesApplicationsRuntimeOptionsAndLocation(t *testing.T) {
 			if gotOptions.Screen != tui.ScreenAlt {
 				t.Errorf("navigator screen = %v, want alternate screen", gotOptions.Screen)
 			}
-			if gotOptions.Color != test.wantColor {
-				t.Errorf("navigator color = %v, want %v", gotOptions.Color, test.wantColor)
+			if gotOptions.Profile != test.wantProfile {
+				t.Errorf("navigator profile = %v, want %v", gotOptions.Profile, test.wantProfile)
+			}
+			if !gotOptions.Terminal {
+				t.Error("navigator terminal destination = false, want true")
+			}
+			wantColorEnabled := test.wantProfile >= colorprofile.ANSI
+			if got := gotOptions.ColorEnabled(); got != wantColorEnabled {
+				t.Errorf("navigator color enabled = %t, want %t", got, wantColorEnabled)
+			}
+			if got := detections > 0; got != test.wantDetection {
+				t.Errorf("navigator profile detection = %t, want %t", got, test.wantDetection)
+			}
+			if detections > 1 {
+				t.Errorf("navigator profile detections = %d, want at most 1", detections)
 			}
 			if !reflect.DeepEqual(gotOptions.Environment, test.wantEnvironment) {
 				t.Errorf("navigator environment = %q, want %q", gotOptions.Environment, test.wantEnvironment)
@@ -170,7 +236,7 @@ func TestTUICommandRejectsNoninteractiveInvocationBeforeOpeningApplication(t *te
 		{name: "positional argument", args: []string{"tui", "extra"}, inputOK: true, outputOK: true, marker: "positional arguments"},
 		{name: "JSON", args: []string{"tui", "--json"}, inputOK: true, outputOK: true, marker: "--json"},
 		{name: "non-terminal input", args: []string{"tui"}, outputOK: true, marker: "terminal input"},
-		{name: "non-terminal output", args: []string{"tui"}, inputOK: true, marker: "terminal output"},
+		{name: "forced color with non-terminal output", args: []string{"tui", "--color=always"}, inputOK: true, marker: "terminal output"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

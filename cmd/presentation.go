@@ -48,30 +48,38 @@ func (colorValue) Type() string {
 	return "color"
 }
 
+type colorDecision uint8
+
+const (
+	colorDisabled colorDecision = iota
+	colorDetected
+	colorForced
+)
+
 func resolveColor(
 	mode colorMode,
 	explicit bool,
 	noColor string,
 	isTerminal bool,
 	terminalName string,
-) tui.ColorMode {
+) colorDecision {
 	if explicit {
 		switch mode {
 		case colorAlways:
-			return tui.ColorForced
+			return colorForced
 		case colorNever:
-			return tui.ColorDisabled
+			return colorDisabled
 		case colorAuto:
 			if !isTerminal || terminalName == "dumb" {
-				return tui.ColorDisabled
+				return colorDisabled
 			}
-			return tui.ColorDetected
+			return colorDetected
 		}
 	}
 	if noColor != "" || !isTerminal || terminalName == "dumb" {
-		return tui.ColorDisabled
+		return colorDisabled
 	}
-	return tui.ColorDetected
+	return colorDetected
 }
 
 type presentationDependencies struct {
@@ -113,7 +121,7 @@ type presentation struct {
 }
 
 type colorResolution struct {
-	decision    tui.ColorMode
+	profile     colorprofile.Profile
 	terminal    bool
 	environment []string
 }
@@ -125,42 +133,38 @@ func (p presentation) isTerminalInput(reader io.Reader) bool {
 func (p presentation) resolve(writer io.Writer, explicit bool) colorResolution {
 	environment := p.dependencies.environment()
 	terminal := p.dependencies.isTerminalWriter(writer)
-	return colorResolution{
-		decision: resolveColor(
-			*p.mode,
-			explicit,
-			environmentValue(environment, "NO_COLOR"),
-			terminal,
-			environmentValue(environment, "TERM"),
-		),
-		terminal:    terminal,
-		environment: scrubColorEnvironment(environment),
+	scrubbed := scrubColorEnvironment(environment)
+	decision := resolveColor(
+		*p.mode,
+		explicit,
+		environmentValue(environment, "NO_COLOR"),
+		terminal,
+		environmentValue(environment, "TERM"),
+	)
+	profile := colorprofile.NoTTY
+	switch decision {
+	case colorForced:
+		profile = colorprofile.TrueColor
+	case colorDetected:
+		profile = p.dependencies.detectProfile(writer, scrubbed)
+	case colorDisabled:
 	}
-}
-
-func (p presentation) profile(writer io.Writer, explicit bool) (colorprofile.Profile, bool) {
-	resolution := p.resolve(writer, explicit)
-	switch resolution.decision {
-	case tui.ColorDisabled:
-		return colorprofile.NoTTY, resolution.terminal
-	case tui.ColorForced:
-		return colorprofile.TrueColor, resolution.terminal
-	case tui.ColorDetected:
-		return p.dependencies.detectProfile(writer, resolution.environment), resolution.terminal
-	default:
-		return colorprofile.NoTTY, resolution.terminal
+	return colorResolution{
+		profile:     profile,
+		terminal:    terminal,
+		environment: scrubbed,
 	}
 }
 
 func (p presentation) output(command *cobra.Command) humanOutput {
 	writer := command.OutOrStdout()
-	profile, terminal := p.profile(writer, command.Root().PersistentFlags().Changed("color"))
+	resolution := p.resolve(writer, command.Root().PersistentFlags().Changed("color"))
 	dark := true
-	if profile >= colorprofile.ANSI && terminal {
+	if tui.CanRenderColor(resolution.profile, resolution.terminal) {
 		dark = p.dependencies.hasDarkBackground(command.InOrStdin(), writer)
 	}
 	return newHumanOutput(
-		&colorprofile.Writer{Forward: writer, Profile: profile},
+		&colorprofile.Writer{Forward: writer, Profile: resolution.profile},
 		dark,
 		p.dependencies.now().In(p.location).Format(time.DateOnly),
 	)

@@ -62,8 +62,18 @@ func TestCaptureInitRequestsBackgroundOnlyWithColor(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			model := newTestCaptureModel(context.Background(), &captureApplication{}, test.color)
-			if got := model.Init(); (got != nil) != test.wantCommand {
-				t.Errorf("Init command present = %t, want %t", got != nil, test.wantCommand)
+			command := model.Init()
+			if (command != nil) != test.wantCommand {
+				t.Errorf("Init command present = %t, want %t", command != nil, test.wantCommand)
+			}
+			if command != nil {
+				if got, want := command(), tea.RequestBackgroundColor(); got != want {
+					t.Errorf("Init command message = %#v, want background request %#v", got, want)
+				}
+			}
+			_, followUp := model.Update(tea.BackgroundColorMsg{Color: color.White})
+			if followUp != nil {
+				t.Fatal("background response issued a second command")
 			}
 		})
 	}

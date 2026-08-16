@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
 )
 
 type staticModel struct{}
@@ -33,6 +34,40 @@ func (m staticModel) Update(tea.Msg) (tea.Model, tea.Cmd) {
 
 func (staticModel) View() tea.View {
 	return tea.NewView("capture")
+}
+
+func TestCanRenderColor(t *testing.T) {
+	t.Parallel()
+
+	profiles := []colorprofile.Profile{
+		colorprofile.NoTTY,
+		colorprofile.ASCII,
+		colorprofile.ANSI,
+		colorprofile.ANSI256,
+		colorprofile.TrueColor,
+	}
+	for _, profile := range profiles {
+		for _, terminal := range []bool{false, true} {
+			want := terminal && profile >= colorprofile.ANSI
+			name := profile.String()
+			if terminal {
+				name += "/terminal"
+			} else {
+				name += "/non-terminal"
+			}
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
+				if got := CanRenderColor(profile, terminal); got != want {
+					t.Errorf("CanRenderColor(%s, %t) = %t, want %t", profile, terminal, got, want)
+				}
+				options := ProgramOptions{Profile: profile, Terminal: terminal}
+				if got := options.ColorEnabled(); got != want {
+					t.Errorf("ProgramOptions.ColorEnabled() = %t, want %t", got, want)
+				}
+			})
+		}
+	}
 }
 
 func TestRunProgramReturnsFinalInnerModel(t *testing.T) {
