@@ -2,11 +2,14 @@ package navigator
 
 import (
 	"strings"
+	"unicode/utf8"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/jmcampanini/gsd/internal/text"
+	"github.com/rivo/uniseg"
 )
 
 const selectionMarkerWidth = 2
@@ -23,11 +26,18 @@ func (m model) View() tea.View {
 		lines, _ := m.renderLines(current)
 		contentLines = m.visibleLines(lines, current.offset)
 	}
-	content := strings.Join(m.frameLines(contentLines), "\n")
+	framed := m.frameLines(contentLines)
+	content := strings.Join(framed, "\n")
 	if content != "" {
 		content += "\n"
 	}
-	return tea.View{Content: content}
+	view := tea.View{Content: content}
+	if current.filter.editing && m.height != 1 && m.height != 2 &&
+		(m.width <= 0 || m.filterInputWidth(current.filter.input) > 0) {
+		view.Cursor = tea.NewCursor(m.filterInputCursorX(current.filter.input), len(framed)-1)
+		view.Cursor.Color = m.theme.Cursor
+	}
+	return view
 }
 
 func (m model) frameLines(contentLines []string) []string {
@@ -131,7 +141,14 @@ func pathWidth(segments []string) int {
 }
 
 func (m model) bottomBand() string {
+	current := m.top()
+	if current.filter.editing {
+		return m.fillBottomBand(m.filterInputView(current.filter.input))
+	}
 	hints := m.hints()
+	if current.filter.enabled {
+		hints = "/ " + current.filter.input.Value() + " · / edit · j/k move · ⏎ open · esc clear"
+	}
 	if m.width > 1 {
 		hints = text.Ellipsize(hints, m.width-1)
 	}
@@ -145,6 +162,121 @@ func (m model) bottomBand() string {
 		line += band.Render(strings.Repeat(" ", m.width-width))
 	}
 	return line
+}
+
+func (m model) filterInputView(input textinput.Model) string {
+	visible, _ := filterInputViewport(input.Value(), input.Position(), m.filterInputWidth(input))
+	if !m.colorEnabled {
+		return input.Prompt + visible
+	}
+	band := lipgloss.NewStyle().Background(m.theme.InputBg)
+	return band.Foreground(m.theme.Accent).Bold(true).Render(input.Prompt) +
+		band.Foreground(m.theme.Text).Render(visible)
+}
+
+func (m model) filterInputCursorX(input textinput.Model) int {
+	_, prefixWidth := filterInputViewport(input.Value(), input.Position(), m.filterInputWidth(input))
+	return lipgloss.Width(input.Prompt) + prefixWidth
+}
+
+func (m model) filterInputWidth(input textinput.Model) int {
+	if m.width <= 0 {
+		return -1
+	}
+	return max(m.width-lipgloss.Width(input.Prompt)-1, 0)
+}
+
+func filterInputViewport(value string, position, width int) (string, int) {
+	clusters := inputGraphemes(value)
+	position = clamp(position, 0, utf8.RuneCountInString(value))
+	prefixEnd := 0
+	for prefixEnd < len(clusters) && position > clusters[prefixEnd].runeStart {
+		prefixEnd++
+	}
+	if width < 0 {
+		return value, graphemeWidth(clusters[:prefixEnd])
+	}
+	if width == 0 {
+		return "", 0
+	}
+	start := prefixEnd
+	prefixWidth := 0
+	for start > 0 {
+		currentWidth := clusters[start-1].width
+		if prefixWidth+currentWidth > width {
+			break
+		}
+		start--
+		prefixWidth += currentWidth
+	}
+	var visible strings.Builder
+	visibleWidth := 0
+	for _, current := range clusters[start:] {
+		if visibleWidth+current.width > width {
+			break
+		}
+		visible.WriteString(current.value)
+		visibleWidth += current.width
+	}
+	return visible.String(), prefixWidth
+}
+
+type inputGrapheme struct {
+	value     string
+	width     int
+	runeStart int
+}
+
+func inputGraphemes(value string) []inputGrapheme {
+	iterator := uniseg.NewGraphemes(value)
+	clusters := make([]inputGrapheme, 0, utf8.RuneCountInString(value))
+	runeStart := 0
+	for iterator.Next() {
+		current := iterator.Str()
+		clusters = append(clusters, inputGrapheme{
+			value:     current,
+			width:     iterator.Width(),
+			runeStart: runeStart,
+		})
+		runeStart += utf8.RuneCountInString(current)
+	}
+	return clusters
+}
+
+func graphemeWidth(clusters []inputGrapheme) int {
+	width := 0
+	for _, current := range clusters {
+		width += current.width
+	}
+	return width
+}
+
+func (m model) fillBottomBand(value string) string {
+	if m.width <= 0 {
+		return value
+	}
+	value = text.Ellipsize(value, m.width)
+	padding := m.width - lipgloss.Width(value)
+	if padding <= 0 || !m.colorEnabled {
+		return value + strings.Repeat(" ", max(padding, 0))
+	}
+	return value + lipgloss.NewStyle().Background(m.theme.InputBg).Render(strings.Repeat(" ", padding))
+}
+
+func (m model) newFilterInput() textinput.Model {
+	input := textinput.New()
+	input.SetVirtualCursor(false)
+	input.Prompt = " / "
+	input.Focus()
+	input.SetWidth(max(m.filterInputWidth(input), 0))
+	return input
+}
+
+func (m model) resizeFilterInput(current *frame) {
+	if !current.filter.enabled {
+		return
+	}
+	current.filter.input.SetWidth(max(m.filterInputWidth(current.filter.input), 0))
 }
 
 func (m model) hints() string {
@@ -226,7 +358,8 @@ func (m model) renderRoot(current *frame) ([]string, int) {
 	lines := make([]string, len(rows))
 	for index := range rows {
 		selected := index == current.cursor
-		body := m.styleCell(text.Human(rows[index].cells[0], false), accentPlain, selected && m.colorEnabled)
+		cell := text.Human(rows[index].cells[0], false)
+		body := m.styleMatchedCell(cell, accentPlain, selected && m.colorEnabled, matchPositionsAt(rows[index], 0))
 		lines[index] = m.renderRow(selected, body)
 	}
 	if current.cursor < 0 || current.cursor >= len(lines) {
@@ -236,19 +369,27 @@ func (m model) renderRoot(current *frame) ([]string, int) {
 }
 
 func (m model) renderFrame(current *frame) ([]string, int) {
-	lines := make([]string, 0, len(current.selectableRows())+len(current.sections)+2)
+	view := current.filteredView()
+	lineCapacity := len(view.sections) + 2
+	for _, currentSection := range view.sections {
+		lineCapacity += len(currentSection.rows)
+	}
+	lines := make([]string, 0, lineCapacity)
 	selectedLine := -1
 	selectionOffset := 0
-	if current.header != nil {
-		selected := current.cursor == selectionOffset
+	if view.header != nil {
+		headerSelectable := !current.filterApplied() || headerMatched(*view.header)
+		selected := headerSelectable && current.cursor == selectionOffset
 		if selected {
 			selectedLine = len(lines)
 		}
-		body := m.styleCell(renderHeader(*current.header), accentPlain, selected && m.colorEnabled)
+		body := m.renderMatchedHeader(*view.header, selected && m.colorEnabled)
 		lines = append(lines, m.renderRow(selected, body), "")
-		selectionOffset++
+		if headerSelectable {
+			selectionOffset++
+		}
 	}
-	for index, currentSection := range current.sections {
+	for index, currentSection := range view.sections {
 		if index > 0 {
 			lines = append(lines, "")
 		}
@@ -294,6 +435,7 @@ func (m model) renderSection(current section, cursor, selectionOffset int) ([]st
 		cells := m.renderCells(
 			visibleRows[index],
 			current.rows[index].accents,
+			current.rows[index].matchPositions,
 			widths,
 			current.firstGap,
 			selected && m.colorEnabled,
@@ -334,18 +476,22 @@ func (m model) visibleLines(lines []string, offset int) []string {
 	return lines[offset : offset+budget]
 }
 
-func renderHeader(current row) string {
+func (m model) renderMatchedHeader(current row, selected bool) string {
 	cells := visibleCells(current.cells)
+	prefix := ""
 	switch current.style {
 	case rowAreaHeader:
-		return "● " + cells[0]
+		prefix = "● "
 	case rowProjectHeader:
-		return "◆ " + cells[0]
+		prefix = "◆ "
 	case rowBoardHeader:
-		return "▥ " + cells[0]
-	default:
-		return strings.Join(cells, "  ")
+		prefix = "▥ "
 	}
+	if prefix == "" {
+		return m.styleMatchedCell(strings.Join(cells, "  "), accentPlain, selected, matchPositionsAt(current, 0))
+	}
+	return m.styleCell(prefix, accentPlain, selected) +
+		m.styleMatchedCell(cells[0], accentPlain, selected, matchPositionsAt(current, 0))
 }
 
 func visibleCells(cells []string) []string {
@@ -395,6 +541,7 @@ func renderedCellsWidth(widths []int, firstGap int) int {
 func (m model) renderCells(
 	cells []string,
 	accents []cellAccent,
+	matches [][]int,
 	widths []int,
 	firstGap int,
 	selected bool,
@@ -410,7 +557,7 @@ func (m model) renderCells(
 			padding := widths[index] - lipgloss.Width(cell) + columnGap(index, firstGap)
 			cell += strings.Repeat(" ", padding)
 		}
-		rendered.WriteString(m.styleCell(cell, accentAt(accents, index), selected))
+		rendered.WriteString(m.styleMatchedCell(cell, accentAt(accents, index), selected, positionsAt(matches, index)))
 	}
 	return rendered.String()
 }
@@ -457,6 +604,72 @@ func (m model) styleCell(cell string, accent cellAccent, selected bool) string {
 		return cell
 	}
 	return style.Render(cell)
+}
+
+func (m model) styleMatchedCell(cell string, accent cellAccent, selected bool, positions []int) string {
+	if len(positions) == 0 || !m.colorEnabled {
+		return m.styleCell(cell, accent, selected)
+	}
+	matched := make(map[int]struct{}, len(positions))
+	for _, position := range positions {
+		matched[position] = struct{}{}
+	}
+	var rendered strings.Builder
+	for offset := 0; offset < len(cell); {
+		_, size := utf8.DecodeRuneInString(cell[offset:])
+		segment := cell[offset : offset+size]
+		if _, ok := matched[offset]; ok {
+			style := lipgloss.NewStyle().Foreground(m.theme.Accent).Bold(true)
+			if selected {
+				style = style.Background(m.theme.InputBg)
+			}
+			rendered.WriteString(style.Render(segment))
+		} else {
+			rendered.WriteString(m.styleCell(segment, accent, selected))
+		}
+		offset += size
+	}
+	return rendered.String()
+}
+
+func headerMatched(current row) bool {
+	for _, positions := range current.matchPositions {
+		if len(positions) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func matchPositionsAt(current row, index int) []int {
+	return positionsAt(current.matchPositions, index)
+}
+
+func positionsAt(positions [][]int, index int) []int {
+	if index < len(positions) {
+		return positions[index]
+	}
+	return nil
+}
+
+func filterText(current row) string {
+	return strings.Join(visibleCells(current.cells), " ")
+}
+
+func cellMatchPositions(current row, positions []int) [][]int {
+	cells := visibleCells(current.cells)
+	matches := make([][]int, len(cells))
+	offset := 0
+	for cellIndex, cell := range cells {
+		end := offset + len(cell)
+		for _, position := range positions {
+			if position >= offset && position < end {
+				matches[cellIndex] = append(matches[cellIndex], position-offset)
+			}
+		}
+		offset = end + 1
+	}
+	return matches
 }
 
 func columnGap(index, firstGap int) int {

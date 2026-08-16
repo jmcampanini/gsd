@@ -29,7 +29,6 @@ func taskDetail(current task.Task) detailView {
 	fields = appendDetailField(fields, "tags", tagTitles(current.Tags))
 	return detailView{
 		kind:     detailTask,
-		id:       current.ID,
 		title:    current.Title,
 		status:   current.Status,
 		promotes: current.Promotes,
@@ -57,7 +56,6 @@ func projectDetail(shown project.Detail) detailView {
 	fields = appendDetailField(fields, "tags", tagTitles(current.Tags))
 	return detailView{
 		kind:   detailProject,
-		id:     current.ID,
 		title:  current.Title,
 		status: current.Status,
 		fields: fields,
@@ -75,7 +73,6 @@ func areaDetail(current area.Area) detailView {
 	fields = appendDetailField(fields, "tags", tagTitles(current.Tags))
 	return detailView{
 		kind:   detailArea,
-		id:     current.ID,
 		title:  current.Title,
 		status: archivedStatus(current.ArchivedAt),
 		fields: fields,
@@ -95,7 +92,7 @@ func boardDetail(shown board.Show) detailView {
 	fields = appendDetailField(fields, "stages", joinStages(stages))
 	fields = appendDetailField(fields, "created at", current.CreatedAt)
 	fields = appendDetailField(fields, "updated at", current.UpdatedAt)
-	return detailView{kind: detailBoard, id: current.ID, title: current.Title, fields: fields}
+	return detailView{kind: detailBoard, title: current.Title, fields: fields}
 }
 
 func appendDetailField(fields []detailField, label, value string) []detailField {

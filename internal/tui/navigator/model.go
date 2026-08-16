@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/board"
@@ -108,12 +109,13 @@ const (
 )
 
 type row struct {
-	identity    string
-	crumb       string
-	cells       []string
-	accents     []cellAccent
-	style       rowStyle
-	destination viewKey
+	identity       string
+	crumb          string
+	cells          []string
+	accents        []cellAccent
+	matchPositions [][]int
+	style          rowStyle
+	destination    viewKey
 }
 
 type section struct {
@@ -141,7 +143,6 @@ type detailField struct {
 
 type detailView struct {
 	kind     detailKind
-	id       int64
 	title    string
 	status   string
 	promotes bool
@@ -159,6 +160,14 @@ type cursorState struct {
 	index    int
 }
 
+type filterState struct {
+	enabled      bool
+	editing      bool
+	input        textinput.Model
+	origin       cursorState
+	originOffset int
+}
+
 type frame struct {
 	key        viewKey
 	crumb      string
@@ -166,6 +175,7 @@ type frame struct {
 	loading    bool
 	err        error
 	loadedView
+	filter filterState
 	cursor int
 	offset int
 }
@@ -231,22 +241,74 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = message.Width
 		m.height = message.Height
+		m.resizeFilterInput(m.top())
 		m.ensureCursorVisible(m.top())
 		return m, nil
 	case loadResultMsg:
 		return m.applyLoad(message), nil
 	case tea.KeyPressMsg:
 		return m.updateKey(message)
+	case tea.PasteMsg:
+		current := m.top()
+		if !current.filter.editing {
+			return m, nil
+		}
+		selected, _ := current.selectedRow()
+		previousIndex := current.cursor
+		var command tea.Cmd
+		current.filter.input, command = current.filter.input.Update(message)
+		m.filterChanged(current, selected.identity, previousIndex)
+		return m, command
 	default:
 		return m, nil
 	}
 }
 
 func (m model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch message.String() {
-	case "q", "ctrl+c":
+	current := m.top()
+	key := message.String()
+	if key == "ctrl+c" {
 		return m, tea.Quit
+	}
+	if current.filter.editing {
+		switch key {
+		case "esc", "/":
+			m.commitFilter(current)
+			return m, nil
+		case "up":
+			m.commitFilter(current)
+			m.move(-1)
+			return m, nil
+		case "down":
+			m.commitFilter(current)
+			m.move(1)
+			return m, nil
+		case "enter":
+			return m.pushSelection()
+		}
+		before := current.filter.input.Value()
+		selected, _ := current.selectedRow()
+		previousIndex := current.cursor
+		var command tea.Cmd
+		current.filter.input, command = current.filter.input.Update(message)
+		if current.filter.input.Value() != before {
+			m.filterChanged(current, selected.identity, previousIndex)
+		}
+		return m, command
+	}
+
+	switch key {
+	case "q":
+		return m, tea.Quit
+	case "/":
+		if m.canFilter(current) {
+			m.startFilter(current)
+		}
 	case "esc":
+		if current.filter.enabled {
+			m.clearFilter(current)
+			return m, nil
+		}
 		if len(m.stack) == 1 {
 			return m, tea.Quit
 		}
@@ -285,7 +347,9 @@ func (m *model) move(delta int) {
 	}
 	current.cursor = clamp(current.cursor+delta, 0, len(rows)-1)
 	m.ensureCursorVisible(current)
-	m.rememberCursor(current)
+	if !current.filter.enabled {
+		m.rememberCursor(current)
+	}
 }
 
 func (m model) pushSelection() (tea.Model, tea.Cmd) {
@@ -293,6 +357,12 @@ func (m model) pushSelection() (tea.Model, tea.Cmd) {
 	selected, ok := current.selectedRow()
 	if !ok {
 		return m, nil
+	}
+	if current.filter.enabled {
+		current.filter = filterState{}
+		rows := current.selectableRows()
+		current.cursor = clampCursor(rowIndex(rows, selected.identity), len(rows))
+		m.ensureCursorVisible(current)
 	}
 	m.rememberCursor(current)
 	m.stack = append(m.stack, frame{key: selected.destination, crumb: selected.crumb})
@@ -590,22 +660,108 @@ func (m *model) top() *frame {
 	return &m.stack[len(m.stack)-1]
 }
 
+func (m model) canFilter(current *frame) bool {
+	return !current.loading && current.err == nil && current.detail == nil
+}
+
+func (m *model) startFilter(current *frame) {
+	if !current.filter.enabled {
+		selected, _ := current.selectedRow()
+		current.filter = filterState{
+			enabled:      true,
+			editing:      true,
+			input:        m.newFilterInput(),
+			origin:       cursorState{identity: selected.identity, index: current.cursor},
+			originOffset: current.offset,
+		}
+	} else {
+		current.filter.editing = true
+		current.filter.input.Focus()
+	}
+	m.resizeFilterInput(current)
+}
+
+func (m *model) commitFilter(current *frame) {
+	if current.filter.input.Value() == "" {
+		m.clearFilter(current)
+		return
+	}
+	current.filter.editing = false
+	current.filter.input.Blur()
+}
+
+func (m *model) clearFilter(current *frame) {
+	origin := current.filter.origin
+	offset := current.filter.originOffset
+	current.filter = filterState{}
+	current.cursor = restoreCursor(current.selectableRows(), origin)
+	current.offset = offset
+	m.ensureCursorVisible(current)
+	m.rememberCursor(current)
+}
+
+func (m *model) filterChanged(current *frame, selectedIdentity string, previousIndex int) {
+	rows := current.selectableRows()
+	current.cursor = rowIndex(rows, selectedIdentity)
+	if current.cursor < 0 {
+		current.cursor = clampCursor(previousIndex, len(rows))
+	}
+	m.ensureCursorVisible(current)
+}
+
+func (f frame) filterApplied() bool {
+	return f.filter.enabled && f.filter.input.Value() != ""
+}
+
+func (f frame) filteredView() loadedView {
+	if !f.filterApplied() {
+		return f.loadedView
+	}
+	filtered := loadedView{header: f.header, detail: f.detail, sections: make([]section, len(f.sections))}
+	if f.header != nil {
+		header := *f.header
+		if matches := matchRows(f.filter.input.Value(), []string{filterText(header)}); len(matches) == 1 {
+			header.matchPositions = cellMatchPositions(header, matches[0].positions)
+		}
+		filtered.header = &header
+	}
+	candidates := make([]string, 0)
+	locations := make([][2]int, 0)
+	for sectionIndex, current := range f.sections {
+		filtered.sections[sectionIndex] = current
+		filtered.sections[sectionIndex].rows = nil
+		for rowIndex, currentRow := range current.rows {
+			candidates = append(candidates, filterText(currentRow))
+			locations = append(locations, [2]int{sectionIndex, rowIndex})
+		}
+	}
+	for _, match := range matchRows(f.filter.input.Value(), candidates) {
+		location := locations[match.index]
+		matchedRow := f.sections[location[0]].rows[location[1]]
+		matchedRow.matchPositions = cellMatchPositions(matchedRow, match.positions)
+		filtered.sections[location[0]].rows = append(filtered.sections[location[0]].rows, matchedRow)
+	}
+	return filtered
+}
+
 func (f frame) selectableRows() []row {
 	if f.detail != nil {
 		return nil
 	}
+	view := f.filteredView()
 	count := 0
-	if f.header != nil {
+	includeHeader := view.header != nil && (!f.filterApplied() || headerMatched(*view.header))
+	if includeHeader {
 		count++
 	}
-	for _, current := range f.sections {
+	for _, current := range view.sections {
 		count += len(current.rows)
 	}
 	rows := make([]row, 0, count)
-	if f.header != nil {
-		rows = append(rows, *f.header)
+	if includeHeader {
+		rows = append(rows, *view.header)
 	}
-	for _, current := range f.sections {
+	for _, current := range view.sections {
 		rows = append(rows, current.rows...)
 	}
 	return rows
@@ -623,14 +779,28 @@ func restoreCursor(rows []row, state cursorState) int {
 	if len(rows) == 0 {
 		return 0
 	}
-	if state.identity != "" {
+	if index := rowIndex(rows, state.identity); index >= 0 {
+		return index
+	}
+	return clamp(state.index, 0, len(rows)-1)
+}
+
+func rowIndex(rows []row, identity string) int {
+	if identity != "" {
 		for index := range rows {
-			if rows[index].identity == state.identity {
+			if rows[index].identity == identity {
 				return index
 			}
 		}
 	}
-	return clamp(state.index, 0, len(rows)-1)
+	return -1
+}
+
+func clampCursor(index, rowCount int) int {
+	if rowCount == 0 {
+		return 0
+	}
+	return clamp(index, 0, rowCount-1)
 }
 
 func clamp(value, low, high int) int {
