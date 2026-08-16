@@ -112,9 +112,7 @@ func (m model) renderBoardColumns(current *frame) []string {
 		line.WriteString(strings.Repeat(" ", boardColumnMargin))
 		for columnIndex := range columnLines {
 			if columnIndex > 0 {
-				line.WriteString(" ")
-				line.WriteString(m.faint("│"))
-				line.WriteString(" ")
+				line.WriteString(m.renderBoardColumnGutter())
 			}
 			line.WriteString(columnLines[columnIndex][lineIndex])
 		}
@@ -144,7 +142,7 @@ func (m model) renderBoardColumn(
 	}
 	lines[1] = m.faint(strings.Repeat("─", width))
 
-	cardCapacity := max((height-2+1)/3, 0)
+	cardCapacity := max((height-1)/3, 0)
 	if cardCapacity == 0 {
 		return lines
 	}
@@ -167,6 +165,15 @@ func (m model) renderBoardColumn(
 		lines[lineIndex+1] = m.renderBoardCardLine(card.cells[1], width, accentDim, selected)
 	}
 	return lines
+}
+
+func (m model) renderBoardColumnGutter() string {
+	if boardColumnGutter <= 0 {
+		return ""
+	}
+	left := (boardColumnGutter - 1) / 2
+	right := boardColumnGutter - left - 1
+	return strings.Repeat(" ", left) + m.faint("│") + strings.Repeat(" ", right)
 }
 
 func (m model) renderBoardColumnHeading(title string, width int, selected bool) string {
