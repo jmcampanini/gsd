@@ -10,7 +10,6 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/jmcampanini/gsd/internal/text"
 )
@@ -145,7 +144,7 @@ func (m CaptureModel) footerView() string {
 		message := "Error: " + text.Human(m.err.Error(), false)
 		if m.width > 0 {
 			_, right, _, left := m.errorStyle.GetPadding()
-			message = ansi.Truncate(message, max(m.width-left-right, 0), "…")
+			message = text.Ellipsize(message, max(m.width-left-right, 0))
 		}
 		return m.errorStyle.Render(message)
 	case captureCanceling:
@@ -313,18 +312,14 @@ func RunCapture(
 		application,
 		options.Color != ColorDisabled,
 		func(model CaptureModel) (CaptureModel, error) {
-			finalModel, err := NewProgram(ctx, model, options).Run()
+			finalModel, err := RunProgram(ctx, model, options)
 			if err != nil {
 				return CaptureModel{}, err
 			}
 
-			configured, ok := finalModel.(programModel)
+			capture, ok := finalModel.(CaptureModel)
 			if !ok {
-				return CaptureModel{}, fmt.Errorf("unexpected capture program model %T", finalModel)
-			}
-			capture, ok := configured.model.(CaptureModel)
-			if !ok {
-				return CaptureModel{}, fmt.Errorf("unexpected capture model %T", configured.model)
+				return CaptureModel{}, fmt.Errorf("unexpected capture model %T", finalModel)
 			}
 			return capture, nil
 		},

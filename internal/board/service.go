@@ -90,9 +90,28 @@ func (s *Service) Show(ctx context.Context, title string) (Show, error) {
 		return Show{}, err
 	}
 
+	return s.show(ctx, func(store Transaction) (Board, error) {
+		return store.FindBoard(ctx, title)
+	})
+}
+
+func (s *Service) ShowByID(ctx context.Context, id int64) (Show, error) {
+	if err := domain.ValidateID("board", id); err != nil {
+		return Show{}, err
+	}
+
+	return s.show(ctx, func(store Transaction) (Board, error) {
+		return store.FindBoardByID(ctx, id)
+	})
+}
+
+func (s *Service) show(
+	ctx context.Context,
+	find func(Transaction) (Board, error),
+) (Show, error) {
 	result := Show{Stages: []ShownStage{}}
 	err := s.store.WithinReadTransaction(ctx, func(store Transaction) error {
-		found, err := store.FindBoard(ctx, title)
+		found, err := find(store)
 		if err != nil {
 			return err
 		}

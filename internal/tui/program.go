@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	tea "charm.land/bubbletea/v2"
@@ -29,6 +30,26 @@ type ProgramOptions struct {
 	Environment []string
 	Screen      ScreenMode
 	Color       ColorMode
+}
+
+type runnableProgram interface {
+	Run() (tea.Model, error)
+}
+
+func RunProgram(ctx context.Context, model tea.Model, options ProgramOptions) (tea.Model, error) {
+	return runProgram(NewProgram(ctx, model, options))
+}
+
+func runProgram(program runnableProgram) (tea.Model, error) {
+	finalModel, programErr := program.Run()
+	configured, ok := finalModel.(programModel)
+	if !ok {
+		if programErr != nil {
+			return nil, programErr
+		}
+		return nil, fmt.Errorf("unexpected program model %T", finalModel)
+	}
+	return configured.model, programErr
 }
 
 func NewProgram(ctx context.Context, model tea.Model, options ProgramOptions) *tea.Program {

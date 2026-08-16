@@ -7,12 +7,18 @@ import (
 	"github.com/jmcampanini/gsd/internal/tag"
 )
 
+const (
+	StatusOpen      = domain.StatusOpen
+	StatusDone      = domain.StatusDone
+	StatusCancelled = domain.StatusCancelled
+)
+
 type ListStatus string
 
 const (
-	ListStatusOpen      ListStatus = "open"
-	ListStatusDone      ListStatus = "done"
-	ListStatusCancelled ListStatus = "cancelled"
+	ListStatusOpen      ListStatus = StatusOpen
+	ListStatusDone      ListStatus = StatusDone
+	ListStatusCancelled ListStatus = StatusCancelled
 	ListStatusAll       ListStatus = "all"
 )
 
@@ -42,6 +48,12 @@ type ListFilter struct {
 }
 
 type Task = domain.Task
+
+// Overdue reports whether an open task's due date has arrived: due on or
+// before today, judged in the caller's local calendar date.
+func Overdue(current Task, today string) bool {
+	return current.Status == StatusOpen && current.DueOn != nil && *current.DueOn <= today
+}
 
 type ViewTask struct {
 	Task

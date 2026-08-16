@@ -23,6 +23,7 @@ func TestThemeForBackground(t *testing.T) {
 				Dim:        lipgloss.Color("#8c8fa1"),
 				Green:      lipgloss.Color("#40a02b"),
 				Red:        lipgloss.Color("#d20f39"),
+				Yellow:     lipgloss.Color("#df8e1d"),
 			},
 		},
 		{
@@ -36,6 +37,7 @@ func TestThemeForBackground(t *testing.T) {
 				Dim:        lipgloss.Color("#838ba7"),
 				Green:      lipgloss.Color("#a6d189"),
 				Red:        lipgloss.Color("#e78284"),
+				Yellow:     lipgloss.Color("#e5c890"),
 			},
 		},
 	}
@@ -53,6 +55,7 @@ func TestThemeForBackground(t *testing.T) {
 			}
 			assertColor(t, "Green", got.Green, test.want.Green)
 			assertColor(t, "Red", got.Red, test.want.Red)
+			assertColor(t, "Yellow", got.Yellow, test.want.Yellow)
 		})
 	}
 }

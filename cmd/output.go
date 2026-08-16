@@ -419,7 +419,7 @@ func (o humanOutput) writeOpenTaskList(tasks []task.ViewTask) error {
 		rows = append(rows, []string{
 			strconv.FormatInt(current.ID, 10),
 			o.taskTitle(current.Task),
-			o.taskDateTokens(current.Task, true),
+			o.taskDateTokens(current.Task),
 		})
 	}
 	return o.writeCollection(
@@ -437,7 +437,7 @@ func (o humanOutput) writeTaskList(tasks []task.Task) error {
 			strconv.FormatInt(current.ID, 10),
 			o.taskTitle(current),
 			o.statusWord(current.Status),
-			o.taskDateTokens(current, current.Status == string(task.ListStatusOpen)),
+			o.taskDateTokens(current),
 		})
 	}
 	return o.writeCollection(
@@ -838,9 +838,10 @@ func (o humanOutput) writeLogbook(entries []logbook.Entry, location *time.Locati
 
 func (o humanOutput) writeTask(current task.Task) error {
 	glyph := glyphTaskOpen
-	if current.Status == string(task.ListStatusDone) {
+	switch current.Status {
+	case task.StatusDone:
 		glyph = o.styles.green.Render(glyphDone)
-	} else if current.Status == string(task.ListStatusCancelled) {
+	case task.StatusCancelled:
 		glyph = o.styles.red.Render(glyphCancelled)
 	}
 	fields := []detailField{
@@ -886,9 +887,9 @@ func (o humanOutput) writeProject(detail project.Detail) error {
 
 func (o humanOutput) projectGlyph(status string) string {
 	switch status {
-	case string(project.ListStatusDone):
+	case project.StatusDone:
 		return o.styles.green.Render(glyphDone)
-	case string(project.ListStatusCancelled):
+	case project.StatusCancelled:
 		return o.styles.red.Render(glyphCancelled)
 	default:
 		return glyphProjectOpen
@@ -975,9 +976,9 @@ func (o humanOutput) humanTagTitles(titles []string) string {
 func (o humanOutput) statusWord(status string) string {
 	visible := text.Human(status, false)
 	switch status {
-	case string(task.ListStatusDone):
+	case task.StatusDone:
 		return o.styles.faintGreen.Render(visible)
-	case string(task.ListStatusCancelled):
+	case task.StatusCancelled:
 		return o.styles.faintRed.Render(visible)
 	default:
 		return o.styles.faint.Render(visible)
@@ -996,7 +997,7 @@ func (o humanOutput) detailDueDate(current task.Task) string {
 	if value == "" {
 		return ""
 	}
-	if current.Status == string(task.ListStatusOpen) && value <= o.today {
+	if task.Overdue(current, o.today) {
 		return o.styles.boldRed.Render(value)
 	}
 	return o.styles.faint.Render(value)
@@ -1055,11 +1056,11 @@ func (o humanOutput) taskTitle(current task.Task) string {
 	return title
 }
 
-func (o humanOutput) taskDateTokens(current task.Task, urgent bool) string {
+func (o humanOutput) taskDateTokens(current task.Task) string {
 	tokens := make([]string, 0, 3)
 	if current.DueOn != nil {
 		value := "due " + text.Human(*current.DueOn, false)
-		if urgent && *current.DueOn <= o.today {
+		if task.Overdue(current, o.today) {
 			tokens = append(tokens, o.styles.boldRed.Render(value))
 		} else {
 			tokens = append(tokens, o.styles.faint.Render(value))

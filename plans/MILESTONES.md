@@ -146,8 +146,8 @@ running `Add`, and a tmux-driven e2e harness inside `make check`
 cursor vanilla Bubble Tea (upstream `Cursor()`, probe deleted),
 converted the model to a phase enum, split the terminal-detection
 seam into typed reader/writer dependencies, and consolidated
-control-character escaping into `internal/text`; the substrate
-promotion triggers carry in `MILESTONE_12.md`.
+control-character escaping into `internal/text`; the surviving
+substrate promotion trigger carries in `MILESTONE_13.md`.
 
 ### Milestone 11 — Boards
 
@@ -163,15 +163,40 @@ clean break, with complete service, command, real-SQLite, and subprocess
 coverage. The foundation review centralized entity row types in
 `internal/domain`, consolidated shared validation and store primitives, and
 strengthened cross-axis, rollback, and defer-complement tests; its remaining
-stage-gate trigger carries in `MILESTONE_12.md`.
+stage-gate trigger carries in `MILESTONE_13.md`.
+
+### Milestone 12 — Navigator
+
+Delivered the full read-only TUI: `gsd tui`, a full-screen keyboard
+navigator over the whole system — a root tree (Inbox, Available,
+Logbook, Boards, Areas), boards and areas as two lenses over the same
+projects, container views with selectable headers, a uniform detail
+view mirroring `show` for all four entity kinds, and `/` incremental
+fuzzy filtering (smart-case subsequence matching over the visible
+rows, structure preserved, committed into retained filtered
+navigation). Views load on entry and re-read by stable ID on
+re-entry; `--json` and non-TTY invocation are usage errors naming the
+CLI as the noninteractive path. Mid-milestone the TUI design language
+was settled over live captures — chrome bands (badge, breadcrumb, key
+hints), Picker-style filled selection, glyph-led record rows with ids
+confined to detail views, urgency accents, and container spacing —
+the vocabulary every later TUI surface inherits. The navigation layer
+this milestone consolidates (view stack, the collection/container/
+detail view shapes, selection model, data binding) is what Milestones
+13–15 act on; the shared program runner, promoted tmux e2e harness,
+and `Ellipsize` retired their Milestone 10 substrate triggers. The
+foundation review centralized the overdue predicate (`task.Overdue`),
+status/kind constants in `internal/domain`, and the navigator glyph
+vocabulary, rebuilt filter-match bookkeeping on `filterCandidate`,
+and sharpened the navigator e2e waits; its three deferred findings
+carry in `MILESTONE_13.md`.
 
 ## Active roadmap
 
-Active planning begins with the Navigator milestone:
+Active planning begins with the Board view milestone:
 
 | # | Milestone | Capability delivered | Data mode |
 |---|-----------|----------------------|-----------|
-| 12 | [Navigator](MILESTONE_12.md) | Read-only full-screen `gsd tui` | **live** |
 | 13 | [Board view](MILESTONE_13.md) | Read-only strategic board in the TUI | **live** |
 | 14 | [Row verbs](MILESTONE_14.md) | Single-key mutations and reorder in the TUI | **live** |
 | 15 | [Input grammar](MILESTONE_15.md) | `:` command line and richer capture | **live** |
@@ -182,12 +207,12 @@ milestone.
 Boards (11) shipped the strategic layer of the data model CLI-first,
 independent of the TUI track.
 
-The TUI shipped its substrate as Milestone 10 and continues as
-Milestones 12–15, sequenced by
+The TUI shipped its substrate as Milestone 10 and its navigation
+layer as Milestone 12, and continues as Milestones 13–15, sequenced by
 foundational layer rather than feature count: each milestone boundary
 marks a foundation review that later TUI work builds on — substrate,
 then navigation, then mutation, then grammar. Leaf features ride their
-layer's milestone as chunks: live `/` search in Navigator,
+layer's milestone as chunks: live `/` search shipped in Navigator,
 grab-and-move reorder and single-key stage movement in Row verbs,
 capture runner mode in Input grammar. Board view (13) is a feature
 milestone riding the layers rather than a layer itself: read-only on
@@ -205,6 +230,7 @@ when their trigger fires:
 | 16 | [Serve](MILESTONE_16.md) | Loopback HTTP API | A consumer that can't exec the CLI (browser frontend, remote agent) |
 | 17 | [Query](MILESTONE_17.md) | Read-only SQL escape hatch | Daily use demonstrates the need for raw SQL |
 | 18 | [History](MILESTONE_18.md) | Change tracking over time | A question about the past that current state and the logbook cannot answer |
+| 19 | [Tree](MILESTONE_19.md) | Tree operating mode for the TUI | Daily navigator use shows the drill-in/out loop is slower than folding one expandable tree |
 
 ## Data policy
 
@@ -291,7 +317,7 @@ when their trigger fires:
   is retained; the roadmap resumes at 10. Milestone 8's carried deferred
   items and the functional completeness audit moved into the Capture
   milestone plan (its surviving deferrals now carry in
-  `MILESTONE_12.md`). Go live's install story partially shipped early the
+  `MILESTONE_13.md`). Go live's install story partially shipped early the
   same day: `Formula/gsd.rb` and the self-tap README install
   instructions landed via PR #53.
 - 2026-08-06, roadmap restructure and renumbering: Serve moved behind

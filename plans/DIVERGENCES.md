@@ -35,4 +35,4 @@ Entry format:
 
 ## Intake
 
-_No temporary divergences. The next entry number is D-004._
+_The next entry number is D-005._

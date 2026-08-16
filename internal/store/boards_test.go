@@ -97,6 +97,13 @@ func TestBoardStoreCRUDUsesNoCaseNamesStoredSpellingAndOrdinalLists(t *testing.T
 	if !reflect.DeepEqual(found, delivery) {
 		t.Errorf("FindBoard(case variant) = %#v, want stored row %#v", found, delivery)
 	}
+	foundByID, err := boards.FindBoardByID(ctx, delivery.ID)
+	if err != nil || !reflect.DeepEqual(foundByID, delivery) {
+		t.Errorf("FindBoardByID() = %#v, %v; want stored row %#v", foundByID, err, delivery)
+	}
+	if _, err := boards.FindBoardByID(ctx, 999); errorCode(err) != apperr.NotFound {
+		t.Errorf("FindBoardByID(missing) error = %v, want not_found", err)
+	}
 	if _, err := boards.AddBoard(ctx, board.AddFields{Title: "DELIVERY"}, at); errorCode(err) != apperr.Conflict || !strings.Contains(err.Error(), delivery.Title) {
 		t.Errorf("AddBoard(case duplicate) error = %v, want conflict naming %q", err, delivery.Title)
 	}
