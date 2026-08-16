@@ -27,12 +27,11 @@ func calculateBoardColumnLayout(width, columnCount, selected, offset int) boardC
 		return boardColumnLayout{}
 	}
 	available := max(width-2*boardColumnMargin, 0)
-	visibleCount := columnCount
-	minimum := columnCount*boardColumnFloor + (columnCount-1)*boardColumnGutter
-	if available < minimum {
-		visibleCount = max((available+boardColumnGutter)/(boardColumnFloor+boardColumnGutter), 1)
-		visibleCount = min(visibleCount, columnCount)
-	}
+	visibleCount := clamp(
+		(available+boardColumnGutter)/(boardColumnFloor+boardColumnGutter),
+		1,
+		columnCount,
+	)
 	start := clamp(offset, 0, columnCount-visibleCount)
 	selected = clamp(selected, 0, columnCount-1)
 	if selected < start {
@@ -142,7 +141,7 @@ func (m model) renderBoardColumn(
 	}
 	lines[1] = m.faint(strings.Repeat("─", width))
 
-	cardCapacity := max((height-1)/3, 0)
+	cardCapacity := (height - 1) / 3
 	if cardCapacity == 0 {
 		return lines
 	}
@@ -156,9 +155,6 @@ func (m model) renderBoardColumn(
 			break
 		}
 		lineIndex := 2 + visibleIndex*3
-		if lineIndex+1 >= height {
-			break
-		}
 		card := column.cards[cardIndex]
 		selected := selectedColumn && cardIndex == selectedCard
 		lines[lineIndex] = m.renderBoardCardLine(card.cells[0], width, accentPlain, selected)
