@@ -522,17 +522,17 @@ Report the clean transcript.
 
 ## Consolidation checklist (`PROCESS.md`)
 
-- [ ] `COMMANDS.md`: `tui` documented as a shipped command — the
+- [x] `COMMANDS.md`: `tui` documented as a shipped command — the
       two-lens tree, the three view shapes, keys, freshness, and the
       fuzzy `/` semantics; the TUI section's root-tree and search
       bullets reconciled (resolving D-004); `tui` joins `config` and
       `capture` as the `--json`-rejecting exceptions.
-- [ ] `SCHEMA.md`: no changes expected from this read-only milestone —
-      confirm.
-- [ ] `OVERVIEW.md`: the TUI navigation vocabulary (lens, view stack,
+- [x] `SCHEMA.md`: no changes expected from this read-only milestone —
+      confirmed: no schema or migration changes in any chunk.
+- [x] `OVERVIEW.md`: the TUI navigation vocabulary (lens, view stack,
       collection/container/detail) where the concept section needs
       it.
-- [ ] `DIVERGENCES.md`: D-004 removed at reconciliation.
+- [x] `DIVERGENCES.md`: D-004 removed at reconciliation.
 - [ ] Carried items re-homed per `PROCESS.md`; the dispositions above
       recorded in the next milestone's file at wrap-up.
 - [ ] Standard exit workflow plus `MILESTONE_12.md`'s exit criteria.

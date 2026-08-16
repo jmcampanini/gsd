@@ -1,8 +1,9 @@
 # gsd — Distilled Design Spec (v1)
 
 `gsd` (get shit done) is a CLI (with a post-v1 TUI landing
-incrementally, beginning with the `gsd capture` popup) wrapping a
-personal to-do system. Its design goals are simple, extendable primitives, a
+incrementally — the `gsd capture` popup and the read-only `gsd tui`
+navigator so far) wrapping a personal to-do system. Its design goals
+are simple, extendable primitives, a
 Things-inspired workflow, and a SQLite backend. The current baseline provides
 the repository and CLI foundation, a complete bare-inbox task lifecycle,
 calendar-aware due dates, date and stage deferrals, and an `available` view,
@@ -12,7 +13,10 @@ boards with ordered stages and project movement, and the interleaved
 archiving and RESTRICT-guarded recursive deletion, flat tags spanning all
 three entity kinds, and the settled config and presentation layer: a TOML
 `db_path` with full precedence, a provenance-reporting `gsd config`,
-standards-pure color modes, and the styled human surface. Tags complete the
+standards-pure color modes, and the styled human surface. The read-only
+`gsd tui` navigator walks all of it full-screen: two lenses over the
+same projects, a uniform detail view, and an in-memory fuzzy `/`
+filter. Tags complete the
 v1 entity model and its JSON field set; the broader command surface remains
 the forward-looking canonical v1 target delivered incrementally through
 `MILESTONES.md`. The SQL schema lives in `SCHEMA.md`.
@@ -117,6 +121,23 @@ Hard delete exists but is the uncommon path — the normal end of life is
 - **Logbook**: everything done or cancelled — tasks and projects — ordered
   by resolution time, newest first; a project lists above the tasks its
   cascade cancelled at the same instant.
+
+## TUI navigation
+
+The TUI navigates the same primitives through full-screen views —
+exactly one on screen, replaced entirely on navigation. Boards and
+areas are two *lenses* over the same objects — projects; neither
+contains the other, so the tree is uniform: root, lens, project, task.
+Every view is one of three shapes: a *collection* (Boards, Areas)
+lists entities with no header, since a collection is not itself an
+entity; a *container* (a board, an area, a project) puts a compact
+selectable header for the container itself above its rows; and
+*detail* renders any one entity, mirroring `show`. A *view stack*
+records the path in: descending pushes a view, going back pops it, and
+each view keeps one cursor, restored by entity identity. Data loads
+when a view is entered and re-reads on re-entry — no polling. `/`
+filters the current view by in-memory fuzzy subsequence; `gsd search`
+remains the FTS surface.
 
 ## Tag lifecycle
 
