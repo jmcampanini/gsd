@@ -13,7 +13,7 @@ boards with ordered stages and project movement, and the interleaved
 archiving and RESTRICT-guarded recursive deletion, flat tags spanning all
 three entity kinds, and the settled config and presentation layer: a TOML
 `db_path` with full precedence, a provenance-reporting `gsd config`,
-standards-pure color modes, and the styled human surface. The read-only
+destination-aware color modes, and the styled human surface. The read-only
 `gsd tui` navigator walks all of it full-screen: two lenses over the
 same projects, a uniform detail view, and an in-memory fuzzy `/`
 filter. Tags complete the

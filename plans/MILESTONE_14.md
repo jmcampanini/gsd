@@ -58,8 +58,3 @@ mutation via `--json` CLI reads and that each view refresh reflects it.
 ## Exit criteria
 
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)).
-
-## Standards
-
-CLI-CMD-002/003, CLI-OUTPUT-001/003; TUI-applicable standards re-checked
-at plan gate.

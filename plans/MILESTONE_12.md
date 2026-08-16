@@ -116,9 +116,9 @@ their expected next consumer.
   arriving with the optional Serve milestone, 16): add source
   classification and tag-derived env/flag spellings to
   go-config-loader's `configreporter` so gsd's renderer becomes a
-  generic provenance-row loop like the sibling CLIs, and revisit the
-  reporting/redaction contract at the same moment. No load-request
-  struct — positional load parameters are the family idiom.
+  generic provenance-row loop, and revisit the reporting/redaction
+  contract at the same moment. Keep positional load parameters; do not
+  introduce a load-request struct.
 - **Genericizing the intentionally-parallel tag service flows** —
   carried from Milestone 6: revisit on the first sibling-divergence bug
   or a post-v1 attach-semantics change.
@@ -179,8 +179,3 @@ tmux session:
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
 - [x] `COMMANDS.md` documents `tui` as a shipped command.
-
-## Standards
-
-CLI-CMD-002/003, CLI-OUTPUT-001/003; TUI-applicable standards re-checked
-at plan gate.
