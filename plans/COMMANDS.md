@@ -2,10 +2,10 @@
 
 The CLI is the canonical v1 surface; agents consume entity operations
 through `--json` and configuration through TOML. A post-v1 TUI is arriving
-incrementally — `gsd capture` is its first shipped surface — and will
-embed the same grammar and call the same parser and core. This document
-specifies the canonical v1 target; the roadmap in `MILESTONES.md` delivers
-it incrementally.
+incrementally — `gsd capture` and the read-only `gsd tui` navigator are
+its shipped surfaces — and will embed the same grammar and call the same
+parser and core. This document specifies the canonical v1 target; the
+roadmap in `MILESTONES.md` delivers it incrementally.
 
 ## Grammar
 
@@ -323,10 +323,10 @@ gsd capture
 ## Output contract
 
 - `--json` is a global persistent complete-output-mode flag for commands that
-  support JSON. `gsd config` and `gsd capture` are the exceptions:
-  combining either with `--json` is a usage error (exit `2`) — TOML is
-  `config`'s machine-readable format, and `capture` is
-  interactive-only. Successful entity output is its table row — the same column names
+  support JSON. `gsd config`, `gsd capture`, and `gsd tui` are the
+  exceptions: combining any of them with `--json` is a usage error
+  (exit `2`) — TOML is `config`'s machine-readable format, and `capture`
+  and `tui` are interactive-only. Successful entity output is its table row — the same column names
   and formats, including derived `status` — plus `tags`, an array of stored
   tag names in alphabetical
   (`NOCASE`) order, matching `tags list`.
@@ -516,29 +516,113 @@ open (all refusals are `conflict`-coded, exit 1):
 - A gsd database stamped with a negative revision is refused as
   corrupt: `database revision N is invalid`.
 
-## TUI (post-v1)
+## TUI
+
+```
+gsd tui
+```
 
 The TUI arrives as Milestones 10 and 12–15 and targets full parity
 with the CLI, achieved structurally. Milestone 10 shipped the
-substrate and the first surface; the rest remains planned:
+substrate and `gsd capture` (specified in the Capture section above);
+Milestone 12 shipped `gsd tui`, the read-only navigator below. The
+rest remains planned at the end of this section.
 
-- **Full-screen views, no panes**: exactly one view at a time — a root
-  tree (Inbox, Available, Logbook, loose projects, then areas with
-  their open projects nested), container lists, and a detail view
-  rendering `show`. Every container list carries a compact selectable
-  header for the container itself; opening it shows that container's
-  detail. Navigation replaces the whole screen, so the same structure
-  works in a full terminal and a tmux popup. Pane and split layouts,
-  mouse support, and markdown note rendering are parked explorations.
-- **`gsd capture` shipped as the first surface** — specified in the
-  Capture section above. It later grows inline syntax and a
-  command-runner mode.
-- **`:` opens a command line that accepts the CLI grammar verbatim**,
-  minus the binary name (`:projects add "Kitchen reno" --area 3`). It
-  calls the same parser and core — parity is shared code, not discipline.
+- **`tui` opens the full-screen navigator**: walk the whole system
+  from the root down to any entity's detail without mutating
+  anything. Exactly one view is on screen — no panes — and navigating
+  replaces the screen entirely, so the same structure works in a full
+  terminal and a tmux popup. It runs in the terminal's alternate
+  screen and is keyboard-only.
+- **Two lenses, one tree.** Boards and areas are two lenses over the
+  same objects — projects; neither contains the other. The root shows
+  Inbox, Available, Logbook, then Boards and Areas, and every view is
+  one of three shapes:
+  - *Collections* (Boards, Areas): lists of entities with no header —
+    a collection is not itself an entity. Board rows carry the stage
+    chain; the areas collection ends with a `(no area)` pseudo-row
+    holding the loose projects.
+  - *Containers* (a board, an area, a project): a compact selectable
+    header for the container itself above the rows, the header being
+    the topmost cursor position; opening the header shows the
+    container's detail. An area lists its open projects, then its
+    loose open tasks; a board lists its open projects grouped by
+    stage with derived done/total progress. Content defaults mirror
+    the CLI — active areas, open projects and tasks; the logbook is
+    where resolved work lives.
+  - *Detail*: one uniform view rendering any entity — task, project,
+    area, or board — mirroring `show`'s fields. Empty fields
+    collapse, and notes render as plain escaped text with line
+    breaks preserved.
+- **Keys**: `j`/`k`/arrows move; Enter/`l` descends into a container
+  or opens a detail; Esc/`h` goes back, Esc clearing an active filter
+  before it navigates; at the root Esc quits and `h` is inert; `q`
+  and Ctrl+C quit from anywhere. `←`/`→` stay unbound, reserved for
+  the planned board columns. Long views stay within the terminal
+  height and follow the selected row; rows truncate to the terminal
+  width with `…` and never wrap. The view stack keeps one cursor per
+  view, restored by entity identity and clamped when the row has
+  vanished.
+- **Freshness**: a view loads its data when entered and re-reads it
+  when re-entered, including on pop-return, so a CLI mutation from
+  another terminal appears on the next entry. No polling, no
+  watchers.
+- **`/` is an incremental fuzzy filter over the current list view**,
+  not FTS — `gsd search` remains the CLI's FTS surface. Matching is
+  in-memory fuzzy subsequence over the view's visible row text with
+  smart-case (an all-lowercase pattern matches case-insensitively;
+  any uppercase requires a case match); matched characters highlight,
+  non-matching rows hide, sections and headers stay, and the cursor
+  clamps to the matched set. `/` opens the query input; every gesture
+  out of the input — `↑`/`↓`, Esc, `/` — commits the filter into
+  retained filtered navigation, where `j`/`k`/`l`/`q` regain their
+  navigation meanings (the arrows also move the selection). Enter
+  opens the selected match from either mode; `/` returns to editing
+  with the query intact; committing a blank query clears the filter.
+  Esc peels one layer per press: editing → filtered list → cleared →
+  back. The filter is view-local and drops on any navigation; detail
+  views do not filter.
+- **Chrome and styling** carry the TUI design language every TUI
+  surface shares. A top band holds the `gsd` badge and a breadcrumb
+  of entity titles (dim parents, bold current, left-collapsed when
+  narrow, adjacent duplicate segments merged); a bottom band holds
+  dim per-view key hints and hosts the `/` filter query. Selection is
+  an accent `▌` edge with a filled row. Every list row is glyph ·
+  title · dim trailing annotations — `•` task, `◆` project, `●`
+  area, `▥` board, `○` the `(no area)` pseudo-row; logbook rows
+  recolor the glyph (`✓` green, `✗` red). IDs appear only in detail
+  views, where the headline is glyph + title and `id` leads the field
+  list. Due dates render yellow; an open task due on or before today
+  renders bold red, matching the CLI's overdue rule. Containers
+  breathe — a blank line under the header and between sections, rows
+  indented under titled section headings — and empty board stages
+  render as bare dim headings. Color follows CLI-OUTPUT-001;
+  structure is identical uncolored.
+- **Interactive-only**: `tui` takes no arguments, and `--json` and
+  non-TTY invocation (checked per stream) are usage errors (exit `2`)
+  whose messages name the CLI as the noninteractive path. The full
+  configuration chain applies; the database opens only when the
+  program starts, so help and parse failures never touch it. A
+  failure before the program starts exits `1` through the standard
+  stderr path; an in-session view load failure renders its
+  application error inline behind the red accent with navigation
+  alive, and Esc backs out of the failed view.
+
+Still planned, by layer:
+
+- **A board column view** — one board full-screen, stages as columns,
+  open projects as cards — beside the stage-grouped list
+  (Milestone 13).
 - **Single-key bindings are mnemonics for the same verbs**, applied to
   the selected row: `a` add, `d` done, `x` cancel, `e` edit, `t` tag,
   `o` reopen, `D` delete (with confirm). Reordering is grab-and-move on
-  the selection. Keys are shorthand for verbs, never a second vocabulary.
-- **`/` is incremental search** with the same semantics as `gsd search`,
-  filtering the current view live.
+  the selection. Keys are shorthand for verbs, never a second
+  vocabulary (Milestone 14).
+- **`:` opens a command line that accepts the CLI grammar verbatim**,
+  minus the binary name (`:projects add "Kitchen reno" --area 3`). It
+  calls the same parser and core — parity is shared code, not
+  discipline (Milestone 15).
+- **`gsd capture` grows inline syntax and a command-runner mode**
+  (Milestone 15).
+- Pane and split layouts, mouse support, and markdown note rendering
+  are parked explorations.

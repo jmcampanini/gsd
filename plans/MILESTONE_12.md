@@ -178,7 +178,7 @@ tmux session:
 
 Standard exit workflow (see [`PROCESS.md`](PROCESS.md)), plus:
 
-- [ ] `COMMANDS.md` documents `tui` as a shipped command.
+- [x] `COMMANDS.md` documents `tui` as a shipped command.
 
 ## Standards
 
