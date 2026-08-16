@@ -82,6 +82,7 @@ const (
 	viewProjectDetail
 	viewAreaDetail
 	viewBoardDetail
+	viewBoardColumns
 )
 
 type viewKey struct {
@@ -150,15 +151,34 @@ type detailView struct {
 	fields   []detailField
 }
 
+type boardColumn struct {
+	title string
+	cards []row
+}
+
+type boardColumnView struct {
+	title   string
+	columns []boardColumn
+}
+
 type loadedView struct {
-	header   *row
-	sections []section
-	detail   *detailView
+	header       *row
+	sections     []section
+	detail       *detailView
+	boardColumns *boardColumnView
 }
 
 type cursorState struct {
 	identity string
 	index    int
+	column   int
+	card     int
+}
+
+type boardColumnState struct {
+	column int
+	card   int
+	offset int
 }
 
 type filterState struct {
@@ -176,9 +196,10 @@ type frame struct {
 	loading    bool
 	err        error
 	loadedView
-	filter filterState
-	cursor int
-	offset int
+	filter      filterState
+	cursor      int
+	offset      int
+	columnState boardColumnState
 }
 
 type loadResultMsg struct {
@@ -298,6 +319,13 @@ func (m model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, command
 	}
 
+	if current.key.kind == viewBoardColumns {
+		return m.updateBoardColumnKey(key)
+	}
+	if current.key.kind == viewBoard && key == "v" {
+		return m.pushBoardColumns()
+	}
+
 	switch key {
 	case "q":
 		return m, tea.Quit
@@ -326,6 +354,60 @@ func (m model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.pushSelection()
 	}
 	return m, nil
+}
+
+func (m model) updateBoardColumnKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "q":
+		return m, tea.Quit
+	case "esc":
+		return m.pop()
+	case "h", "left":
+		m.moveBoardColumn(-1)
+	case "l", "right":
+		m.moveBoardColumn(1)
+	case "j", "down":
+		m.moveBoardCard(1)
+	case "k", "up":
+		m.moveBoardCard(-1)
+	}
+	return m, nil
+}
+
+func (m *model) moveBoardColumn(delta int) {
+	current := m.top()
+	if current.loading || current.err != nil || current.boardColumns == nil ||
+		len(current.boardColumns.columns) == 0 {
+		return
+	}
+	state := &current.columnState
+	state.column = clamp(state.column+delta, 0, len(current.boardColumns.columns)-1)
+	cardCount := len(current.boardColumns.columns[state.column].cards)
+	if cardCount == 0 {
+		state.card = -1
+	} else if state.card < 0 {
+		state.card = 0
+	} else {
+		state.card = clamp(state.card, 0, cardCount-1)
+	}
+	m.ensureBoardColumnVisible(current)
+	m.rememberCursor(current)
+}
+
+func (m *model) moveBoardCard(delta int) {
+	current := m.top()
+	if current.loading || current.err != nil || current.boardColumns == nil ||
+		len(current.boardColumns.columns) == 0 || current.columnState.card < 0 {
+		return
+	}
+	state := &current.columnState
+	cardCount := len(current.boardColumns.columns[state.column].cards)
+	if cardCount == 0 {
+		state.card = -1
+		return
+	}
+	state.card = clamp(state.card+delta, 0, cardCount-1)
+	m.rememberCursor(current)
 }
 
 func (m *model) move(delta int) {
@@ -370,6 +452,31 @@ func (m model) pushSelection() (tea.Model, tea.Cmd) {
 	return m.enterTop()
 }
 
+func (m model) pushBoardColumns() (tea.Model, tea.Cmd) {
+	current := m.top()
+	if current.loading || current.err != nil {
+		return m, nil
+	}
+	if current.filter.enabled {
+		selected, selectedOK := current.selectedRow()
+		origin := current.filter.origin
+		current.filter = filterState{}
+		rows := current.selectableRows()
+		if selectedOK {
+			current.cursor = clampCursor(rowIndex(rows, selected.identity), len(rows))
+		} else {
+			current.cursor = restoreCursor(rows, origin)
+		}
+		m.ensureCursorVisible(current)
+	}
+	m.rememberCursor(current)
+	m.stack = append(m.stack, frame{
+		key:   viewKey{kind: viewBoardColumns, id: current.key.id},
+		crumb: current.crumb,
+	})
+	return m.enterTop()
+}
+
 func (m model) pop() (tea.Model, tea.Cmd) {
 	m.rememberCursor(m.top())
 	m.stack = m.stack[:len(m.stack)-1]
@@ -395,6 +502,8 @@ func (m model) enterTop() (tea.Model, tea.Cmd) {
 	current.err = nil
 	current.loadedView = loadedView{}
 	current.cursor = state.index
+	current.columnState.column = state.column
+	current.columnState.card = state.card
 	generation := current.generation
 	key := current.key
 	return m, m.loadCommand(key, generation)
@@ -440,6 +549,8 @@ func (m model) loadView(key viewKey) (loadedView, error) {
 		return m.loadAreaDetail(key.id)
 	case viewBoardDetail:
 		return m.loadBoardDetail(key.id)
+	case viewBoardColumns:
+		return m.loadBoardColumns(key.id)
 	case viewRoot:
 		return loadedView{}, fmt.Errorf("root view has no loader")
 	default:
@@ -577,6 +688,24 @@ func (m model) loadBoard(id int64) (loadedView, error) {
 	}, nil
 }
 
+func (m model) loadBoardColumns(id int64) (loadedView, error) {
+	shown, err := m.dependencies.Boards.ShowByID(m.ctx, id)
+	if err != nil {
+		return loadedView{}, err
+	}
+	columns := make([]boardColumn, 0, len(shown.Stages))
+	for _, stage := range shown.Stages {
+		columns = append(columns, boardColumn{
+			title: stage.Title,
+			cards: boardColumnProjectRows(stage.Projects),
+		})
+	}
+	return loadedView{boardColumns: &boardColumnView{
+		title:   shown.Board.Title,
+		columns: columns,
+	}}, nil
+}
+
 func (m model) loadNoArea() (loadedView, error) {
 	projects, err := m.dependencies.Projects.List(m.ctx, project.ListOptions{Status: project.ListStatusOpen})
 	if err != nil {
@@ -641,6 +770,21 @@ func (m model) applyLoad(message loadResultMsg) model {
 		current.crumb = current.header.cells[0]
 	}
 	state := m.cursors[current.key]
+	if current.key.kind == viewBoardColumns {
+		if current.boardColumns != nil {
+			current.crumb = current.boardColumns.title
+			if len(m.stack) > 1 {
+				parent := &m.stack[len(m.stack)-2]
+				if parent.key == (viewKey{kind: viewBoard, id: current.key.id}) {
+					parent.crumb = current.boardColumns.title
+				}
+			}
+			current.columnState = restoreBoardColumnCursor(current.boardColumns.columns, state)
+			m.ensureBoardColumnVisible(current)
+			m.rememberCursor(current)
+		}
+		return m
+	}
 	current.cursor = restoreCursor(current.selectableRows(), state)
 	m.ensureCursorVisible(current)
 	m.rememberCursor(current)
@@ -649,6 +793,20 @@ func (m model) applyLoad(message loadResultMsg) model {
 
 func (m *model) rememberCursor(current *frame) {
 	state := m.cursors[current.key]
+	if current.key.kind == viewBoardColumns {
+		if current.boardColumns == nil || len(current.boardColumns.columns) == 0 {
+			return
+		}
+		state.identity = ""
+		state.column = current.columnState.column
+		state.card = current.columnState.card
+		cards := current.boardColumns.columns[state.column].cards
+		if state.card >= 0 && state.card < len(cards) {
+			state.identity = cards[state.card].identity
+		}
+		m.cursors[current.key] = state
+		return
+	}
 	state.index = current.cursor
 	rows := current.selectableRows()
 	if current.cursor >= 0 && current.cursor < len(rows) {
@@ -657,12 +815,39 @@ func (m *model) rememberCursor(current *frame) {
 	m.cursors[current.key] = state
 }
 
+func restoreBoardColumnCursor(columns []boardColumn, state cursorState) boardColumnState {
+	if len(columns) == 0 {
+		return boardColumnState{card: -1}
+	}
+	if state.identity != "" {
+		for columnIndex, column := range columns {
+			if cardIndex := rowIndex(column.cards, state.identity); cardIndex >= 0 {
+				return boardColumnState{column: columnIndex, card: cardIndex}
+			}
+		}
+	}
+	columnIndex := clamp(state.column, 0, len(columns)-1)
+	cardCount := len(columns[columnIndex].cards)
+	if cardCount == 0 {
+		return boardColumnState{column: columnIndex, card: -1}
+	}
+	cardIndex := state.card
+	if cardIndex < 0 {
+		cardIndex = 0
+	}
+	return boardColumnState{
+		column: columnIndex,
+		card:   clamp(cardIndex, 0, cardCount-1),
+	}
+}
+
 func (m *model) top() *frame {
 	return &m.stack[len(m.stack)-1]
 }
 
 func (m model) canFilter(current *frame) bool {
-	return !current.loading && current.err == nil && current.detail == nil
+	return !current.loading && current.err == nil && current.detail == nil &&
+		current.key.kind != viewBoardColumns
 }
 
 func (m *model) startFilter(current *frame) {
@@ -752,7 +937,7 @@ func (f frame) filteredView() loadedView {
 }
 
 func (f frame) selectableRows() []row {
-	if f.detail != nil {
+	if f.detail != nil || f.boardColumns != nil {
 		return nil
 	}
 	view := f.filteredView()
@@ -979,6 +1164,22 @@ func boardProjectRows(items []board.ShownProject) []row {
 			viewKey{kind: viewProject, id: item.ID},
 		)
 		current.accents = []cellAccent{accentPlain, accentPlain, accentDim}
+		rows = append(rows, current)
+	}
+	return rows
+}
+
+func boardColumnProjectRows(items []board.ShownProject) []row {
+	rows := make([]row, 0, len(items))
+	for _, item := range items {
+		id := strconv.FormatInt(item.ID, 10)
+		current := descendingRow(
+			"project:"+id,
+			item.Title,
+			[]string{item.Title, fmt.Sprintf("%d/%d", item.Progress.Done, item.Progress.Total)},
+			viewKey{kind: viewProjectDetail, id: item.ID},
+		)
+		current.accents = []cellAccent{accentPlain, accentDim}
 		rows = append(rows, current)
 	}
 	return rows

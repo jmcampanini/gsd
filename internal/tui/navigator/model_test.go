@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/board"
@@ -962,6 +963,469 @@ func TestBoardContainerUsesShowGroupingProgressAndDrillsToProject(t *testing.T) 
 	}
 }
 
+func TestBoardColumnLayoutKeepsWholeEqualShareColumns(t *testing.T) {
+	tests := []struct {
+		name        string
+		width       int
+		columns     int
+		selected    int
+		offset      int
+		wantStart   int
+		wantWidths  []int
+		wantHiddenL int
+		wantHiddenR int
+	}{
+		{name: "all fit at floor", width: 70, columns: 3, wantWidths: []int{20, 20, 20}},
+		{name: "all stretch with remainder", width: 74, columns: 3, wantWidths: []int{22, 21, 21}},
+		{name: "overflow starts left", width: 50, columns: 5, wantWidths: []int{22, 21}, wantHiddenR: 3},
+		{name: "overflow follows middle", width: 50, columns: 5, selected: 3, wantStart: 2, wantWidths: []int{22, 21}, wantHiddenL: 2, wantHiddenR: 1},
+		{name: "overflow follows end", width: 50, columns: 5, selected: 4, offset: 2, wantStart: 3, wantWidths: []int{22, 21}, wantHiddenL: 3},
+		{name: "one column at floor", width: 24, columns: 4, wantWidths: []int{20}, wantHiddenR: 3},
+		{name: "one column degrades below floor", width: 18, columns: 4, wantWidths: []int{14}, wantHiddenR: 3},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := calculateBoardColumnLayout(test.width, test.columns, test.selected, test.offset)
+			if got.start != test.wantStart || !slices.Equal(got.widths, test.wantWidths) ||
+				got.hiddenLeft != test.wantHiddenL || got.hiddenRight != test.wantHiddenR {
+				t.Fatalf("layout = %#v, want start %d widths %v hidden %d/%d", got, test.wantStart, test.wantWidths, test.wantHiddenL, test.wantHiddenR)
+			}
+			used := 0
+			for _, width := range got.widths {
+				used += width
+			}
+			used += max(len(got.widths)-1, 0) * boardColumnGutter
+			if used != max(test.width-2*boardColumnMargin, 0) {
+				t.Errorf("used width = %d, want available width %d", used, max(test.width-2*boardColumnMargin, 0))
+			}
+		})
+	}
+
+	const columnCount = 5
+	for width := 1; width <= 180; width++ {
+		available := max(width-2*boardColumnMargin, 0)
+		wantVisible := max((available+boardColumnGutter)/(boardColumnFloor+boardColumnGutter), 1)
+		wantVisible = min(wantVisible, columnCount)
+		got := calculateBoardColumnLayout(width, columnCount, columnCount-1, 0)
+		if len(got.widths) != wantVisible || got.start != columnCount-wantVisible {
+			t.Fatalf("width %d layout = %#v, want %d columns ending at the selection", width, got, wantVisible)
+		}
+		used := max(len(got.widths)-1, 0) * boardColumnGutter
+		for _, columnWidth := range got.widths {
+			used += columnWidth
+			if available >= boardColumnFloor && columnWidth < boardColumnFloor {
+				t.Errorf("width %d column width = %d, want floor %d", width, columnWidth, boardColumnFloor)
+			}
+		}
+		if used != available {
+			t.Errorf("width %d used = %d, want all %d available cells", width, used, available)
+		}
+	}
+}
+
+func TestBoardColumnsEntryNavigationAndPop(t *testing.T) {
+	dependencies, _, _, _, boards, _ := testDependencies()
+	boards.items = boardColumnListedBoards()
+	boards.showResponses = []board.Show{boardColumnShownBoard(), boardColumnShownBoard(), boardColumnShownBoard()}
+	current := newModel(context.Background(), dependencies, false, time.UTC)
+	updated, _ := current.Update(tea.WindowSizeMsg{Width: 50, Height: 10})
+	current = updated.(model)
+
+	root, command := press(t, current, "v")
+	if command != nil || len(root.stack) != 1 {
+		t.Fatalf("v at root stack/command = %d/%v, want inert", len(root.stack), command)
+	}
+	for kind := viewInbox; kind <= viewBoardColumns; kind++ {
+		if kind == viewBoard {
+			continue
+		}
+		probe := newModel(context.Background(), dependencies, false, time.UTC)
+		probe.stack = append(probe.stack, frame{key: viewKey{kind: kind, id: 99}})
+		updatedProbe, probeCommand := press(t, probe, "v")
+		if probeCommand != nil || len(updatedProbe.stack) != 2 || updatedProbe.top().key.kind != kind {
+			t.Fatalf("v in view kind %d stack/key/command = %d/%d/%v, want inert", kind, len(updatedProbe.stack), updatedProbe.top().key.kind, probeCommand)
+		}
+	}
+	boardsView := enterRootRow(t, current, 3)
+	boardsView, command = press(t, boardsView, "v")
+	if command != nil || boardsView.top().key.kind != viewBoards {
+		t.Fatalf("v in Boards key/command = %#v/%v, want inert", boardsView.top().key, command)
+	}
+	vertical := enterSelection(t, boardsView)
+	if got := vertical.View().Content; !strings.Contains(got, "v columns") {
+		t.Fatalf("vertical board frame = %q, want discoverable column hint", got)
+	}
+	vertical, _ = press(t, vertical, "j")
+	columns, load := press(t, vertical, "v")
+	columns = deliver(t, columns, load)
+	if columns.top().key != (viewKey{kind: viewBoardColumns, id: 4}) || boards.showCalls != 2 ||
+		!slices.Equal(boards.showIDs, []int64{4, 4}) {
+		t.Fatalf("column key/show calls/IDs = %#v/%d/%v, want board columns 4/two reads of board 4", columns.top().key, boards.showCalls, boards.showIDs)
+	}
+	if got := columns.View().Content; !strings.Contains(got, "Boards ▸ software") || strings.Contains(got, "software ▸ software") {
+		t.Fatalf("column breadcrumb = %q, want unduplicated Boards ▸ software", got)
+	}
+	if columns.top().columnState.column != 0 || columns.top().columnState.card != 0 {
+		t.Fatalf("initial column cursor = %#v, want first card", columns.top().columnState)
+	}
+	_, quit := press(t, columns, "q")
+	assertQuit(t, quit)
+	for _, step := range []struct {
+		key        string
+		wantColumn int
+		wantCard   int
+	}{
+		{key: "down", wantColumn: 0, wantCard: 1},
+		{key: "up", wantColumn: 0, wantCard: 0},
+		{key: "j", wantColumn: 0, wantCard: 1},
+		{key: "k", wantColumn: 0, wantCard: 0},
+		{key: "right", wantColumn: 1, wantCard: 0},
+		{key: "left", wantColumn: 0, wantCard: 0},
+		{key: "l", wantColumn: 1, wantCard: 0},
+		{key: "h", wantColumn: 0, wantCard: 0},
+	} {
+		columns, _ = press(t, columns, step.key)
+		if state := columns.top().columnState; state.column != step.wantColumn || state.card != step.wantCard {
+			t.Fatalf("cursor after %s = %#v, want column %d/card %d", step.key, state, step.wantColumn, step.wantCard)
+		}
+	}
+	before := len(columns.stack)
+	columns, command = press(t, columns, "enter")
+	if command != nil || len(columns.stack) != before {
+		t.Fatalf("Enter on selected card stack/command = %d/%v, want inert", len(columns.stack), command)
+	}
+	columns, command = press(t, columns, "/")
+	if command != nil || columns.top().filter.enabled {
+		t.Fatalf("slash on selected card filter/command = %#v/%v, want inert", columns.top().filter, command)
+	}
+
+	columns = pressTimes(t, columns, "j", 9)
+	if columns.top().columnState.card != 3 {
+		t.Fatalf("card after j past end = %d, want 3", columns.top().columnState.card)
+	}
+	columns, _ = press(t, columns, "right")
+	if state := columns.top().columnState; state.column != 1 || state.card != 1 || state.offset != 0 {
+		t.Fatalf("cursor after right = %#v, want column 1/card 1/offset 0", state)
+	}
+	columns, _ = press(t, columns, "l")
+	if state := columns.top().columnState; state.column != 2 || state.card != -1 || state.offset != 1 {
+		t.Fatalf("cursor on empty column = %#v, want column 2/no card/offset 1", state)
+	}
+	before = len(columns.stack)
+	columns, command = press(t, columns, "enter")
+	if command != nil || len(columns.stack) != before {
+		t.Fatalf("Enter on empty column stack/command = %d/%v, want inert", len(columns.stack), command)
+	}
+	columns, command = press(t, columns, "/")
+	if command != nil || columns.top().filter.enabled {
+		t.Fatalf("slash filter/command = %#v/%v, want inert", columns.top().filter, command)
+	}
+	columns, _ = press(t, columns, "l")
+	if state := columns.top().columnState; state.column != 3 || state.card != 0 || state.offset != 2 {
+		t.Fatalf("cursor after empty column = %#v, want first card in column 3", state)
+	}
+	columns = pressTimes(t, columns, "l", 9)
+	if state := columns.top().columnState; state.column != 4 || state.card != 0 || state.offset != 3 {
+		t.Fatalf("cursor at right edge = %#v", state)
+	}
+	columns = pressTimes(t, columns, "h", 9)
+	if state := columns.top().columnState; state.column != 0 || state.card != 0 || state.offset != 0 {
+		t.Fatalf("cursor at left edge = %#v", state)
+	}
+
+	vertical, load = press(t, columns, "esc")
+	vertical = deliver(t, vertical, load)
+	if vertical.top().key.kind != viewBoard || vertical.top().cursor != 1 ||
+		!strings.Contains(selectedLine(vertical.View().Content), "Backlog one") {
+		t.Fatalf("vertical return key/cursor/view = %#v/%d/%q, want restored project", vertical.top().key, vertical.top().cursor, vertical.View().Content)
+	}
+}
+
+func TestBoardColumnsEntryPreservesVerticalCursorFromEmptyFilter(t *testing.T) {
+	dependencies, _, _, _, boards, _ := testDependencies()
+	boards.items = boardColumnListedBoards()
+	boards.showResponses = []board.Show{boardColumnShownBoard(), boardColumnShownBoard(), boardColumnShownBoard()}
+	current := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), 3)
+	current = enterSelection(t, current)
+	current, _ = press(t, current, "j")
+	current, _ = press(t, current, "/")
+	for _, key := range []string{"z", "z", "z"} {
+		current, _ = press(t, current, key)
+	}
+	current, _ = press(t, current, "esc")
+	if _, ok := current.top().selectedRow(); ok {
+		t.Fatal("empty filter selected a row, want no matches")
+	}
+	current, load := press(t, current, "v")
+	current = deliver(t, current, load)
+	current, load = press(t, current, "esc")
+	current = deliver(t, current, load)
+	if current.top().filter.enabled || current.top().cursor != 1 ||
+		!strings.Contains(selectedLine(current.View().Content), "Backlog one") {
+		t.Fatalf("vertical return filter/cursor/view = %#v/%d/%q, want original project", current.top().filter, current.top().cursor, current.View().Content)
+	}
+}
+
+func TestBoardColumnsEntryUsesFreshTitleInMergedBreadcrumb(t *testing.T) {
+	dependencies, _, _, _, boards, _ := testDependencies()
+	boards.items = boardColumnListedBoards()
+	original := boardColumnShownBoard()
+	renamed := boardColumnShownBoard()
+	renamed.Board.Title = "platform"
+	boards.showResponses = []board.Show{original, renamed}
+	current := enterRootRow(t, newModel(context.Background(), dependencies, false, time.UTC), 3)
+	current = enterSelection(t, current)
+	current, load := press(t, current, "v")
+	current = deliver(t, current, load)
+	if got := current.View().Content; !strings.Contains(got, "Boards ▸ platform") || strings.Contains(got, "software ▸ platform") {
+		t.Fatalf("renamed column breadcrumb = %q, want one fresh board title", got)
+	}
+}
+
+func TestBoardColumnsScrollOnlyTheSelectedColumn(t *testing.T) {
+	dependencies, _, _, _, boards, _ := testDependencies()
+	boards.items = boardColumnListedBoards()
+	boards.showResponses = []board.Show{boardColumnShownBoard()}
+	current := newModel(context.Background(), dependencies, false, time.UTC)
+	updated, _ := current.Update(tea.WindowSizeMsg{Width: 50, Height: 10})
+	current = enterRootRow(t, updated.(model), 3)
+	current = enterSelection(t, current)
+	current, load := press(t, current, "v")
+	current = deliver(t, current, load)
+
+	initial := current.View().Content
+	if !strings.Contains(initial, "Backlog one") || !strings.Contains(initial, "Backlog two") || strings.Contains(initial, "Backlog three") ||
+		!strings.Contains(initial, "Doing one") || !strings.Contains(initial, "Doing two") {
+		t.Fatalf("initial card viewport = %q, want first two cards in each visible column", initial)
+	}
+	current = pressTimes(t, current, "j", 3)
+	scrolled := current.View().Content
+	if strings.Contains(scrolled, "Backlog one") || strings.Contains(scrolled, "Backlog two") ||
+		!strings.Contains(scrolled, "Backlog three") || !strings.Contains(scrolled, "Backlog four") {
+		t.Fatalf("selected column viewport = %q, want last two backlog cards", scrolled)
+	}
+	if !strings.Contains(scrolled, "Doing one") || !strings.Contains(scrolled, "Doing two") {
+		t.Fatalf("unselected column viewport = %q, want it pinned to top", scrolled)
+	}
+}
+
+func TestBoardColumnsUncoloredExactFrame(t *testing.T) {
+	dependencies, _, _, _, boards, _ := testDependencies()
+	boards.items = boardColumnListedBoards()
+	boards.showResponses = []board.Show{boardColumnShownBoard()}
+	current := newModel(context.Background(), dependencies, false, time.UTC)
+	updated, _ := current.Update(tea.WindowSizeMsg{Width: 73, Height: 10})
+	current = enterRootRow(t, updated.(model), 3)
+	current = enterSelection(t, current)
+	current, load := press(t, current, "v")
+	current = deliver(t, current, load)
+	rightOnly := current.View().Content
+	if strings.Contains(rightOnly, "‹") || !strings.Contains(rightOnly, "2›") {
+		t.Fatalf("right-only overflow frame = %q, want only right count", rightOnly)
+	}
+	for index, line := range boardColumnContentLines(rightOnly) {
+		if index > 0 && strings.HasPrefix(line, "░") {
+			t.Errorf("right-only line %d = %q, want no left bar", index, line)
+		}
+		if index > 0 && !strings.HasSuffix(line, "░") {
+			t.Errorf("right-only line %d = %q, want right bar", index, line)
+		}
+	}
+	current = pressTimes(t, current, "l", 3)
+
+	want := " gsd  Boards ▸ software\n\n" +
+		"‹1  doing               │   review              │   later              1›\n" +
+		"░ ───────────────────── │ ───────────────────── │ ───────────────────── ░\n" +
+		"░   Doing one           │                       │ ▌ Later one           ░\n" +
+		"░   0/3                 │                       │ ▌ 0/3                 ░\n" +
+		"░                       │                       │                       ░\n" +
+		"░   Doing two           │                       │   Later two           ░\n" +
+		"░   1/4                 │                       │   1/4                 ░\n" +
+		" h/l columns · j/k cards · esc back\n"
+	if got := current.View().Content; got != want {
+		t.Fatalf("uncolored column frame = %q, want %q", got, want)
+	}
+
+	current, _ = press(t, current, "l")
+	leftOnly := current.View().Content
+	if !strings.Contains(leftOnly, "‹2") || strings.Contains(leftOnly, "›") {
+		t.Fatalf("left-only overflow frame = %q, want only left count", leftOnly)
+	}
+	for index, line := range boardColumnContentLines(leftOnly) {
+		if !strings.HasPrefix(line, "░") && index > 0 {
+			t.Errorf("left-only line %d = %q, want left bar", index, line)
+		}
+		if strings.HasSuffix(line, "░") {
+			t.Errorf("left-only line %d = %q, want no right bar", index, line)
+		}
+	}
+	updated, _ = current.Update(tea.WindowSizeMsg{Width: 120, Height: 10})
+	current = updated.(model)
+	if got := current.View().Content; strings.ContainsAny(got, "‹›░") {
+		t.Fatalf("all-fit frame = %q, want no overflow signals", got)
+	}
+}
+
+func TestBoardColumnsTruncateTextAndKeepTinySelectionMarker(t *testing.T) {
+	columnFrame := func(title, card string) frame {
+		return frame{
+			key: viewKey{kind: viewBoardColumns, id: 4},
+			loadedView: loadedView{boardColumns: &boardColumnView{
+				title: "software",
+				columns: []boardColumn{{
+					title: title,
+					cards: []row{{cells: []string{card, "123/456"}}},
+				}},
+			}},
+		}
+	}
+
+	current := newModel(context.Background(), Dependencies{}, false, time.UTC)
+	current.stack = append(current.stack, columnFrame(strings.Repeat("planning ", 4), strings.Repeat("renovation ", 4)))
+	updated, _ := current.Update(tea.WindowSizeMsg{Width: 24, Height: 10})
+	current = updated.(model)
+	view := current.View().Content
+	if strings.Count(view, "…") < 2 {
+		t.Fatalf("truncated column frame = %q, want ellipsized heading and card", view)
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(view, "\n"), "\n") {
+		if width := lipgloss.Width(line); width > 24 {
+			t.Errorf("truncated line width = %d, want at most 24: %q", width, line)
+		}
+	}
+
+	tiny := newModel(context.Background(), Dependencies{}, false, time.UTC)
+	tiny.stack = append(tiny.stack, columnFrame("stage", "card"))
+	updated, _ = tiny.Update(tea.WindowSizeMsg{Width: 5, Height: 7})
+	tiny = updated.(model)
+	if got := tiny.View().Content; !strings.Contains(got, "▌") {
+		t.Fatalf("one-cell selected card = %q, want structural selection marker", got)
+	}
+}
+
+func TestBoardColumnsColoredExactFrame(t *testing.T) {
+	current := newModel(context.Background(), Dependencies{}, true, time.UTC)
+	current.stack = append(current.stack,
+		frame{key: viewKey{kind: viewBoards}, crumb: "Boards"},
+		frame{
+			key:   viewKey{kind: viewBoardColumns, id: 4},
+			crumb: "software",
+			loadedView: loadedView{boardColumns: &boardColumnView{
+				title: "software",
+				columns: []boardColumn{{
+					title: "later",
+					cards: []row{{cells: []string{"Later one", "0/3"}}},
+				}},
+			}},
+		},
+	)
+	updated, _ := current.Update(tea.WindowSizeMsg{Width: 40, Height: 7})
+	current = updated.(model)
+	theme := tui.ThemeForBackground(true)
+	band := lipgloss.NewStyle().Background(theme.InputBg)
+	bandDim := band.Foreground(theme.Dim)
+	bandText := band.Foreground(theme.Text).Bold(true)
+	badge := lipgloss.NewStyle().Background(theme.Accent).Foreground(theme.AccentText)
+	heading := lipgloss.NewStyle().Foreground(theme.Text).Bold(true)
+	faintRule := lipgloss.NewStyle().Faint(true)
+	edge := lipgloss.NewStyle().Foreground(theme.Accent).Background(theme.InputBg)
+	selectedText := lipgloss.NewStyle().Foreground(theme.Text).Background(theme.InputBg)
+	selectedDim := lipgloss.NewStyle().Foreground(theme.Dim).Background(theme.InputBg)
+	hints := "h/l columns · j/k cards · esc back"
+	want := band.Render(" ") + badge.Render(" gsd ") + band.Render(" ") +
+		bandDim.Render("Boards ▸ ") + bandText.Render("software") + band.Render(strings.Repeat(" ", 16)) + "\n\n" +
+		"    " + heading.Render("later") + strings.Repeat(" ", 31) + "\n" +
+		"  " + faintRule.Render(strings.Repeat("─", 36)) + "  \n" +
+		"  " + edge.Render("▌ ") + selectedText.Render("Later one"+strings.Repeat(" ", 25)) + "  \n" +
+		"  " + edge.Render("▌ ") + selectedDim.Render("0/3"+strings.Repeat(" ", 31)) + "  \n" +
+		band.Render(" ") + bandDim.Render(hints) + band.Render(strings.Repeat(" ", 5)) + "\n"
+	if got := current.View().Content; got != want {
+		t.Fatalf("colored column frame = %q, want %q", got, want)
+	}
+}
+
+func TestBoardColumnsColoredStylesAndStructure(t *testing.T) {
+	dependencies, _, _, _, boards, _ := testDependencies()
+	boards.items = boardColumnListedBoards()
+	boards.showResponses = []board.Show{boardColumnShownBoard()}
+	current := newModel(context.Background(), dependencies, true, time.UTC)
+	updated, _ := current.Update(tea.WindowSizeMsg{Width: 73, Height: 10})
+	current = enterRootRow(t, updated.(model), 3)
+	current = enterSelection(t, current)
+	current, load := press(t, current, "v")
+	current = deliver(t, current, load)
+	current = pressTimes(t, current, "l", 2)
+	theme := tui.ThemeForBackground(true)
+	emptyView := current.View().Content
+	selectedEmptyHeading := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render("review")
+	selectedEdge := lipgloss.NewStyle().Foreground(theme.Accent).Background(theme.InputBg).Render("▌ ")
+	if !strings.Contains(emptyView, selectedEmptyHeading) || strings.Contains(emptyView, selectedEdge) {
+		t.Fatalf("selected empty column = %q, want bold heading and no selected card", emptyView)
+	}
+	current, _ = press(t, current, "l")
+	view := current.View().Content
+	for _, styled := range []string{
+		lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render("later"),
+		lipgloss.NewStyle().Foreground(theme.Dim).Render("doing"),
+		lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).Render("‹1"),
+		lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).Render("1›"),
+		lipgloss.NewStyle().Foreground(theme.Dim).Render("░"),
+		lipgloss.NewStyle().Faint(true).Render("│"),
+		lipgloss.NewStyle().Faint(true).Render(strings.Repeat("─", 21)),
+		selectedEdge,
+		lipgloss.NewStyle().Foreground(theme.Dim).Background(theme.InputBg).Render("0/3" + strings.Repeat(" ", 16)),
+	} {
+		if !strings.Contains(view, styled) {
+			t.Errorf("colored column frame = %q, want styled fragment %q", view, styled)
+		}
+	}
+	if plain := ansi.Strip(view); !strings.Contains(plain, "review") || !strings.Contains(plain, "Later one") {
+		t.Errorf("colored column structure = %q, want empty stage and selected card", plain)
+	}
+}
+
+func boardColumnListedBoards() []board.ListedBoard {
+	return []board.ListedBoard{{
+		Board: board.Board{ID: 4, Title: "software"},
+		Stages: []board.Stage{
+			{ID: 41, BoardID: 4, Title: "backlog"},
+			{ID: 42, BoardID: 4, Title: "doing"},
+			{ID: 43, BoardID: 4, Title: "review"},
+			{ID: 44, BoardID: 4, Title: "later"},
+			{ID: 45, BoardID: 4, Title: "done soon"},
+		},
+	}}
+}
+
+func boardColumnShownBoard() board.Show {
+	stages := []struct {
+		id       int64
+		title    string
+		projects []string
+	}{
+		{id: 41, title: "backlog", projects: []string{"Backlog one", "Backlog two", "Backlog three", "Backlog four"}},
+		{id: 42, title: "doing", projects: []string{"Doing one", "Doing two"}},
+		{id: 43, title: "review"},
+		{id: 44, title: "later", projects: []string{"Later one", "Later two", "Later three"}},
+		{id: 45, title: "done soon", projects: []string{"Done soon one"}},
+	}
+	shown := board.Show{Board: board.Board{ID: 4, Title: "software"}, Stages: []board.ShownStage{}}
+	projectID := int64(10)
+	for _, stage := range stages {
+		stageID := stage.id
+		shownStage := board.ShownStage{Stage: board.Stage{ID: stage.id, BoardID: 4, Title: stage.title}, Projects: []board.ShownProject{}}
+		for index, title := range stage.projects {
+			shownStage.Projects = append(shownStage.Projects, board.ShownProject{
+				Project:  project.Project{ID: projectID, StageID: &stageID, Title: title, Status: "open"},
+				Progress: board.ProjectProgress{Done: int64(index), Total: int64(index + 3)},
+			})
+			projectID++
+		}
+		shown.Stages = append(shown.Stages, shownStage)
+	}
+	return shown
+}
+
 func TestNoAreaContainsExactlyLooseProjectsAcrossBoardMembership(t *testing.T) {
 	dependencies, _, projects, _, _, _ := testDependencies()
 	areaID := int64(7)
@@ -1300,6 +1764,10 @@ func press(t *testing.T, current model, key string) (model, tea.Cmd) {
 		message = tea.KeyPressMsg{Code: tea.KeyUp}
 	case "down":
 		message = tea.KeyPressMsg{Code: tea.KeyDown}
+	case "left":
+		message = tea.KeyPressMsg{Code: tea.KeyLeft}
+	case "right":
+		message = tea.KeyPressMsg{Code: tea.KeyRight}
 	case "backspace":
 		message = tea.KeyPressMsg{Code: tea.KeyBackspace}
 	}
@@ -1376,4 +1844,9 @@ func selectedLine(view string) string {
 		}
 	}
 	return ""
+}
+
+func boardColumnContentLines(view string) []string {
+	lines := strings.Split(strings.TrimSuffix(view, "\n"), "\n")
+	return lines[2 : len(lines)-1]
 }
