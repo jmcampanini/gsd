@@ -45,10 +45,14 @@ columns while `j`/`k` walk cards. Empty stages render as bare
 headings, matching the vertical board view, which remains available;
 how the two modes coexist stays this milestone's plan-gate decision.
 
-## Carried from the Milestone 12 foundation review
+## Carried from Milestone 12
 
-Recorded at finding triage; the wrap-up re-homing pass merges these
-with the rest of the carried items.
+The Milestone 12 foundation review's fix-now findings were resolved on
+the milestone branch. It scheduled no work, so there is no chunk 0. Its
+three deferred findings and all still-open carried items follow with
+their revisit triggers. Navigator retired the run/unwrap-helper,
+tmux-harness, and truncation triggers by firing them; stage history
+remains owned by Milestone 18.
 
 - **Date-token assembly consolidation** — the overdue predicate is
   shared (`task.Overdue`), but the `due`/`defer`/`defer→` token
@@ -64,6 +68,59 @@ with the rest of the carried items.
   is deliberate. Revisit trigger: a second broad pin rewrite (chunk
   4 of Milestone 12 was the first) moves full-frame expectations to
   golden files; targeted styled-fragment assertions stay inline.
+- **In-flight write lifecycle** — `captureSubmission` (child context,
+  cancel-and-wait shutdown, synthesized cancellation for a
+  never-scheduled command) is generic to any TUI surface that writes:
+  promote it out of capture on the TUI's first writing surface,
+  expected at Milestone 14's row verbs.
+- **Stage-gate predicate spellings** — the stage-defer gate exists in two
+  places, the `available` view in
+  `internal/store/migrations/0001_baseline.sql` and the `list --deferred`
+  selector in `internal/store/tasks.go`, with a store test pinning their
+  agreement. Revisit trigger: the first change to stage-gate semantics
+  must touch both sites.
+- **Task stage buckets** — Linear-style optional task-to-stage assignment
+  stays orthogonal to task status and never gates project movement. Revisit
+  when a project's task list grows phases that keep getting encoded in task
+  titles.
+- **WIP limits** — no per-stage project limit ships today. Revisit when the
+  board view makes over-commitment visible and it hurts.
+- **Stability-contract prose home** — deferred in Milestone 9: the
+  additive-or-full-delete contract's durable prose home once `plans/`
+  retires (`AGENTS.md` is the natural candidate); the migration-policy
+  and contract lint tests carry the mechanical part regardless.
+- **Config report generalization** — on config key #2 (`[serve] addr`,
+  arriving with the optional Serve milestone, 16): add source
+  classification and tag-derived env/flag spellings to
+  go-config-loader's `configreporter` so gsd's renderer becomes a
+  generic provenance-row loop, and revisit the reporting/redaction
+  contract at the same moment. Keep positional load parameters; do not
+  introduce a load-request struct.
+- **Genericizing the intentionally-parallel tag service flows** —
+  carried from Milestone 6: revisit on the first sibling-divergence bug
+  or a post-v1 attach-semantics change.
+- **Typed transition spec for `applyTransition`** — board movement and
+  promotion do not add an action case to the task store's transition
+  switch. Revisit when a new action case enters that switch.
+- **`search.Hit` constructors and accessors** — the hand-rolled sum
+  type's invariant (exactly one entity pointer, matching `Kind`) is
+  enforced at its consumers: revisit on the first new `Hit` consumer or
+  producer, expected at the TUI milestones.
+- **Entity-plus-container-titles projection consolidation** — logbook
+  entries, task views, and search hits each assemble container-title
+  context concretely in parallel, per convention: revisit on the fourth
+  projection or the first context-inconsistency bug between surfaces.
+- **In-expression scoping operators** (`in:`, `is:`, `~stem`/trigram
+  markers) — parked: revisit when unfiltered search proves too broad in
+  daily use; the spellings are reserved by FTS5 rejection today, and
+  the virtual index makes alternate tokenizers a per-invocation swap.
+- **Embeddings / semantic search** — parked, post-v1: revisit if
+  tag-based topical search (`--related`) proves insufficient in daily
+  use; the realistic path is an optional local-encoder sidecar fused
+  with FTS, and nothing in Search forecloses it.
+- **bm25 weight tuning** — the 4/3/2/1 values are a starting point:
+  revisit after real-data use; tests pin ordering properties only, so a
+  retune is a one-line change.
 
 ## Chunks
 

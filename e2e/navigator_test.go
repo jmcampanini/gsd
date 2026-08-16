@@ -120,7 +120,7 @@ func TestNavigatorWorkflowInTerminal(t *testing.T) {
 
 	session.sendKeys("/")
 	session.waitForPane(func(pane string) bool {
-		return !strings.Contains(pane, "esc clear") &&
+		return strings.Contains(pane, "/ edit") &&
 			strings.Contains(pane, "Kitchen reno") && !strings.Contains(pane, "Refresh entry")
 	})
 	session.sendKeys("q")
