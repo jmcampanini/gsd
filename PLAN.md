@@ -7,7 +7,7 @@ consolidation. This plan is temporary and is retired at consolidation.
 
 ## Progress
 
-- [ ] Chunk 1 — The board turns sideways
+- [x] Chunk 1 — The board turns sideways
 - [ ] Chunk 2 — Cards open and stay fresh
 
 There is no chunk 0: the Milestone 12 foundation review scheduled
@@ -124,44 +124,44 @@ with `h`/`l`/`←`/`→` and `j`/`k`; Esc returns to the vertical view.
 
 Implementation:
 
-- [ ] `internal/tui/navigator`: the column view kind — frame state
+- [x] `internal/tui/navigator`: the column view kind — frame state
       for the two-dimensional cursor and horizontal viewport offset,
       loading via `BoardReader.ShowByID`, crumb set to the board
       title (merged by the breadcrumb), inline error state inherited.
-- [ ] Layout renderer: equal-share widths with the 20-cell floor and
+- [x] Layout renderer: equal-share widths with the 20-cell floor and
       three-cell gutters; whole-columns-only viewport following the
       selected column, visible columns stretched to fill; two-line
       cards with the accent-edge selection fill; dim/bold headings;
       bare empty stages; `│` rules and `─` underlines; counts and
       `░` bars on overflowing sides only; per-column vertical scroll
       following the selected card; `…` truncation throughout.
-- [ ] Keys: `v` in the vertical board view pushes the column view;
+- [x] Keys: `v` in the vertical board view pushes the column view;
       `h`/`l`/`←`/`→` and `j`/`k`/`↑`/`↓` with clamped-index column
       crossing and selectable empty columns; Enter and `/` inert
       this chunk; Esc pops; dispatch stays inside the existing
       navigation branch, per view kind.
-- [ ] Bottom band: column-view key hints
+- [x] Bottom band: column-view key hints
       (`h/l columns · j/k cards · esc back`); the vertical board
       view's hints gain `v columns`.
 
 Verification (primary owner: navigator model tests with fake
 dependencies):
 
-- [ ] Layout math: all stages fit at or above the floor when the
+- [x] Layout math: all stages fit at or above the floor when the
       width allows; below that, only whole columns render, stretched
       to consume the width, at every width down to a single column —
       never a partial column.
-- [ ] Exact-frame pins, colored and uncolored: rules, underlines,
+- [x] Exact-frame pins, colored and uncolored: rules, underlines,
       selected-column bold heading, selected-card fill, empty stage,
       counts and bars present only on sides hiding columns.
-- [ ] Navigation: clamped index carry across columns; empty columns
+- [x] Navigation: clamped index carry across columns; empty columns
       selectable with inert Enter; ends clamp; the viewport follows
       the selected column; the selected column scrolls to its card
       while others stay pinned to top.
-- [ ] Entry: `v` pushes only from the vertical board view (inert
+- [x] Entry: `v` pushes only from the vertical board view (inert
       elsewhere); Esc pops back with the vertical view's cursor
       restored; the breadcrumb shows `Boards ▸ <board>` unduplicated.
-- [ ] `make check` green.
+- [x] `make check` green.
 
 Human proof (chunk demo `.sandbox/demos/13-chunk-1.html`; pane frames
 captured per the navigator precedent), exact commands:
@@ -184,7 +184,7 @@ gsd --db .sandbox/demo13.db tui
     # columns only; Esc: the vertical view; Esc ×2; q
 ```
 
-- [ ] Agent verification before review: build the real binary, drive
+- [x] Agent verification before review: build the real binary, drive
       the command list in tmux against a fresh temporary database —
       including a narrow-pane frame proving the overflow treatment —
       capture the frames into the deck, and pass local `make check`.

@@ -299,6 +299,10 @@ func (m model) hints() string {
 		return "j/k move · ⏎ open · esc quit"
 	case viewTaskDetail, viewProjectDetail, viewAreaDetail, viewBoardDetail:
 		return "j/k scroll · esc back"
+	case viewBoard:
+		return "j/k move · ⏎ open · v columns · esc back"
+	case viewBoardColumns:
+		return "h/l columns · j/k cards · esc back"
 	default:
 		return "j/k move · ⏎ open · esc back"
 	}
@@ -307,6 +311,9 @@ func (m model) hints() string {
 func (m model) renderLines(current *frame) ([]string, int) {
 	if current.detail != nil {
 		return m.renderDetail(*current.detail), -1
+	}
+	if current.boardColumns != nil {
+		return m.renderBoardColumns(current), -1
 	}
 	if current.key.kind == viewRoot {
 		return m.renderRoot(current)
@@ -460,6 +467,11 @@ func (m model) renderSection(current section, cursor, selectionOffset int) ([]st
 }
 
 func (m *model) ensureCursorVisible(current *frame) {
+	if current.key.kind == viewBoardColumns {
+		current.offset = 0
+		m.ensureBoardColumnVisible(current)
+		return
+	}
 	budget := m.contentHeight()
 	if budget <= 0 || current.loading || current.err != nil {
 		current.offset = 0
