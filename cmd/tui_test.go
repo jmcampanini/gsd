@@ -236,6 +236,7 @@ func TestTUICommandRejectsNoninteractiveInvocationBeforeOpeningApplication(t *te
 		{name: "positional argument", args: []string{"tui", "extra"}, inputOK: true, outputOK: true, marker: "positional arguments"},
 		{name: "JSON", args: []string{"tui", "--json"}, inputOK: true, outputOK: true, marker: "--json"},
 		{name: "non-terminal input", args: []string{"tui"}, outputOK: true, marker: "terminal input"},
+		{name: "non-terminal output", args: []string{"tui"}, inputOK: true, marker: "terminal output"},
 		{name: "forced color with non-terminal output", args: []string{"tui", "--color=always"}, inputOK: true, marker: "terminal output"},
 	}
 	for _, test := range tests {

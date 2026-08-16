@@ -242,6 +242,12 @@ func TestCaptureCommandRejectsUnsupportedInvocationBeforeOpeningApplication(t *t
 			message:  "gsd capture requires terminal input; use gsd add TITLE for noninteractive capture",
 		},
 		{
+			name:    "non-terminal output",
+			args:    []string{"capture"},
+			inputOK: true,
+			message: "gsd capture requires terminal output; use gsd add TITLE for noninteractive capture",
+		},
+		{
 			name:    "forced color with non-terminal output",
 			args:    []string{"capture", "--color=always"},
 			inputOK: true,

@@ -12,7 +12,7 @@ finds two.
 
 ## Progress
 
-- [ ] Chunk 1 — Ask only terminals that can answer
+- [x] Chunk 1 — Ask only terminals that can answer
 
 ## Settled design
 
@@ -102,7 +102,7 @@ Implementation:
 - [x] `cmd/capture.go`, `cmd/tui.go`: guards unchanged; build
       `ProgramOptions` from the resolved profile, terminal flag, and
       environment.
-- [ ] Call-site audit recorded in the PR: exactly three
+- [x] Call-site audit completed: exactly three
       background-detection sites — `presentation.output`
       (already correct, behavior preserved), capture `Init`,
       navigator `Init` — and no other
