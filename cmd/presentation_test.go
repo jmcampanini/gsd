@@ -16,6 +16,94 @@ import (
 	"github.com/spf13/pflag"
 )
 
+type interactiveColorCase struct {
+	name            string
+	environment     []string
+	args            []string
+	detected        colorprofile.Profile
+	wantProfile     colorprofile.Profile
+	wantDetection   bool
+	wantEnvironment []string
+}
+
+func interactiveColorCases(command string) []interactiveColorCase {
+	return []interactiveColorCase{
+		{
+			name:            "detected TrueColor",
+			environment:     []string{"TERM=xterm-256color", "KEEP=value"},
+			args:            []string{command},
+			detected:        colorprofile.TrueColor,
+			wantProfile:     colorprofile.TrueColor,
+			wantDetection:   true,
+			wantEnvironment: []string{"TERM=xterm-256color", "KEEP=value"},
+		},
+		{
+			name:            "detected ANSI256",
+			environment:     []string{"TERM=xterm-256color", "KEEP=value"},
+			args:            []string{command},
+			detected:        colorprofile.ANSI256,
+			wantProfile:     colorprofile.ANSI256,
+			wantDetection:   true,
+			wantEnvironment: []string{"TERM=xterm-256color", "KEEP=value"},
+		},
+		{
+			name:            "detected ANSI",
+			environment:     []string{"TERM=xterm", "KEEP=value"},
+			args:            []string{command},
+			detected:        colorprofile.ANSI,
+			wantProfile:     colorprofile.ANSI,
+			wantDetection:   true,
+			wantEnvironment: []string{"TERM=xterm", "KEEP=value"},
+		},
+		{
+			name:            "detected ASCII",
+			environment:     []string{"TERM=xterm", "KEEP=value"},
+			args:            []string{command},
+			detected:        colorprofile.ASCII,
+			wantProfile:     colorprofile.ASCII,
+			wantDetection:   true,
+			wantEnvironment: []string{"TERM=xterm", "KEEP=value"},
+		},
+		{
+			name:            "detected NoTTY",
+			environment:     []string{"TERM=xterm", "KEEP=value"},
+			args:            []string{command},
+			detected:        colorprofile.NoTTY,
+			wantProfile:     colorprofile.NoTTY,
+			wantDetection:   true,
+			wantEnvironment: []string{"TERM=xterm", "KEEP=value"},
+		},
+		{
+			name:            "NO_COLOR disables color",
+			environment:     []string{"NO_COLOR=1", "TERM=xterm-256color", "KEEP=value"},
+			args:            []string{command},
+			wantProfile:     colorprofile.NoTTY,
+			wantEnvironment: []string{"TERM=xterm-256color", "KEEP=value"},
+		},
+		{
+			name:            "TERM dumb disables color",
+			environment:     []string{"TERM=dumb", "KEEP=value"},
+			args:            []string{command},
+			wantProfile:     colorprofile.NoTTY,
+			wantEnvironment: []string{"TERM=dumb", "KEEP=value"},
+		},
+		{
+			name:            "explicit always overrides environment",
+			environment:     []string{"NO_COLOR=1", "TERM=dumb", "KEEP=value"},
+			args:            []string{command, "--color", "always"},
+			wantProfile:     colorprofile.TrueColor,
+			wantEnvironment: []string{"TERM=dumb", "KEEP=value"},
+		},
+		{
+			name:            "explicit never disables color",
+			environment:     []string{"TERM=xterm-256color", "KEEP=value"},
+			args:            []string{command, "--color=never"},
+			wantProfile:     colorprofile.NoTTY,
+			wantEnvironment: []string{"TERM=xterm-256color", "KEEP=value"},
+		},
+	}
+}
+
 func TestResolveColorPrecedenceAndTerminalBranches(t *testing.T) {
 	t.Parallel()
 

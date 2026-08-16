@@ -70,10 +70,7 @@ func resolveColor(
 		case colorNever:
 			return colorDisabled
 		case colorAuto:
-			if !isTerminal || terminalName == "dumb" {
-				return colorDisabled
-			}
-			return colorDetected
+			noColor = ""
 		}
 	}
 	if noColor != "" || !isTerminal || terminalName == "dumb" {
@@ -134,20 +131,18 @@ func (p presentation) resolve(writer io.Writer, explicit bool) colorResolution {
 	environment := p.dependencies.environment()
 	terminal := p.dependencies.isTerminalWriter(writer)
 	scrubbed := scrubColorEnvironment(environment)
-	decision := resolveColor(
+	profile := colorprofile.NoTTY
+	switch resolveColor(
 		*p.mode,
 		explicit,
 		environmentValue(environment, "NO_COLOR"),
 		terminal,
 		environmentValue(environment, "TERM"),
-	)
-	profile := colorprofile.NoTTY
-	switch decision {
+	) {
 	case colorForced:
 		profile = colorprofile.TrueColor
 	case colorDetected:
 		profile = p.dependencies.detectProfile(writer, scrubbed)
-	case colorDisabled:
 	}
 	return colorResolution{
 		profile:     profile,
