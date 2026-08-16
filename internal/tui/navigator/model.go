@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/board"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
@@ -713,6 +714,8 @@ func (f frame) filterApplied() bool {
 	return f.filter.enabled && f.filter.input.Value() != ""
 }
 
+// filteredView re-runs the match on every call; deliberately unmemoized
+// until a view grows large enough to make filtering lag.
 func (f frame) filteredView() loadedView {
 	if !f.filterApplied() {
 		return f.loadedView
@@ -720,25 +723,29 @@ func (f frame) filteredView() loadedView {
 	filtered := loadedView{header: f.header, detail: f.detail, sections: make([]section, len(f.sections))}
 	if f.header != nil {
 		header := *f.header
-		if matches := matchRows(f.filter.input.Value(), []string{filterText(header)}); len(matches) == 1 {
-			header.matchPositions = cellMatchPositions(header, matches[0].positions)
+		candidate := rowFilterCandidate(header)
+		if matches := matchRows(f.filter.input.Value(), []string{candidate.text}); len(matches) == 1 {
+			header.matchPositions = candidate.cellPositions(matches[0].positions)
 		}
 		filtered.header = &header
 	}
-	candidates := make([]string, 0)
+	candidates := make([]filterCandidate, 0)
+	texts := make([]string, 0)
 	locations := make([][2]int, 0)
 	for sectionIndex, current := range f.sections {
 		filtered.sections[sectionIndex] = current
 		filtered.sections[sectionIndex].rows = nil
 		for rowIndex, currentRow := range current.rows {
-			candidates = append(candidates, filterText(currentRow))
+			candidate := rowFilterCandidate(currentRow)
+			candidates = append(candidates, candidate)
+			texts = append(texts, candidate.text)
 			locations = append(locations, [2]int{sectionIndex, rowIndex})
 		}
 	}
-	for _, match := range matchRows(f.filter.input.Value(), candidates) {
+	for _, match := range matchRows(f.filter.input.Value(), texts) {
 		location := locations[match.index]
 		matchedRow := f.sections[location[0]].rows[location[1]]
-		matchedRow.matchPositions = cellMatchPositions(matchedRow, match.positions)
+		matchedRow.matchPositions = candidates[match.index].cellPositions(match.positions)
 		filtered.sections[location[0]].rows = append(filtered.sections[location[0]].rows, matchedRow)
 	}
 	return filtered
@@ -836,7 +843,7 @@ func taskRows(items []task.Task, today string) []row {
 		current := descendingRow(
 			"task:"+id,
 			item.Title,
-			[]string{"•", taskTitle(item), taskDates(item)},
+			[]string{glyphTask, taskTitle(item), taskDates(item)},
 			viewKey{kind: viewTaskDetail, id: item.ID},
 		)
 		current.accents = []cellAccent{accentPlain, accentPlain, taskDatesAccent(item, today)}
@@ -849,7 +856,7 @@ func taskDatesAccent(current task.Task, today string) cellAccent {
 	if current.DueOn == nil {
 		return accentDim
 	}
-	if current.Status == string(task.ListStatusOpen) && *current.DueOn <= today {
+	if task.Overdue(current, today) {
 		return accentOverdue
 	}
 	return accentYellow
@@ -865,9 +872,9 @@ func logbookRows(entries []logbook.Entry, location *time.Location) ([]row, error
 		id := strconv.FormatInt(entry.ID, 10)
 		var destination viewKey
 		switch entry.Kind {
-		case "task":
+		case logbook.KindTask:
 			destination = viewKey{kind: viewTaskDetail, id: entry.ID}
-		case "project":
+		case logbook.KindProject:
 			destination = viewKey{kind: viewProjectDetail, id: entry.ID}
 		default:
 			return nil, fmt.Errorf("unknown logbook entry kind %q", entry.Kind)
@@ -892,15 +899,15 @@ func logbookRows(entries []logbook.Entry, location *time.Location) ([]row, error
 
 func logbookGlyph(entry logbook.Entry) (string, cellAccent) {
 	switch entry.Status {
-	case "done":
-		return "✓", accentGreen
-	case "cancelled":
-		return "✗", accentRed
+	case domain.StatusDone:
+		return glyphDone, accentGreen
+	case domain.StatusCancelled:
+		return glyphCancelled, accentRed
 	}
-	if entry.Kind == "project" {
-		return "◆", accentPlain
+	if entry.Kind == logbook.KindProject {
+		return glyphProject, accentPlain
 	}
-	return "•", accentPlain
+	return glyphTask, accentPlain
 }
 
 func boardRows(items []board.ListedBoard) []row {
@@ -913,7 +920,7 @@ func boardRows(items []board.ListedBoard) []row {
 		current := descendingRow(
 			"board:"+strconv.FormatInt(item.ID, 10),
 			item.Title,
-			[]string{"▥", item.Title, joinStages(stageTitles)},
+			[]string{glyphBoard, item.Title, joinStages(stageTitles)},
 			viewKey{kind: viewBoard, id: item.ID},
 		)
 		current.accents = []cellAccent{accentPlain, accentPlain, accentDim}
@@ -929,14 +936,14 @@ func areaRows(items []area.Area) []row {
 		rows = append(rows, descendingRow(
 			"area:"+id,
 			item.Title,
-			[]string{"●", item.Title},
+			[]string{glyphArea, item.Title},
 			viewKey{kind: viewArea, id: item.ID},
 		))
 	}
 	pseudo := descendingRow(
 		"area:none",
 		"(no area)",
-		[]string{"○", "(no area)"},
+		[]string{glyphNoArea, "(no area)"},
 		viewKey{kind: viewNoArea},
 	)
 	pseudo.accents = []cellAccent{accentDim, accentDim}
@@ -950,7 +957,7 @@ func projectRows(items []project.Project) []row {
 		rows = append(rows, descendingRow(
 			"project:"+id,
 			item.Title,
-			[]string{"◆", item.Title},
+			[]string{glyphProject, item.Title},
 			viewKey{kind: viewProject, id: item.ID},
 		))
 	}
@@ -965,7 +972,7 @@ func boardProjectRows(items []board.ShownProject) []row {
 			"project:"+id,
 			item.Title,
 			[]string{
-				"◆",
+				glyphProject,
 				item.Title,
 				fmt.Sprintf("%d/%d", item.Progress.Done, item.Progress.Total),
 			},

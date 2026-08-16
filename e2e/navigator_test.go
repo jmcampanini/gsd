@@ -32,13 +32,14 @@ func TestNavigatorWorkflowInTerminal(t *testing.T) {
 	}
 
 	session.sendKeys("j", "Enter")
-	availablePane := session.waitForPane(func(pane string) bool {
+	session.waitForPane(func(pane string) bool {
 		return strings.Contains(pane, "Call plumber") && strings.Contains(pane, "Plan meal")
 	})
 
 	session.sendKeys("/")
 	session.waitForPane(func(pane string) bool {
-		return pane != availablePane && strings.Contains(pane, "Call plumber") && strings.Contains(pane, "Plan meal")
+		return !strings.Contains(pane, "j/k move") &&
+			strings.Contains(pane, "Call plumber") && strings.Contains(pane, "Plan meal")
 	})
 	session.sendLiteral("pl")
 	session.waitForPane(func(pane string) bool {
@@ -100,13 +101,14 @@ func TestNavigatorWorkflowInTerminal(t *testing.T) {
 		return containsInOrder(pane, "Home", "Work", "(no area)")
 	})
 	session.sendKeys("Enter")
-	homePane := session.waitForPane(func(pane string) bool {
+	session.waitForPane(func(pane string) bool {
 		return strings.Contains(pane, "Kitchen reno") && strings.Contains(pane, "Refresh entry")
 	})
 
 	session.sendKeys("/")
 	session.waitForPane(func(pane string) bool {
-		return pane != homePane && strings.Contains(pane, "Kitchen reno") && strings.Contains(pane, "Refresh entry")
+		return !strings.Contains(pane, "j/k move") &&
+			strings.Contains(pane, "Kitchen reno") && strings.Contains(pane, "Refresh entry")
 	})
 	session.sendLiteral("reno")
 	filteredHomePane := session.waitForPane(func(pane string) bool {
@@ -118,7 +120,8 @@ func TestNavigatorWorkflowInTerminal(t *testing.T) {
 
 	session.sendKeys("/")
 	session.waitForPane(func(pane string) bool {
-		return pane != filteredHomePane && strings.Contains(pane, "Kitchen reno") && !strings.Contains(pane, "Refresh entry")
+		return !strings.Contains(pane, "esc clear") &&
+			strings.Contains(pane, "Kitchen reno") && !strings.Contains(pane, "Refresh entry")
 	})
 	session.sendKeys("q")
 	if exitCode := session.waitForExit(); exitCode != 0 {

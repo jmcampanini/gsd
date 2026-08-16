@@ -45,6 +45,26 @@ columns while `j`/`k` walk cards. Empty stages render as bare
 headings, matching the vertical board view, which remains available;
 how the two modes coexist stays this milestone's plan-gate decision.
 
+## Carried from the Milestone 12 foundation review
+
+Recorded at finding triage; the wrap-up re-homing pass merges these
+with the rest of the carried items.
+
+- **Date-token assembly consolidation** — the overdue predicate is
+  shared (`task.Overdue`), but the `due`/`defer`/`defer→` token
+  grammar remains spelled in both `cmd` and the navigator. Revisit
+  trigger: the first change to the date-token grammar extracts a
+  shared tokens-plus-urgency projection, styling staying
+  per-surface.
+- **Navigator input-mode key handlers** — filter editing and
+  navigation are two inline branches in `updateKey`. Revisit
+  trigger: the third input mode (Milestone 15's `:` command line, or
+  Milestone 14's confirms if modal) extracts per-mode handlers.
+- **Golden frames for navigator pins** — the exact-output pin style
+  is deliberate. Revisit trigger: a second broad pin rewrite (chunk
+  4 of Milestone 12 was the first) moves full-frame expectations to
+  golden files; targeted styled-fragment assertions stay inline.
+
 ## Chunks
 
 1. **Board view scaffold** — column layout, card rendering with

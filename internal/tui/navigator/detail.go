@@ -131,9 +131,13 @@ func tagTitles(titles []string) string {
 	return strings.Join(visible, " ")
 }
 
+// statusArchived is navigator vocabulary: areas have no stored status, so the
+// detail headline derives one from the archival stamp.
+const statusArchived = "archived"
+
 func archivedStatus(archivedAt *string) string {
 	if archivedAt != nil {
-		return "archived"
+		return statusArchived
 	}
 	return ""
 }

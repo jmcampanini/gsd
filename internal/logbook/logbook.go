@@ -6,6 +6,11 @@ import (
 	"github.com/jmcampanini/gsd/internal/domain"
 )
 
+const (
+	KindTask    = "task"
+	KindProject = "project"
+)
+
 type Entry struct {
 	Kind               string          `json:"kind"`
 	ID                 int64           `json:"id"`

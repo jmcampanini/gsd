@@ -8,12 +8,18 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
+const (
+	StatusOpen      = domain.StatusOpen
+	StatusDone      = domain.StatusDone
+	StatusCancelled = domain.StatusCancelled
+)
+
 type ListStatus string
 
 const (
-	ListStatusOpen      ListStatus = "open"
-	ListStatusDone      ListStatus = "done"
-	ListStatusCancelled ListStatus = "cancelled"
+	ListStatusOpen      ListStatus = StatusOpen
+	ListStatusDone      ListStatus = StatusDone
+	ListStatusCancelled ListStatus = StatusCancelled
 	ListStatusAll       ListStatus = "all"
 )
 

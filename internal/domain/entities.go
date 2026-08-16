@@ -3,6 +3,13 @@
 // entity packages, which re-export these rows under aliases.
 package domain
 
+// Status values stored on task and project rows.
+const (
+	StatusOpen      = "open"
+	StatusDone      = "done"
+	StatusCancelled = "cancelled"
+)
+
 type Area struct {
 	ID         int64    `json:"id"`
 	Title      string   `json:"title"`

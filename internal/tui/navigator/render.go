@@ -7,12 +7,23 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/jmcampanini/gsd/internal/text"
 	"github.com/rivo/uniseg"
 )
 
 const selectionMarkerWidth = 2
+
+const (
+	glyphTask      = "•"
+	glyphProject   = "◆"
+	glyphArea      = "●"
+	glyphNoArea    = "○"
+	glyphBoard     = "▥"
+	glyphDone      = "✓"
+	glyphCancelled = "✗"
+)
 
 func (m model) View() tea.View {
 	current := m.top()
@@ -336,19 +347,19 @@ func (m model) detailHeadline(current detailView) string {
 	glyph := ""
 	switch current.kind {
 	case detailTask:
-		glyph = "•"
+		glyph = glyphTask
 	case detailProject:
-		glyph = "◆"
+		glyph = glyphProject
 	case detailArea:
-		glyph = "●"
+		glyph = glyphArea
 	case detailBoard:
-		glyph = "▥"
+		glyph = glyphBoard
 	}
 	switch current.status {
-	case "done":
-		glyph = m.green("✓")
-	case "cancelled", "archived":
-		glyph = m.red("✗")
+	case domain.StatusDone:
+		glyph = m.green(glyphDone)
+	case domain.StatusCancelled, statusArchived:
+		glyph = m.red(glyphCancelled)
 	}
 	return glyph + " " + title
 }
@@ -481,11 +492,11 @@ func (m model) renderMatchedHeader(current row, selected bool) string {
 	prefix := ""
 	switch current.style {
 	case rowAreaHeader:
-		prefix = "● "
+		prefix = glyphArea + " "
 	case rowProjectHeader:
-		prefix = "◆ "
+		prefix = glyphProject + " "
 	case rowBoardHeader:
-		prefix = "▥ "
+		prefix = glyphBoard + " "
 	}
 	if prefix == "" {
 		return m.styleMatchedCell(strings.Join(cells, "  "), accentPlain, selected, matchPositionsAt(current, 0))
@@ -652,22 +663,37 @@ func positionsAt(positions [][]int, index int) []int {
 	return nil
 }
 
-func filterText(current row) string {
-	return strings.Join(visibleCells(current.cells), " ")
+// filterCandidate carries a row's matchable text together with the byte span
+// of each cell within it, so match positions always map back onto the same
+// string the matcher saw.
+type filterCandidate struct {
+	text  string
+	spans [][2]int
 }
 
-func cellMatchPositions(current row, positions []int) [][]int {
+func rowFilterCandidate(current row) filterCandidate {
 	cells := visibleCells(current.cells)
-	matches := make([][]int, len(cells))
-	offset := 0
-	for cellIndex, cell := range cells {
-		end := offset + len(cell)
+	spans := make([][2]int, len(cells))
+	var joined strings.Builder
+	for index, cell := range cells {
+		if index > 0 {
+			joined.WriteString(" ")
+		}
+		start := joined.Len()
+		joined.WriteString(cell)
+		spans[index] = [2]int{start, joined.Len()}
+	}
+	return filterCandidate{text: joined.String(), spans: spans}
+}
+
+func (c filterCandidate) cellPositions(positions []int) [][]int {
+	matches := make([][]int, len(c.spans))
+	for index, span := range c.spans {
 		for _, position := range positions {
-			if position >= offset && position < end {
-				matches[cellIndex] = append(matches[cellIndex], position-offset)
+			if position >= span[0] && position < span[1] {
+				matches[index] = append(matches[index], position-span[0])
 			}
 		}
-		offset = end + 1
 	}
 	return matches
 }
