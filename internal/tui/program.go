@@ -16,20 +16,21 @@ const (
 	ScreenAlt
 )
 
-type ColorMode uint8
-
-const (
-	ColorDisabled ColorMode = iota
-	ColorDetected
-	ColorForced
-)
-
 type ProgramOptions struct {
 	Input       io.Reader
 	Output      io.Writer
 	Environment []string
 	Screen      ScreenMode
-	Color       ColorMode
+	Profile     colorprofile.Profile
+	Terminal    bool
+}
+
+func (o ProgramOptions) ColorEnabled() bool {
+	return CanRenderColor(o.Profile, o.Terminal)
+}
+
+func CanRenderColor(profile colorprofile.Profile, terminal bool) bool {
+	return terminal && profile >= colorprofile.ANSI
 }
 
 type runnableProgram interface {
@@ -57,18 +58,11 @@ func NewProgram(ctx context.Context, model tea.Model, options ProgramOptions) *t
 		tea.WithContext(ctx),
 		tea.WithInput(options.Input),
 		tea.WithOutput(options.Output),
+		tea.WithColorProfile(options.Profile),
 	}
 	if options.Environment != nil {
 		programOptions = append(programOptions, tea.WithEnvironment(options.Environment))
 	}
-	switch options.Color {
-	case ColorDisabled:
-		programOptions = append(programOptions, tea.WithColorProfile(colorprofile.NoTTY))
-	case ColorForced:
-		programOptions = append(programOptions, tea.WithColorProfile(colorprofile.TrueColor))
-	case ColorDetected:
-	}
-
 	return tea.NewProgram(programModel{model: model, screen: options.Screen}, programOptions...)
 }
 

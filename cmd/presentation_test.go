@@ -12,10 +12,97 @@ import (
 
 	"github.com/charmbracelet/colorprofile"
 	"github.com/jmcampanini/gsd/internal/task"
-	"github.com/jmcampanini/gsd/internal/tui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
+
+type interactiveColorCase struct {
+	name            string
+	environment     []string
+	args            []string
+	detected        colorprofile.Profile
+	wantProfile     colorprofile.Profile
+	wantDetection   bool
+	wantEnvironment []string
+}
+
+func interactiveColorCases(command string) []interactiveColorCase {
+	return []interactiveColorCase{
+		{
+			name:            "detected TrueColor",
+			environment:     []string{"TERM=xterm-256color", "KEEP=value"},
+			args:            []string{command},
+			detected:        colorprofile.TrueColor,
+			wantProfile:     colorprofile.TrueColor,
+			wantDetection:   true,
+			wantEnvironment: []string{"TERM=xterm-256color", "KEEP=value"},
+		},
+		{
+			name:            "detected ANSI256",
+			environment:     []string{"TERM=xterm-256color", "KEEP=value"},
+			args:            []string{command},
+			detected:        colorprofile.ANSI256,
+			wantProfile:     colorprofile.ANSI256,
+			wantDetection:   true,
+			wantEnvironment: []string{"TERM=xterm-256color", "KEEP=value"},
+		},
+		{
+			name:            "detected ANSI",
+			environment:     []string{"TERM=xterm", "KEEP=value"},
+			args:            []string{command},
+			detected:        colorprofile.ANSI,
+			wantProfile:     colorprofile.ANSI,
+			wantDetection:   true,
+			wantEnvironment: []string{"TERM=xterm", "KEEP=value"},
+		},
+		{
+			name:            "detected ASCII",
+			environment:     []string{"TERM=xterm", "KEEP=value"},
+			args:            []string{command},
+			detected:        colorprofile.ASCII,
+			wantProfile:     colorprofile.ASCII,
+			wantDetection:   true,
+			wantEnvironment: []string{"TERM=xterm", "KEEP=value"},
+		},
+		{
+			name:            "detected NoTTY",
+			environment:     []string{"TERM=xterm", "KEEP=value"},
+			args:            []string{command},
+			detected:        colorprofile.NoTTY,
+			wantProfile:     colorprofile.NoTTY,
+			wantDetection:   true,
+			wantEnvironment: []string{"TERM=xterm", "KEEP=value"},
+		},
+		{
+			name:            "NO_COLOR disables color",
+			environment:     []string{"NO_COLOR=1", "TERM=xterm-256color", "KEEP=value"},
+			args:            []string{command},
+			wantProfile:     colorprofile.NoTTY,
+			wantEnvironment: []string{"TERM=xterm-256color", "KEEP=value"},
+		},
+		{
+			name:            "TERM dumb disables color",
+			environment:     []string{"TERM=dumb", "KEEP=value"},
+			args:            []string{command},
+			wantProfile:     colorprofile.NoTTY,
+			wantEnvironment: []string{"TERM=dumb", "KEEP=value"},
+		},
+		{
+			name:            "explicit always overrides environment",
+			environment:     []string{"NO_COLOR=1", "TERM=dumb", "KEEP=value"},
+			args:            []string{command, "--color", "always"},
+			wantProfile:     colorprofile.TrueColor,
+			wantEnvironment: []string{"TERM=dumb", "KEEP=value"},
+		},
+		{
+			name:            "explicit never disables color",
+			environment:     []string{"TERM=xterm-256color", "KEEP=value"},
+			args:            []string{command, "--color=never"},
+			wantProfile:     colorprofile.NoTTY,
+			wantEnvironment: []string{"TERM=xterm-256color", "KEEP=value"},
+		},
+	}
+}
 
 func TestResolveColorPrecedenceAndTerminalBranches(t *testing.T) {
 	t.Parallel()
@@ -27,17 +114,17 @@ func TestResolveColorPrecedenceAndTerminalBranches(t *testing.T) {
 		noColor      string
 		terminal     bool
 		terminalName string
-		want         tui.ColorMode
+		want         colorDecision
 	}{
-		{name: "default terminal", mode: colorAuto, terminal: true, terminalName: "xterm-256color", want: tui.ColorDetected},
-		{name: "default pipe", mode: colorAuto, terminalName: "xterm-256color", want: tui.ColorDisabled},
-		{name: "default dumb terminal", mode: colorAuto, terminal: true, terminalName: "dumb", want: tui.ColorDisabled},
-		{name: "nonempty NO_COLOR", mode: colorAuto, noColor: "0", terminal: true, terminalName: "xterm", want: tui.ColorDisabled},
-		{name: "explicit always beats everything", mode: colorAlways, explicit: true, noColor: "1", terminalName: "dumb", want: tui.ColorForced},
-		{name: "explicit never", mode: colorNever, explicit: true, terminal: true, terminalName: "xterm", want: tui.ColorDisabled},
-		{name: "explicit auto beats NO_COLOR", mode: colorAuto, explicit: true, noColor: "1", terminal: true, terminalName: "xterm", want: tui.ColorDetected},
-		{name: "explicit auto still respects pipe", mode: colorAuto, explicit: true, terminalName: "xterm", want: tui.ColorDisabled},
-		{name: "explicit auto still respects dumb", mode: colorAuto, explicit: true, terminal: true, terminalName: "dumb", want: tui.ColorDisabled},
+		{name: "default terminal", mode: colorAuto, terminal: true, terminalName: "xterm-256color", want: colorDetected},
+		{name: "default pipe", mode: colorAuto, terminalName: "xterm-256color", want: colorDisabled},
+		{name: "default dumb terminal", mode: colorAuto, terminal: true, terminalName: "dumb", want: colorDisabled},
+		{name: "nonempty NO_COLOR", mode: colorAuto, noColor: "0", terminal: true, terminalName: "xterm", want: colorDisabled},
+		{name: "explicit always beats everything", mode: colorAlways, explicit: true, noColor: "1", terminalName: "dumb", want: colorForced},
+		{name: "explicit never", mode: colorNever, explicit: true, terminal: true, terminalName: "xterm", want: colorDisabled},
+		{name: "explicit auto beats NO_COLOR", mode: colorAuto, explicit: true, noColor: "1", terminal: true, terminalName: "xterm", want: colorDetected},
+		{name: "explicit auto still respects pipe", mode: colorAuto, explicit: true, terminalName: "xterm", want: colorDisabled},
+		{name: "explicit auto still respects dumb", mode: colorAuto, explicit: true, terminal: true, terminalName: "dumb", want: colorDisabled},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -76,9 +163,9 @@ func TestPresentationProfileUsesScrubbedEnvironment(t *testing.T) {
 		},
 		location: time.UTC,
 	}
-	profile, terminal := available.profile(io.Discard, true)
-	if profile != colorprofile.ANSI256 || !terminal {
-		t.Fatalf("profile/terminal = %s/%t, want ANSI256/true", profile, terminal)
+	resolution := available.resolve(io.Discard, true)
+	if resolution.profile != colorprofile.ANSI256 || !resolution.terminal {
+		t.Fatalf("profile/terminal = %s/%t, want ANSI256/true", resolution.profile, resolution.terminal)
 	}
 	want := []string{"TERM=xterm-256color", "COLORTERM=truecolor"}
 	if !reflect.DeepEqual(detectedEnvironment, want) {

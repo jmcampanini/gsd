@@ -310,7 +310,7 @@ func RunCapture(
 	return runCapture(
 		ctx,
 		application,
-		options.Color != ColorDisabled,
+		options.ColorEnabled(),
 		func(model CaptureModel) (CaptureModel, error) {
 			finalModel, err := RunProgram(ctx, model, options)
 			if err != nil {

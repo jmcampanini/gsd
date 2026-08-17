@@ -59,7 +59,7 @@ func Run(
 ) error {
 	_, err := tui.RunProgram(
 		ctx,
-		newModel(ctx, dependencies, options.Color != tui.ColorDisabled, location),
+		newModel(ctx, dependencies, options.ColorEnabled(), location),
 		options,
 	)
 	return err

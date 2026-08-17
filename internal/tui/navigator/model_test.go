@@ -719,12 +719,40 @@ func TestFilterInputViewportTracksDisplayWidthAndHorizontalOverflow(t *testing.T
 	}
 }
 
+func TestNavigatorInitRequestsBackgroundOnlyWithColor(t *testing.T) {
+	tests := []struct {
+		name        string
+		color       bool
+		wantCommand bool
+	}{
+		{name: "colored", color: true, wantCommand: true},
+		{name: "plain"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dependencies, _, _, _, _, _ := testDependencies()
+			current := newModel(context.Background(), dependencies, test.color, time.UTC)
+			command := current.Init()
+			if (command != nil) != test.wantCommand {
+				t.Errorf("Init command present = %t, want %t", command != nil, test.wantCommand)
+			}
+			if command != nil {
+				if got, want := command(), tea.RequestBackgroundColor(); got != want {
+					t.Errorf("Init command message = %#v, want background request %#v", got, want)
+				}
+			}
+			_, followUp := current.Update(tea.BackgroundColorMsg{Color: lipgloss.Color("#ffffff")})
+			if followUp != nil {
+				t.Fatal("background response issued a second command")
+			}
+		})
+	}
+}
+
 func TestSelectedRowUsesPickerFillWithBandsAndBackgroundCanChange(t *testing.T) {
 	dependencies, _, _, _, _, _ := testDependencies()
 	current := newModel(context.Background(), dependencies, true, time.UTC)
-	if current.Init() == nil {
-		t.Fatal("colored Init command = nil, want background detection")
-	}
 	selectedRow := func(theme tui.Theme, body string) string {
 		edge := lipgloss.NewStyle().Foreground(theme.Accent).Background(theme.InputBg).Render("▌ ")
 		fill := lipgloss.NewStyle().Foreground(theme.Text).Background(theme.InputBg).Render(body)
