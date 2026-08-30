@@ -2,8 +2,8 @@
 
 The CLI is the canonical v1 surface; agents consume entity operations
 through `--json` and configuration through TOML. A post-v1 TUI is arriving
-incrementally — `gsd capture` and the read-only `gsd tui` navigator are
-its shipped surfaces — and will embed the same grammar and call the same
+incrementally - `gsd capture` and the read-only `gsd tui` navigator are
+its shipped surfaces - and will embed the same grammar and call the same
 parser and core. This document specifies the canonical v1 target; the
 roadmap in `MILESTONES.md` delivers it incrementally.
 
@@ -12,7 +12,7 @@ roadmap in `MILESTONES.md` delivers it incrementally.
 - **Verb-first; bare verbs act on tasks.** `gsd add`, `gsd done 42`.
   Tasks are the default noun and elide entirely.
 - **Plural noun = operate on the collection** (create into it, enumerate
-  it): `gsd projects add`, `gsd areas list`. Bare plurals are an error —
+  it): `gsd projects add`, `gsd areas list`. Bare plurals are an error -
   `list` is always explicit.
 - **Singular noun = operate on one entity.** Its argument is that entity's
   identity: an ID for ID-addressed entities (`gsd project done 7`) and a name
@@ -20,7 +20,7 @@ roadmap in `MILESTONES.md` delivers it incrementally.
 - **Bare integer IDs; the noun disambiguates.** `gsd done 42` is a task,
   `gsd project done 7` is a project. Mixed output (logbook, search)
   prints the kind next to the ID.
-- **Tags are addressed by name**, never ID — the name is the identity.
+- **Tags are addressed by name**, never ID - the name is the identity.
   All tag administration lives on the plural (`tags`); singular `tag` /
   `untag` are verbs that attach/detach.
 - **One obvious way.** No aliases, no sugar verbs, no second spellings.
@@ -156,7 +156,7 @@ gsd search "EXPR" [--related]
 
 - `search` passes `EXPR` through FTS5 match syntax (`plumb*`, `"exact
   phrase"`, `a OR b`) over the title, tags, and note of every task,
-  project, and area — all statuses, archived areas included. `--related`
+  project, and area - all statuses, archived areas included. `--related`
   widens the same search through inherited context (a container's title
   and tags), ranking every direct match above every context-only match;
   within a tier, relevance orders results, with ties broken by kind
@@ -164,7 +164,7 @@ gsd search "EXPR" [--related]
   `invalid_argument`. Human rows show kind, id, title, status, and the
   container-title context path; `--json` is an array of
   kind-discriminated complete entity rows in relevance order. The FTS
-  index is internal and virtual — built per invocation, nothing
+  index is internal and virtual - built per invocation, nothing
   persists, results always reflect current data.
 
 ## Capture
@@ -178,8 +178,8 @@ gsd capture
   invocation: `tmux display-popup -w 64 -h 4 -E 'gsd capture'`). It
   runs in the terminal's alternate screen and is keyboard-only.
 - Enter with a non-blank title creates an open task with exactly
-  `gsd add TITLE` semantics — the title verbatim, untrimmed, no other
-  fields — then exits `0` with no output; the popup just vanishes.
+  `gsd add TITLE` semantics - the title verbatim, untrimmed, no other
+  fields - then exits `0` with no output; the popup just vanishes.
   Enter on blank input (empty or whitespace-only) is a no-op. Esc and
   Ctrl+C cancel: exit `0`, nothing written. A cancel during an
   in-flight write waits for the write to settle, and a write that wins
@@ -218,11 +218,11 @@ gsd capture
   re-stating the current container is a no-op and does not move the entity.
 - **Reorder is sibling-relative**: the reference entity must live in the
   same container as the moved one; a cross-container reference or a
-  self-reference is `invalid_argument`. Reordering is status-blind — done,
+  self-reference is `invalid_argument`. Reordering is status-blind - done,
   cancelled, and archived siblings keep their positions, can be moved, and
   can serve as references. The board axis applies the same reference rule:
   resolved projects retain hidden stage positions and remain valid placement
-  references, though `move` itself carries the transition guards — a resolved
+  references, though `move` itself carries the transition guards - a resolved
   project, or one under an archived governing area, cannot move. A placement
   that lands the entity where it already sits succeeds as an ordinary
   reorder. Exactly one placement flag must be meaningfully given. An
@@ -304,7 +304,7 @@ gsd capture
   both its date defer has arrived and its project has reached or passed its
   deferred stage by stage position. Moving the project backward can hide it
   again. `list --deferred` includes tasks blocked by either gate.
-- **Dates**: canonical `YYYY-MM-DD`, plus a closed keyword set — `today`,
+- **Dates**: canonical `YYYY-MM-DD`, plus a closed keyword set - `today`,
   `tomorrow`, weekday names (`mon`..`sun` = next occurrence), `+Nd`,
   `+Nw`. Nothing else parses.
 - **Date/defer filters are mutually exclusive**: `--due` selects tasks in the
@@ -324,9 +324,9 @@ gsd capture
 - `--json` is a global persistent complete-output-mode flag for commands that
   support JSON. `gsd config`, `gsd capture`, and `gsd tui` are the
   exceptions: combining any of them with `--json` is a usage error
-  (exit `2`) — TOML is `config`'s machine-readable format, and `capture`
-  and `tui` are interactive-only. Successful entity output is its table row — the same column names
-  and formats, including derived `status` — plus `tags`, an array of stored
+  (exit `2`) - TOML is `config`'s machine-readable format, and `capture`
+  and `tui` are interactive-only. Successful entity output is its table row - the same column names
+  and formats, including derived `status` - plus `tags`, an array of stored
   tag names in alphabetical
   (`NOCASE`) order, matching `tags list`.
   The complete v1 entity field sets are:
@@ -383,7 +383,7 @@ gsd capture
 - **Cascades report what they touched**:
   `{"project":{...},"cancelled_tasks":[{...},...]}`; recursive deletion
   mirrors it as `{"project":{...},"deleted_tasks":[...]}` and, for areas,
-  `{"area":{...},"deleted_projects":[...],"deleted_tasks":[...]}` —
+  `{"area":{...},"deleted_projects":[...],"deleted_tasks":[...]}` -
   `deleted_tasks` grouped by container: the area's loose tasks first,
   then each deleted project's tasks following `deleted_projects` order,
   with every group (and `deleted_projects` itself) ordered by
@@ -400,7 +400,7 @@ gsd capture
   `{"error":{"code":"not_found","message":"no task 42"}}`. Initial stable
   codes are `not_found`, `invalid_argument`, `conflict`, and `internal`;
   `internal` messages carry the underlying diagnostic. Command grammar and
-  flag failures stay human-readable on stderr even under `--json` — exit
+  flag failures stay human-readable on stderr even under `--json` - exit
   code `2` is their machine signal. Default mode keeps human-readable
   stderr diagnostics for every error.
 - **Exit codes stay coarse**: `0` success, `1` application error, `2` usage
@@ -437,8 +437,8 @@ gsd capture
   tasks), and glyphs mark records and events. Events use `+` add, `−` delete,
   `✓` done, `✗` cancel/archive, `+#` tag, `−#` untag, and `~` neutral
   mutations. Record glyphs follow the `show` mapping above; cascade children
-  use `├` until the final `└`. Hue marks state change only — green for
-  done/added, red for cancelled/archived/deleted/urgent — drawn from
+  use `├` until the final `└`. Hue marks state change only - green for
+  done/added, red for cancelled/archived/deleted/urgent - drawn from
   Catppuccin Latte on light terminal backgrounds and Frappé on dark,
   accents-only. Identity markers, structural glyphs, and metadata stay
   monochrome; stderr diagnostics are unstyled in v1. Structure (headers,
@@ -529,15 +529,15 @@ rest remains planned at the end of this section.
 
 - **`tui` opens the full-screen navigator**: walk the whole system
   from the root down to any entity's detail without mutating
-  anything. Exactly one view is on screen — no panes — and navigating
+  anything. Exactly one view is on screen - no panes - and navigating
   replaces the screen entirely, so the same structure works in a full
   terminal and a tmux popup. It runs in the terminal's alternate
   screen and is keyboard-only.
 - **Two lenses, one tree.** Boards and areas are two lenses over the
-  same objects — projects; neither contains the other. The root shows
+  same objects - projects; neither contains the other. The root shows
   Inbox, Available, Logbook, then Boards and Areas, and every view is
   one of three shapes:
-  - *Collections* (Boards, Areas): lists of entities with no header —
+  - *Collections* (Boards, Areas): lists of entities with no header -
     a collection is not itself an entity. Board rows carry the stage
     chain; the areas collection ends with a `(no area)` pseudo-row
     holding the loose projects.
@@ -547,10 +547,10 @@ rest remains planned at the end of this section.
     container's detail. An area lists its open projects, then its
     loose open tasks; a board lists its open projects grouped by
     stage with derived done/total progress. Content defaults mirror
-    the CLI — active areas, open projects and tasks; the logbook is
+    the CLI - active areas, open projects and tasks; the logbook is
     where resolved work lives.
-  - *Detail*: one uniform view rendering any entity — task, project,
-    area, or board — mirroring `show`'s fields. Empty fields
+  - *Detail*: one uniform view rendering any entity - task, project,
+    area, or board - mirroring `show`'s fields. Empty fields
     collapse, and notes render as plain escaped text with line
     breaks preserved.
 - **Keys**: `j`/`k`/arrows move; Enter/`l` descends into a container
@@ -567,13 +567,13 @@ rest remains planned at the end of this section.
   another terminal appears on the next entry. No polling, no
   watchers.
 - **`/` is an incremental fuzzy filter over the current list view**,
-  not FTS — `gsd search` remains the CLI's FTS surface. Matching is
+  not FTS - `gsd search` remains the CLI's FTS surface. Matching is
   in-memory fuzzy subsequence over the view's visible row text with
   smart-case (an all-lowercase pattern matches case-insensitively;
   any uppercase requires a case match); matched characters highlight,
   non-matching rows hide, sections and headers stay, and the cursor
   clamps to the matched set. `/` opens the query input; every gesture
-  out of the input — `↑`/`↓`, Esc, `/` — commits the filter into
+  out of the input - `↑`/`↓`, Esc, `/` - commits the filter into
   retained filtered navigation, where `j`/`k`/`l`/`q` regain their
   navigation meanings (the arrows also move the selection). Enter
   opens the selected match from either mode; `/` returns to editing
@@ -587,14 +587,14 @@ rest remains planned at the end of this section.
   narrow, adjacent duplicate segments merged); a bottom band holds
   dim per-view key hints and hosts the `/` filter query. Selection is
   an accent `▌` edge with a filled row. Every list row is glyph ·
-  title · dim trailing annotations — `•` task, `◆` project, `●`
+  title · dim trailing annotations - `•` task, `◆` project, `●`
   area, `▥` board, `○` the `(no area)` pseudo-row; logbook rows
   recolor the glyph (`✓` green, `✗` red). IDs appear only in detail
   views, where the headline is glyph + title and `id` leads the field
   list. Due dates render yellow; an open task due on or before today
   renders bold red, matching the CLI's overdue rule. Containers
-  breathe — a blank line under the header and between sections, rows
-  indented under titled section headings — and empty board stages
+  breathe - a blank line under the header and between sections, rows
+  indented under titled section headings - and empty board stages
   render as bare dim headings. Color follows CLI-OUTPUT-001;
   structure is identical uncolored.
 - **Interactive-only**: `tui` takes no arguments, and `--json` and
@@ -609,8 +609,8 @@ rest remains planned at the end of this section.
 
 Still planned, by layer:
 
-- **A board column view** — one board full-screen, stages as columns,
-  open projects as cards — beside the stage-grouped list
+- **A board column view** - one board full-screen, stages as columns,
+  open projects as cards - beside the stage-grouped list
   (Milestone 13).
 - **Single-key bindings are mnemonics for the same verbs**, applied to
   the selected row: `a` add, `d` done, `x` cancel, `e` edit, `t` tag,
@@ -619,7 +619,7 @@ Still planned, by layer:
   vocabulary (Milestone 14).
 - **`:` opens a command line that accepts the CLI grammar verbatim**,
   minus the binary name (`:projects add "Kitchen reno" --area 3`). It
-  calls the same parser and core — parity is shared code, not
+  calls the same parser and core - parity is shared code, not
   discipline (Milestone 15).
 - **`gsd capture` grows inline syntax and a command-runner mode**
   (Milestone 15).

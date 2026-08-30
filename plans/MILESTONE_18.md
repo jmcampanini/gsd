@@ -1,4 +1,4 @@
-# Milestone 18 — History
+# Milestone 18 - History
 
 Data mode: **live**. Depends on: Milestone 9. **Optional**:
 deliberately underspecified; enters planning only when its trigger
@@ -10,11 +10,11 @@ Written as a placeholder; the design interview happens at activation.
 
 Track how the system changes over time: today gsd stores current
 state plus resolution timestamps, and the logbook answers "what
-finished" — but not "how did this get here" (stage transitions and
+finished" - but not "how did this get here" (stage transitions and
 their timing, edits, reorderings, per-stage aging on boards). This
 milestone gives change-over-time a durable home.
 
-Recording begins when this milestone lands, not retroactively — the
+Recording begins when this milestone lands, not retroactively - the
 boards interview (2026-08-07) accepted that consequence when it chose
 current-stage-only storage for Milestone 11.
 
@@ -29,7 +29,7 @@ what surfaces read it (`logbook` extensions, `board show` aging, a
 ## Activation trigger
 
 Daily use asks a question about the past that current state and the
-logbook cannot answer — the recorded example: "how long do projects
+logbook cannot answer - the recorded example: "how long do projects
 sit in each stage?"
 
 ## Exit criteria

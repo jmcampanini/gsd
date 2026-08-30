@@ -1,4 +1,4 @@
-# Milestone 15 — Input grammar
+# Milestone 15 - Input grammar
 
 Data mode: **live**. Depends on: Milestone 14.
 
@@ -8,7 +8,7 @@ Written light; re-review at plan gate.
 
 Full parity, structurally: the CLI grammar arrives inside the TUI, and
 capture grows syntax. One grammar-execution engine serves the `:`
-command line, the edit/tag mnemonics, and capture's richer modes —
+command line, the edit/tag mnemonics, and capture's richer modes -
 parity is shared code, not discipline.
 
 ## Scope
@@ -18,7 +18,7 @@ parity is shared code, not discipline.
   calls the same parser and core; results and errors render through
   Milestone 14's feedback surfaces.
 - **`e` edit and `t` tag** arrive as mnemonics that prefill the command
-  line for the selected row — verbs the single-key layer couldn't
+  line for the selected row - verbs the single-key layer couldn't
   express without a grammar.
 - **Inline capture syntax** (**proposed**: tag, date, and project
   tokens on the title) shared between `gsd capture` and the TUI's `a`
@@ -30,11 +30,11 @@ parity is shared code, not discipline.
 
 ## Chunks
 
-1. **Grammar engine and `:`** — in-process execution of the CLI grammar
+1. **Grammar engine and `:`** - in-process execution of the CLI grammar
    against the same parser and services; result and error rendering.
-2. **Edit and tag mnemonics** — `e`/`t` prefill on the selection.
-3. **Inline capture syntax** — the token grammar, in `capture` and `a`.
-4. **Capture runner mode** — the popup executes the grammar.
+2. **Edit and tag mnemonics** - `e`/`t` prefill on the selection.
+3. **Inline capture syntax** - the token grammar, in `capture` and `a`.
+4. **Capture runner mode** - the popup executes the grammar.
 
 ## Agent-verified end-to-end workflow
 

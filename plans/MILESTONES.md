@@ -19,32 +19,32 @@ been permanently retired under [`PROCESS.md`](PROCESS.md). Current code,
 tests, and canonical specifications are authoritative for their completed
 behavior.
 
-### Milestone 0 — Scaffolding
+### Milestone 0 - Scaffolding
 
 Established the repository, command-tree and version spine, complete local
 `make check` contract, CI, and initial codified
 engineering guardrails.
 
-### Milestone 1 — Capture loop
+### Milestone 1 - Capture loop
 
 Delivered the complete bare-inbox task lifecycle: add, list, show, edit,
 complete, cancel, reopen, and delete, with persistent SQLite state, human and
 JSON output, stable application errors, and end-to-end coverage.
 
-### Milestone 2 — Time
+### Milestone 2 - Time
 
 Delivered strict local-calendar due and defer dates, date-aware list filters,
 and the actionable `available` view with human and JSON output and end-to-end
 coverage.
 
-### Milestone 3 — Projects
+### Milestone 3 - Projects
 
 Delivered projects with task containment and append-on-re-parent, the
 transactional completion/cancellation cascade with narration, the
 resolved-project guard, RESTRICT-guarded deletion with an explicit
 `--recursive` opt-in, and the interleaved `logbook`.
 
-### Milestone 4 — Areas
+### Milestone 4 - Areas
 
 Delivered areas holding projects and loose tasks with schema-enforced
 containment exclusivity, governing-area inheritance through `available`
@@ -53,64 +53,64 @@ unarchive-first guidance, and RESTRICT-guarded area deletion with a
 transactional `--recursive` opt-in reporting a container-grouped
 envelope.
 
-### Milestone 5 — Tags
+### Milestone 5 - Tags
 
 Delivered the flat case-insensitive tag namespace across tasks,
 projects, and areas: name-addressed administration with usage counts,
 attach/detach verbs and `--tag` creation and list filtering on all
 three nouns, idempotent attachment, cascade detachment on deletion, and
-`tags` arrays completing every entity JSON envelope — converging the
+`tags` arrays completing every entity JSON envelope - converging the
 schema byte-for-byte with `SCHEMA.md`. Consolidation also landed the
 store transaction seam across all stores, read-then-validate guard
 classification, and the shared `internal/domain` validation package.
 
-### Milestone 6 — Config
+### Milestone 6 - Config
 
 Delivered the canonical v1 config contract: a discovered or explicit
 TOML file loaded through go-config-loader with defaults → file → env →
 flag precedence and fail-loud invalid-file handling, db-path resolution
 moved onto the loaded config, and the TOML-only `gsd config` report
 with normalized `--provenance` source comments. Landed the settled
-visual system — destination-aware per-stream color modes,
+visual system - destination-aware per-stream color modes,
 background-adaptive Catppuccin accents, quiet-headed collection tables,
-glyph-led records and mutation lines, and `├`/`└` cascade trees — while
+glyph-led records and mutation lines, and `├`/`└` cascade trees - while
 JSON envelopes stayed byte-identical to Milestone 5. Consolidation also
 landed the root/core store split, read-then-delete cascades,
 service-owned read-path tag resolution, `domain.TagNames`, and
 alphabetical tag arrays (`user_version` 9006).
 
-### Milestone 7 — Reorder
+### Milestone 7 - Reorder
 
-Delivered manual ordering — `reorder` on tasks, projects, and areas
+Delivered manual ordering - `reorder` on tasks, projects, and areas
 with `--first`/`--last`/`--after`/`--before` placements: sibling-relative
 container semantics rejecting cross-container and self-references,
 status-blind contiguous renumbering from 0 with `updated_at` bumped on
 the moved row only, no-op placements succeeding as ordinary reorders,
-bare-entity JSON echoes, and `~ Reordered:` mutation lines — no schema
+bare-entity JSON echoes, and `~ Reordered:` mutation lines - no schema
 change (`user_version` stays 9006). Chunk 0 applied the Milestone 6
 review's scheduled finding, moving filtered-list area validation for
 projects into the service; consolidation codified the
 services-own-validation store contract in `AGENTS.md` and ordinal-only
 position semantics in `SCHEMA.md`.
 
-### Milestone 8 — Search
+### Milestone 8 - Search
 
-Delivered full-text search — `gsd search "EXPR"` passing FTS5 match
+Delivered full-text search - `gsd search "EXPR"` passing FTS5 match
 syntax through to the title, tags, and note of every task, project,
 and area across all statuses and archived areas, with `--related`
 widening the same expression through inherited container titles and
 tags: direct matches tiered above context-only matches, weighted-bm25
 relevance with kind/id tie-breaks, kind-discriminated complete entity
 rows in JSON, and a kind/id/title/status/context human table. The
-index is virtual — a temp FTS5 table built per invocation from live
-data — so nothing persists, results are never stale, and
+index is virtual - a temp FTS5 table built per invocation from live
+data - so nothing persists, results are never stale, and
 `user_version` stays 9006. Consolidation reconciled the search grammar
 in `COMMANDS.md` (filter flags descoped in favor of future
 in-expression operators) and the now-vacuous no-live-migrations note;
 wrap-up aligned `TagNames` JSON with the shared non-HTML-escaped
 output policy across all tag-emitting commands.
 
-### Milestone 9 — Go live
+### Milestone 9 - Go live
 
 Delivered the durable database and closed v1: numbered SQL migrations
 embedded in the binary and applied automatically on open, with
@@ -128,12 +128,12 @@ not a runtime check. Consolidation reconciled `COMMANDS.md` § Database
 to live-era semantics. From here real data enters through daily use
 and every schema change ships as a numbered migration.
 
-### Milestone 10 — Capture
+### Milestone 10 - Capture
 
 Delivered the first TUI surface and the substrate the remaining TUI
 milestones stand on: `gsd capture`, a popup-sized single-input Bubble
 Tea v2 program built for `tmux display-popup`, writing through
-`task.Add` with exactly `gsd add TITLE` semantics — blank Enter is a
+`task.Add` with exactly `gsd add TITLE` semantics - blank Enter is a
 no-op, Esc/Ctrl+C cancel at exit 0, a failed write renders its
 application error inline and exits 1 on dismiss, and `--json`/non-TTY
 invocations are usage errors naming `gsd add` as the noninteractive
@@ -149,7 +149,7 @@ seam into typed reader/writer dependencies, and consolidated
 control-character escaping into `internal/text`; the surviving
 substrate promotion trigger carries in `MILESTONE_13.md`.
 
-### Milestone 11 — Boards
+### Milestone 11 - Boards
 
 Delivered global, name-addressed boards with manually ordered stages and a
 strategic `board show` view. Projects can join one board, enter its first
@@ -165,10 +165,10 @@ coverage. The foundation review centralized entity row types in
 strengthened cross-axis, rollback, and defer-complement tests; its remaining
 stage-gate trigger carries in `MILESTONE_13.md`.
 
-### Milestone 12 — Navigator
+### Milestone 12 - Navigator
 
 Delivered the full read-only TUI: `gsd tui`, a full-screen keyboard
-navigator over the whole system — a root tree (Inbox, Available,
+navigator over the whole system - a root tree (Inbox, Available,
 Logbook, Boards, Areas), boards and areas as two lenses over the same
 projects, container views with selectable headers, a uniform detail
 view mirroring `show` for all four entity kinds, and `/` incremental
@@ -177,9 +177,9 @@ rows, structure preserved, committed into retained filtered
 navigation). Views load on entry and re-read by stable ID on
 re-entry; `--json` and non-TTY invocation are usage errors naming the
 CLI as the noninteractive path. Mid-milestone the TUI design language
-was settled over live captures — chrome bands (badge, breadcrumb, key
+was settled over live captures - chrome bands (badge, breadcrumb, key
 hints), Picker-style filled selection, glyph-led record rows with ids
-confined to detail views, urgency accents, and container spacing —
+confined to detail views, urgency accents, and container spacing -
 the vocabulary every later TUI surface inherits. The navigation layer
 this milestone consolidates (view stack, the collection/container/
 detail view shapes, selection model, data binding) is what Milestones
@@ -210,7 +210,7 @@ independent of the TUI track.
 The TUI shipped its substrate as Milestone 10 and its navigation
 layer as Milestone 12, and continues as Milestones 13–15, sequenced by
 foundational layer rather than feature count: each milestone boundary
-marks a foundation review that later TUI work builds on — substrate,
+marks a foundation review that later TUI work builds on - substrate,
 then navigation, then mutation, then grammar. Leaf features ride their
 layer's milestone as chunks: live `/` search shipped in Navigator,
 grab-and-move reorder and single-key stage movement in Row verbs,
@@ -240,7 +240,7 @@ when their trigger fires:
   (`9000 + roadmap milestone number`) so throwaway stamps could never
   collide with real migration numbers, and the binary failed loud on a
   mismatch; development databases were disposable by declaration. No
-  dev-range guard survives Go live — a leftover throwaway database
+  dev-range guard survives Go live - a leftover throwaway database
   never carried gsd's `application_id`, so it fails the
   foreign-identity refusal in `COMMANDS.md` § Database.
 - **Go live onward (live):** the accumulated schema became migration
@@ -268,17 +268,17 @@ when their trigger fires:
 - 2026-08-02, Milestone 5 foundation review: Go live moved to the end of
   the roadmap (Config → Reorder → Search → Query → Go live) so the
   complete written-down v1 surface is demonstrated on throwaway data
-  before real data enters. The search index is virtual — built per
-  invocation, nothing persists — so v1 ships no live migrations, now
+  before real data enters. The search index is virtual - built per
+  invocation, nothing persists - so v1 ships no live migrations, now
   vacuously.
 - Same review: entity `tags` arrays become alphabetical (`NOCASE`),
-  matching `tags list` — specified in the canonical docs now, shipped by
+  matching `tags list` - specified in the canonical docs now, shipped by
   Milestone 6 chunk 0, which also consolidates the review's structural
   findings. The amended transaction-authority rule in `AGENTS.md` was
   ratified: stores own implementation-detail atomicity, services own
   use-case composition.
 - 2026-08-02, Milestone 6 planning: color was removed from the config
-  surface — the chain is strictly `--color` > nonempty `NO_COLOR` >
+  surface - the chain is strictly `--color` > nonempty `NO_COLOR` >
   per-stream auto, with no `GSD_COLOR` and no TOML key. The
   human-output styling system was settled by three blind pairwise test
   rounds plus a glyph tournament: quiet-chrome collection tables, glyph-led
@@ -291,7 +291,7 @@ when their trigger fires:
   with `null`-clears for edits; wire JSON and the error envelope are the
   CLI `--json` shapes unchanged, mapped 404/400/409/500. The bind address
   is config key #2 (`[serve] addr`, `GSD_SERVE_ADDR`, `--addr`, default
-  `127.0.0.1:8473` — "473" is gsd on a keypad), tripping Milestone 7's
+  `127.0.0.1:8473` - "473" is gsd on a keypad), tripping Milestone 7's
   deferred config-report generalization. The canonical contract is a new
   `plans/API.md`; no OpenAPI in v1. Concurrency is documented, not
   enforced (last-write-wins `PATCH`, non-idempotent creates); the
@@ -312,7 +312,7 @@ when their trigger fires:
   read-only SQL with the schema as public contract) was cancelled at its
   plan gate, before implementation; raw SQL access returns only if daily
   use demonstrates the need. The schema-as-public-API framing left the
-  canonical specs with it — `SCHEMA.md`'s contract section now states
+  canonical specs with it - `SCHEMA.md`'s contract section now states
   the stability rules Go live's migrations require. Milestone numbering
   is retained; the roadmap resumes at 10. Milestone 8's carried deferred
   items and the functional completeness audit moved into the Capture
@@ -321,48 +321,48 @@ when their trigger fires:
   same day: `Formula/gsd.rb` and the self-tap README install
   instructions landed via PR #53.
 - 2026-08-06, roadmap restructure and renumbering: Serve moved behind
-  the TUI and became optional — nothing needs HTTP today (the TUI is
+  the TUI and became optional - nothing needs HTTP today (the TUI is
   in-process and agents drive the CLI's `--json` surface), and
   deferring it reaches daily use sooner; it activates only when a
   consumer that can't exec the CLI appears (browser frontend, remote
   agent). Query returned to the roadmap as an optional milestone after
   Serve, keeping its cancellation trigger. The roadmap was renumbered
-  as a clean break — Go live retakes 9, the TUI is 10–13, Serve is 14,
+  as a clean break - Go live retakes 9, the TUI is 10–13, Serve is 14,
   Query is 15; earlier decision entries keep the numbers that were
   current when they were written. Go live itself was cut to the
   migration runner: the install story had already shipped (PR #53 and
   a verified `brew install --HEAD` on the target machine; the README
   landing-page rewrite and completion docs were deliberately dropped),
   and the agent-driven import and functional completeness audit were
-  descoped — real data enters through daily use from a fresh start,
+  descoped - real data enters through daily use from a fresh start,
   and real use surfaces gaps over time, so v1 closes when Go live
   lands, with no import, soak, or old-tool-demotion gate.
 - 2026-08-07, Boards planning interview: boards join the roadmap as
-  Milestone 11 — the strategic lens over projects. A board is a
+  Milestone 11 - the strategic lens over projects. A board is a
   user-defined pipeline of named, ordered stages; a project subscribes
   to at most one board and occupies exactly one stage, stored on the
   project with the board rendered as a grouped lens (prior art:
   Linear, GitHub Projects, and Notion all store stage and render
   columns; Trello's column-as-storage model is the counterexample).
   Boards are global like tags; membership is optional; stage is
-  orthogonal to `open`/`done`/`cancelled` — the board shows open
+  orthogonal to `open`/`done`/`cancelled` - the board shows open
   projects only, the last stage never means done, and the logbook
   keeps owning finished work. Tasks stay tactical with exactly one
   narrow stage relationship: `defer until stage` (hidden from
   `available` until the project reaches or passes the named stage,
   composing with date defer) plus an opt-in promotes marker
   (completing the task transactionally moves the project one stage
-  forward — one-way, relative, a reported no-op at the last stage).
+  forward - one-way, relative, a reported no-op at the last stage).
   Derived-from-tasks advancement and hard stage-gating were rejected;
   Linear-milestone-style stage buckets and WIP limits were deferred
   with recorded triggers. Vocabulary fixed: board, stage, column
   (presentation only), move (the verb), promote. The schema folds
-  into `0001_baseline` as a pre-users clean break — no `0002`
+  into `0001_baseline` as a pre-users clean break - no `0002`
   migration; the existing personal database is recreated once. The
   roadmap renumbered as a clean break, per the 2026-08-06 precedent:
   Boards takes 11, Navigator 12, the new read-only Board view 13
   (its stage-movement key rides Row verbs), Row verbs 14, Input
-  grammar 15, Serve 16, Query 17, and History enters as optional 18 —
+  grammar 15, Serve 16, Query 17, and History enters as optional 18 -
   deliberately underspecified change-over-time tracking, recording
   from activation, not retroactively. Earlier decision entries keep
   the numbers that were current when they were written.

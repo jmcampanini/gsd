@@ -134,7 +134,7 @@ func writeJSON(writer io.Writer, value any) error {
 // route through the with*Output wrappers in root.go, which pair this dispatch
 // with a per-command payload selector. capture and config are not dispatch
 // sites: both reject --json outright. If another cross-cutting output surface
-// lands (--quiet, CSV), extend renderResult — dispatch exists only here.
+// lands (--quiet, CSV), extend renderResult - dispatch exists only here.
 func renderResult[T any](
 	command *cobra.Command,
 	options *rootOptions,

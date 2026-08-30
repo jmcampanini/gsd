@@ -1,7 +1,7 @@
-# gsd — Distilled Design Spec (v1)
+# gsd - Distilled Design Spec (v1)
 
 `gsd` (get shit done) is a CLI (with a post-v1 TUI landing
-incrementally — the `gsd capture` popup and the read-only `gsd tui`
+incrementally - the `gsd capture` popup and the read-only `gsd tui`
 navigator so far) wrapping a personal to-do system. Its design goals
 are simple, extendable primitives, a
 Things-inspired workflow, and a SQLite backend. The current baseline provides
@@ -23,61 +23,61 @@ the forward-looking canonical v1 target delivered incrementally through
 
 ## Primitives
 
-**Area** — a container for projects and loose tasks. Never completes.
+**Area** - a container for projects and loose tasks. Never completes.
 
 - `title`, `note`
 - `position`
 - `archived_at` (retire an area without deleting it; empty = active)
 
-**Board** — a global, user-defined pipeline orthogonal to areas. Its name is
+**Board** - a global, user-defined pipeline orthogonal to areas. Its name is
 its identity, and its ordered stages define the workflow; gsd supplies no
 default board.
 
 - `title`, `note`
 - `position`
 
-**Stage** — a named, ordered step owned by a board. A rendered stage is a
+**Stage** - a named, ordered step owned by a board. A rendered stage is a
 *column*. A project *moves* in either direction; *promote* means specifically
 moving it to the next stage and is a concept, not another CLI verb.
 
 - `title`
 - `position`
 
-**Project** — belongs to at most one area and, independently, at most one
+**Project** - belongs to at most one area and, independently, at most one
 board, where it occupies exactly one stage. Carries no dates.
 
 - `title`, `note`
-- `done_at` / `cancelled_at` — at most one set; both empty = open
-- `position` — area sibling order
-- `stage_id`, `stage_position` — optional board membership and column order
+- `done_at` / `cancelled_at` - at most one set; both empty = open
+- `position` - area sibling order
+- `stage_id`, `stage_position` - optional board membership and column order
 
-**Task** — belongs to exactly one of: a project, an area (loose task), or
+**Task** - belongs to exactly one of: a project, an area (loose task), or
 nothing (= inbox).
 
 - `title`, `note`
-- `defer_until` (optional) — calendar day; hides the task until it arrives
-- `defer_stage_id` (optional) — hides it until its project reaches or passes
+- `defer_until` (optional) - calendar day; hides the task until it arrives
+- `defer_stage_id` (optional) - hides it until its project reaches or passes
   that stage
-- `promotes` — declared intent to move its project to the next stage when done
-- `due_on` (optional) — calendar day; reserved for real external deadlines
+- `promotes` - declared intent to move its project to the next stage when done
+- `due_on` (optional) - calendar day; reserved for real external deadlines
   only, never aspirations
-- `done_at` / `cancelled_at` — at most one set; both empty = open
+- `done_at` / `cancelled_at` - at most one set; both empty = open
 - `position`
 
-**Tag** — flat namespace, case-insensitively unique with SQLite's ASCII-only
+**Tag** - flat namespace, case-insensitively unique with SQLite's ASCII-only
 `NOCASE`. Attaches to tasks, projects, and areas; names are its identity.
 
 ## Field conventions
 
-- `*_at` — an instant (UTC timestamp), stamped by the system.
-- `*_on` / `*_until` — a calendar day (no timezone), chosen by the human.
+- `*_at` - an instant (UTC timestamp), stamped by the system.
+- `*_on` / `*_until` - a calendar day (no timezone), chosen by the human.
 - Events are nullable `*_at` fields rather than booleans. `promotes` is the
   deliberate exception because it declares intent rather than recording an
   event.
 
 ## Ordering
 
-`position` is an integer giving manual sort order within a container — the
+`position` is an integer giving manual sort order within a container - the
 order you see when you drag things around: projects within an area, tasks
 within a project. Without it, every list
 falls back to alphabetical or created-at, which never matches how you
@@ -108,7 +108,7 @@ completing stamps `done_at`, cancelling stamps `cancelled_at`, and the two
 are mutually exclusive. Reopening clears the stamp. `status` is derived
 from the pair, never stored.
 
-Hard delete exists but is the uncommon path — the normal end of life is
+Hard delete exists but is the uncommon path - the normal end of life is
 `done` or `cancelled`, which lands in the logbook.
 
 ## Views
@@ -118,15 +118,15 @@ Hard delete exists but is the uncommon path — the normal end of life is
   (own, or inherited through its project) is not archived, its defer date is
   empty or arrived, and its stage defer is empty or its project has reached
   or passed that stage. Date and stage gates are independent.
-- **Logbook**: everything done or cancelled — tasks and projects — ordered
+- **Logbook**: everything done or cancelled - tasks and projects - ordered
   by resolution time, newest first; a project lists above the tasks its
   cascade cancelled at the same instant.
 
 ## TUI navigation
 
-The TUI navigates the same primitives through full-screen views —
+The TUI navigates the same primitives through full-screen views -
 exactly one on screen, replaced entirely on navigation. Boards and
-areas are two *lenses* over the same objects — projects; neither
+areas are two *lenses* over the same objects - projects; neither
 contains the other, so the tree is uniform: root, lens, project, task.
 Every view is one of three shapes: a *collection* (Boards, Areas)
 lists entities with no header, since a collection is not itself an
@@ -135,7 +135,7 @@ selectable header for the container itself above its rows; and
 *detail* renders any one entity, mirroring `show`. A *view stack*
 records the path in: descending pushes a view, going back pops it, and
 each view keeps one cursor, restored by entity identity. Data loads
-when a view is entered and re-reads on re-entry — no polling. `/`
+when a view is entered and re-reads on re-entry - no polling. `/`
 filters the current view by in-memory fuzzy subsequence; `gsd search`
 remains the FTS surface.
 
@@ -177,7 +177,7 @@ remains the FTS surface.
   hard deletes stay allowed; archiving never mutates contents, and
   unarchive restores visibility with every position intact.
 - Hard deletes never destroy other entities: deleting a non-empty area or
-  project is an error — archive it (areas) or empty it first. A recursive
+  project is an error - archive it (areas) or empty it first. A recursive
   delete exists only as an explicit CLI opt-in (`--recursive`), never as a
   side effect.
 - Tag attachments are parts, not entities: they go with their owner.
@@ -185,16 +185,16 @@ remains the FTS surface.
 
 ## Deferred to v2+
 
-- **Recurrence** — decided but postponed: both trigger types (`schedule`:
+- **Recurrence** - decided but postponed: both trigger types (`schedule`:
   calendar-driven; `completion`: interval after last done), implemented as
   clone-based spawning, never two open instances of one rule.
-- **Sequential/parallel project modes** — dropped for now. If re-added:
+- **Sequential/parallel project modes** - dropped for now. If re-added:
   a `mode` column on project plus one extra clause in the Available filter.
-- **Today** — no Today concept in v1. When added, it will be stored/manual
+- **Today** - no Today concept in v1. When added, it will be stored/manual
   (a marker you set), not derived from dates: a `today_at` stamp, plus a
   `today_position` column if an ordered Today list is wanted.
-- **Tag hierarchy** — start flat.
-- **Sub-subtasks** — never. A task is atomic; if it has real sub-structure,
+- **Tag hierarchy** - start flat.
+- **Sub-subtasks** - never. A task is atomic; if it has real sub-structure,
   it's a project.
 
 ## Defaults chosen along the way (flag if wrong)

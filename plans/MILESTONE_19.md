@@ -1,4 +1,4 @@
-# Milestone 19 — Tree
+# Milestone 19 - Tree
 
 Data mode: **live**. Depends on: Milestone 12 (navigation layer and
 design language); sequenced after Milestone 13 (board view) so both
@@ -10,8 +10,8 @@ Written light; re-review at plan gate on activation.
 ## Capability
 
 A second operating mode for the TUI: the whole system as one
-expandable tree — root rows, lenses, containers, and leaves in a
-single view — navigated and folded entirely with `hjkl`, as an
+expandable tree - root rows, lenses, containers, and leaves in a
+single view - navigated and folded entirely with `hjkl`, as an
 alternative to the drill-in/drill-out view stack.
 
 ## Scope
@@ -26,7 +26,7 @@ alternative to the drill-in/drill-out view stack.
   uniform detail view. Collapse state is per-session.
 - Collapsed nodes carry a dim `▸`, expanded a dim `▾`, ahead of the
   record-row glyphs; everything else inherits the Milestone 12
-  design language unchanged — bands, selection fill, record rows.
+  design language unchanged - bands, selection fill, record rows.
 - Plan-gate decisions on activation: the mode entry/exit spelling (a
   root row, a key, or a Milestone 15 command-line verb), how the
   tree coexists with the view-stack mode, freshness semantics for

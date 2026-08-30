@@ -1,4 +1,4 @@
-# Milestone 16 — Serve
+# Milestone 16 - Serve
 
 Data mode: **live**. Depends on: Milestone 9. **Optional**: enters
 planning only when a consumer that can't exec the CLI appears (browser
@@ -12,8 +12,8 @@ Written ahead; re-review at plan gate on activation.
 `gsd serve` turns the CLI's capabilities into a loopback-only HTTP API: a
 second first-class adapter over the same services, speaking the same JSON
 the CLI already emits under `--json`. Agents and future frontends get an
-ergonomic, native HTTP grammar — resources for nouns, intent verbs for
-transitions — with no second validation layer, no second wire format, and
+ergonomic, native HTTP grammar - resources for nouns, intent verbs for
+transitions - with no second validation layer, no second wire format, and
 no change to the data contract.
 
 ## Scope
@@ -29,7 +29,7 @@ gsd serve [--addr HOST:PORT]
   lines go to stderr. `--json` does not apply to `serve` itself.
 - The address is config key #2: TOML `[serve] addr`, env `GSD_SERVE_ADDR`,
   flag `--addr`, standard precedence; default `127.0.0.1:8473`. A
-  non-loopback host is `invalid_argument` at startup — loopback-only and
+  non-loopback host is `invalid_argument` at startup - loopback-only and
   no auth is the v1 exposure contract. Key #2 trips the deferred
   config-report generalization recorded in `MILESTONE_13.md` (source
   classification pushed into go-config-loader's `configreporter`);
@@ -45,7 +45,7 @@ gsd serve [--addr HOST:PORT]
   tags by name (URL-encoded, case-insensitive resolution to the stored
   spelling).
 - Lifecycle transitions are action endpoints (`POST …/done`), returning
-  the CLI's envelopes — a transition report, not just the updated row.
+  the CLI's envelopes - a transition report, not just the updated row.
 - `PATCH` owns content edits: merge-patch semantics, absent = unchanged,
   explicit `null` clears (the `--no-due` twin); an empty patch is
   `invalid_argument`. Tag rename is `PATCH /v1/tags/{name}`
@@ -57,7 +57,7 @@ gsd serve [--addr HOST:PORT]
 - Errors reuse `{"error":{"code","message"}}` on the wire: `not_found`
   404, `invalid_argument` 400, `conflict` 409, `internal` 500; wrong
   method 405; malformed or unknown-field bodies are `invalid_argument`.
-  Messages stay semantic — no CLI flag spellings, no HTTP-composed
+  Messages stay semantic - no CLI flag spellings, no HTTP-composed
   recovery guidance in v1.
 
 ### Endpoints
@@ -82,13 +82,13 @@ gsd serve [--addr HOST:PORT]
 ### Semantics
 
 - Handlers are thin adapters in `internal/httpapi` over the existing five
-  `Application` interfaces — services keep all validation and transaction
+  `Application` interfaces - services keep all validation and transaction
   boundaries; `serve` adds one long-lived construction path beside the
   per-invocation factory. Stack is stdlib `net/http`; no new
   dependencies.
 - The store is untouched: single pinned connection, non-WAL; handlers
   serialize process-wide, and `BEGIN IMMEDIATE` plus the busy timeout
-  keep concurrent CLI + HTTP writers safe — races resolve into
+  keep concurrent CLI + HTTP writers safe - races resolve into
   `conflict` responses, never corruption.
 - The concurrency contract is documented, not enforced: `PATCH` is
   last-write-wins per field, creates are not idempotent; `updated_at` is
@@ -104,29 +104,29 @@ second config key.
 
 ### Deliberately deferred, with revisit triggers
 
-- **Schema-revision skew guard** (long-lived server vs. a migrated db) —
+- **Schema-revision skew guard** (long-lived server vs. a migrated db) -
   first post-baseline migration; until one ships, skew is impossible.
 - **Browser-borne request hardening** (Host allowlist, `Origin`
-  rejection, strict `Content-Type`) — before any browser-based consumer.
-- **WAL + wider connection pool** — observed contention (busy-driven
+  rejection, strict `Content-Type`) - before any browser-based consumer.
+- **WAL + wider connection pool** - observed contention (busy-driven
   500s).
-- **`ETag`/`If-Match` and idempotency keys** — a collaborative or
+- **`ETag`/`If-Match` and idempotency keys** - a collaborative or
   retry-heavy consumer.
-- **OpenAPI document** — a consumer that needs codegen.
-- **`SQLITE_BUSY` → 503 mapping** — if busy 500s appear in practice.
+- **OpenAPI document** - a consumer that needs codegen.
+- **`SQLITE_BUSY` → 503 mapping** - if busy 500s appear in practice.
 
 ## Chunks
 
-1. **Serve spine and views** — `serve` command; `[serve] addr` with full
+1. **Serve spine and views** - `serve` command; `[serve] addr` with full
    precedence, loopback validation, and the config-report
    generalization; long-lived wiring; `internal/httpapi` router, error
    mapping, logging, graceful shutdown; `GET /v1/inbox`, `/v1/available`,
    `/v1/logbook`.
-2. **Tasks over HTTP** — the complete task family: create, list with
+2. **Tasks over HTTP** - the complete task family: create, list with
    filters, show, edit, transitions, tag/untag, reorder, delete.
-3. **Projects and areas over HTTP** — CRUD, transitions with cascade
+3. **Projects and areas over HTTP** - CRUD, transitions with cascade
    envelopes, archive/unarchive, reorder, tag/untag, recursive deletes.
-4. **Tags and search** — tag administration by name, `GET /v1/search`
+4. **Tags and search** - tag administration by name, `GET /v1/search`
    with filter composition, and the wire-contract equivalence sweep.
 
 Chunk demos show the real HTTP surface: captured `curl` exchanges against
@@ -177,7 +177,7 @@ Against the real built binary and a temporary database:
    echoes on every mutation.
 4. Wire equivalence: for representative operations, HTTP bodies decode
    to the same field sets and values as the CLI's `--json` output for
-   the same state — cascade, deletion, and error envelopes included.
+   the same state - cascade, deletion, and error envelopes included.
 5. Error matrix: 404/400/409 mapping, 405 on wrong methods, malformed
    body, empty patch, filter mutual exclusions, unknown tag,
    resolved-project and archived-area conflicts.
