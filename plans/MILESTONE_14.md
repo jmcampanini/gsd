@@ -1,4 +1,4 @@
-# Milestone 14 — Row verbs
+# Milestone 14 - Row verbs
 
 Data mode: **live**. Depends on: Milestone 12 (navigation layer); the
 reorder chunk rides Milestone 7's operations; the stage-movement chunk
@@ -11,8 +11,8 @@ Written light; re-review at plan gate.
 
 The mutation layer: act on what you're looking at without leaving the
 TUI. Single-key verbs apply to the selected row, feedback renders
-inline, and the view refreshes after every write. This layer — verbs,
-confirm, feedback, refresh — is the foundation the command line and
+inline, and the view refreshes after every write. This layer - verbs,
+confirm, feedback, refresh - is the foundation the command line and
 richer capture build their result rendering on.
 
 ## Scope
@@ -28,24 +28,24 @@ richer capture build their result rendering on.
 - The active view refreshes after every mutation; cascades (project
   done/cancel) narrate through the same feedback surface.
 - **Reorder chunk**: grab-and-move on the selection, pure presentation
-  over Milestone 7's reorder operations — no new ordering model.
+  over Milestone 7's reorder operations - no new ordering model.
   Drop-commit semantics: one reorder call per completed drop, no
   intermediate persistence while dragging; multi-select reordering is out
   of scope unless a later milestone deliberately adds it.
 - **Stage-movement chunk**: a single-key move on the selected project
-  driving Milestone 11's `move` — in the board view, between adjacent
+  driving Milestone 11's `move` - in the board view, between adjacent
   columns; the exact key and its behavior outside the board view are
   settled at plan gate. Pure presentation over the CLI operation, no
   new movement model.
 
 ## Chunks
 
-1. **Resolution verbs** — `d`/`x`/`o` with feedback and
+1. **Resolution verbs** - `d`/`x`/`o` with feedback and
    refresh-after-mutation.
-2. **Add and delete** — `a` quick add into the current container; `D`
+2. **Add and delete** - `a` quick add into the current container; `D`
    with confirm, cascade narration.
-3. **Reorder** — grab-and-move driving the Milestone 7 operations.
-4. **Stage movement** — the single-key move driving Milestone 11's
+3. **Reorder** - grab-and-move driving the Milestone 7 operations.
+4. **Stage movement** - the single-key move driving Milestone 11's
    `move`, completing the board view.
 
 ## Agent-verified end-to-end workflow

@@ -64,12 +64,12 @@ A chunk's human proof is delivered as a chunk demo: a single-file HTML slide
 presentation at `.sandbox/demos/<milestone>-chunk-<n>.html`. To produce it,
 the agent builds the real product, runs the proof's recorded commands against
 a fresh temporary database, and pastes each command with its verbatim
-terminal output into the slides. Slide content is captured output only —
-never retyped, abridged, or invented — and shows the human-readable surface,
+terminal output into the slides. Slide content is captured output only -
+never retyped, abridged, or invented - and shows the human-readable surface,
 not `--json`. The deck opens with a title slide naming the chunk, then shows
 roughly one command and its output per slide with a short caption naming
-what it proves. The file is fully self-contained — inline CSS and
-JavaScript, no external assets — and navigates with the arrow keys.
+what it proves. The file is fully self-contained - inline CSS and
+JavaScript, no external assets - and navigates with the arrow keys.
 
 Demos are never committed: `.sandbox/` is disposable, and any agent on the
 chunk branch can regenerate the deck from the command list recorded in root
@@ -94,7 +94,7 @@ may rerun any command by hand. Review-only chunks produce no demo.
    3. build the real product and, when the chunk has a human proof, capture
       it as the chunk demo;
    4. run `make check` locally;
-   5. stop and hand control to Javier — agents must not commit, push, open or
+   5. stop and hand control to Javier - agents must not commit, push, open or
       update a pull request, or merge unless Javier explicitly requests that
       specific action;
    6. Javier commits the chunk, opens a pull request targeting the milestone
@@ -121,8 +121,8 @@ may rerun any command by hand. Review-only chunks produce no demo.
 
 Consolidation turns an execution branch into an authoritative product
 baseline. It lands as two sequential pull requests targeting the milestone
-branch — a consolidation pull request, then, after the foundation review, a
-wrap-up pull request — followed by the milestone pull request to `main`.
+branch - a consolidation pull request, then, after the foundation review, a
+wrap-up pull request - followed by the milestone pull request to `main`.
 
 The consolidation pull request:
 
@@ -132,7 +132,7 @@ The consolidation pull request:
   to the consolidating milestone's own surface; earlier milestones' behavior
   is re-audited only when a discovered contradiction implicates it.
   Full-surface re-audits scale with milestone count, while earlier surfaces
-  are stable — the contradiction trigger reopens exactly the ones that need it.
+  are stable - the contradiction trigger reopens exactly the ones that need it.
 - Resolve every temporary divergence due at this boundary. Update the relevant
   milestone file while it is still useful, update the canonical specification,
   and remove the intake entry from `DIVERGENCES.md`. That file is temporary

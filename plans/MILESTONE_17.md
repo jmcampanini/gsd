@@ -1,4 +1,4 @@
-# Milestone 17 — Query
+# Milestone 17 - Query
 
 Data mode: **live**. Depends on: Milestone 9 (schema stability
 contract). **Optional**: returns only if daily use demonstrates the
@@ -11,7 +11,7 @@ Written light; re-review at plan gate on activation.
 The escape hatch that makes gsd infinitely extendable without new
 features: `gsd query` runs arbitrary read-only SQL against the
 documented schema, exposing the stability contract `SCHEMA.md` has
-carried since Go live — tables stable, views only gain columns — as a
+carried since Go live - tables stable, views only gain columns - as a
 user-facing query surface.
 
 ## Scope
@@ -24,18 +24,18 @@ gsd query -              # SQL from stdin
 ```
 
 - Read-only by construction: a separate read-only connection
-  (`query_only` pragma and/or open-mode flag — both, belt and
+  (`query_only` pragma and/or open-mode flag - both, belt and
   suspenders). Any write attempt fails as `invalid_argument`; so do
   non-SELECT statements.
 - Human output: aligned table of selected columns; `--json`: array of
   row objects keyed by column name.
 - Documentation: `SCHEMA.md`'s contract section gets a short "recipes"
-  addendum (reverse tag lookup, per-project counts, area review) —
+  addendum (reverse tag lookup, per-project counts, area review) -
   documented example queries, explicitly not schema.
 
 ## Chunks
 
-1. **The whole command** — read-only connection, output modes, error
+1. **The whole command** - read-only connection, output modes, error
    mapping, recipes doc. Single chunk.
 
 ## User stories
@@ -64,7 +64,7 @@ On a seeded temporary database:
 
 1. Every documented recipe runs and returns plausibly-shaped results.
 2. Write-attempt matrix: `DELETE`, `UPDATE`, `INSERT`, `PRAGMA
-   user_version = 9`, `ATTACH` — all refused, database file unchanged
+   user_version = 9`, `ATTACH` - all refused, database file unchanged
    (checksum before/after).
 3. The three contract views expose exactly the columns `SCHEMA.md`
    promises (introspection check).
