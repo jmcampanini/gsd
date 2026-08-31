@@ -16,6 +16,7 @@
 - Route all success and error rendering through shared writers so JSON remains compact and newline-terminated, errors stay on stderr, and human output stays on stdout.
 - Task, project, and area tag service flows are intentionally parallel. When changing one, compare it with both siblings and keep only entity-specific differences.
 - Parameterize duplicated flows only when the variation is data or a single function value. Keep type-varying orchestration flows concretely parallel until divergence proves the coordination cost.
+- Command help is the canonical user-facing documentation and the README is a landing page; keep both consistent with observable behavior, and compose repeated help text from the shared fragments in `cmd/helptext.go` instead of copying it between commands.
 
 ## Test ownership
 
