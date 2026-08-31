@@ -15,6 +15,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
@@ -1731,6 +1732,44 @@ func TestExitCodesTopicPrintsSameHelpFromBothEntryPoints(t *testing.T) {
 	if extra.exitCode != 2 || extra.stdout != "" || extra.opens != 0 ||
 		!strings.Contains(extra.stderr, `unknown command "extra" for "gsd exit-codes"`) {
 		t.Errorf("exit-codes extra = %#v, want usage error naming the operand", extra)
+	}
+}
+
+func TestEveryApplicationCommandHasWrappedLongHelp(t *testing.T) {
+	t.Parallel()
+
+	// The root, 54 leaf commands, 9 command groups, and the exit-codes topic.
+	const wantCommands = 65
+	root := newRootCommand()
+
+	visited := 0
+	var visit func(*cobra.Command)
+	visit = func(command *cobra.Command) {
+		if command.Name() == "help" || command.Name() == "completion" {
+			return
+		}
+		visited++
+		if strings.TrimSpace(command.Long) == "" {
+			t.Errorf("%q has no long help", command.CommandPath())
+		}
+		for field, text := range map[string]string{"Long": command.Long, "Example": command.Example} {
+			for i, line := range strings.Split(text, "\n") {
+				if len(line) > 80 {
+					t.Errorf(
+						"%q %s line %d is %d columns, want at most 80: %q",
+						command.CommandPath(), field, i+1, len(line), line,
+					)
+				}
+			}
+		}
+		for _, child := range command.Commands() {
+			visit(child)
+		}
+	}
+	visit(root)
+
+	if visited != wantCommands {
+		t.Errorf("visited %d application commands, want %d", visited, wantCommands)
 	}
 }
 
