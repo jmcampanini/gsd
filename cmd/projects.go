@@ -12,7 +12,19 @@ func newProjectsCommand(options *rootOptions, factory applicationFactory) *cobra
 	command := &cobra.Command{
 		Use:   "projects",
 		Short: "Manage projects",
-		Args:  cobra.NoArgs,
+		Long: `Manage projects as a set: 'projects add TITLE' creates one and 'projects
+list' lists them. 'gsd project' holds the commands that act on one
+existing project.
+
+A project groups tasks. It has a title, a note, tags, a status of open,
+done, or cancelled, and a position among the projects filed under the
+same area (or among those with no area). It may sit on one board, in one
+stage of that board, where it has a separate position among the projects
+in that stage. Resolving a project cancels its open tasks, and a resolved
+project blocks changes to its tasks until it is reopened.
+
+` + groupContractHelp,
+		Args: cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
 			return usageError("projects requires a subcommand")
 		},
@@ -33,7 +45,28 @@ func newProjectsAddCommand(options *rootOptions, factory applicationFactory) *co
 	command := &cobra.Command{
 		Use:   "add TITLE",
 		Short: "Add a project",
-		Args:  cobra.ExactArgs(1),
+		Long: `Create an open project titled TITLE and print it. TITLE must not be
+blank.
+
+--area ID files the project under an area; an unknown area is not_found
+and an archived one is a conflict (both exit 1). --board NAME puts the
+project on a board, in its first stage and last among the projects
+there; an unknown board is not_found and a board without stages is a
+conflict (both exit 1). The project is placed last among the projects
+filed under its area, or among those with no area.
+
+` + noteFlagHelp + `
+
+` + tagFlagHelp + `
+
+` + blockerGuidanceHelp + `
+
+On success one line reads '+ Added project ID: TITLE' followed by any
+tags; with --json the new project row is written (fields as in 'gsd
+project show --help').
+
+` + outputContractHelp,
+		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			areaID, err := parseAreaIDFlag(command, areaIDValue)
 			if err != nil {
@@ -71,7 +104,19 @@ func newProjectsListCommand(options *rootOptions, factory applicationFactory) *c
 	command := &cobra.Command{
 		Use:   "list",
 		Short: "List projects",
-		Args:  cobra.NoArgs,
+		Long: `List projects, ordered by position and then ID across all areas.
+
+` + statusFilterHelp + `
+
+--area ID keeps projects filed under that area; an unknown area is
+not_found (exit 1).
+
+The human table has id, title, and status columns; an empty result
+prints nothing. With --json an array of project rows is written (fields
+as in 'gsd project show --help'), [] when empty.
+
+` + outputContractHelp,
+		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			status, err := project.ParseListStatus(statusValue)
 			if err != nil {
@@ -95,7 +140,7 @@ func newProjectsListCommand(options *rootOptions, factory applicationFactory) *c
 		&statusValue,
 		"status",
 		statusValue,
-		"filter by status: open, done, cancelled, or all",
+		"open, done, cancelled, or all",
 	)
 	command.Flags().StringVar(&areaIDValue, "area", "", "filter by area ID")
 
@@ -106,7 +151,13 @@ func newProjectCommand(options *rootOptions, factory applicationFactory) *cobra.
 	command := &cobra.Command{
 		Use:   "project",
 		Short: "Manage a project",
-		Args:  cobra.NoArgs,
+		Long: `Act on one existing project by ID: show, edit, tag, untag, reorder, move
+(between the stages of its board), done, cancel, reopen, and delete. New
+projects come from 'gsd projects add' and lists from 'gsd projects list';
+'gsd projects --help' describes what a project is.
+
+` + groupContractHelp,
+		Args: cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
 			return usageError("project requires a subcommand")
 		},
@@ -131,7 +182,23 @@ func newProjectShowCommand(options *rootOptions, factory applicationFactory) *co
 	return &cobra.Command{
 		Use:   "show ID",
 		Short: "Show a project",
-		Args:  cobra.ExactArgs(1),
+		Long: `Print one project in full.
+
+` + idGrammarHelp + `
+
+The human form is a header line with a status glyph, the ID, and the
+title, then one row per field: area, board (as BOARD/STAGE), note, done
+at, cancelled at, status, position, created at, updated at, and tags. An
+empty field shows only its label, and a multi-line note is indented
+under its label. With --json the project row is written: id, area_id,
+title, note, done_at, cancelled_at, status, position, created_at,
+updated_at, stage_id, stage_position, and tags; the board and stage
+appear only as stage_id and stage_position. Timestamps are UTC with
+millisecond precision, absent values are null, and tags is always an
+array.
+
+` + outputContractHelp,
+		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			id, err := project.ParseID(args[0])
 			if err != nil {
@@ -155,9 +222,14 @@ func newProjectTagCommand(options *rootOptions, factory applicationFactory) *cob
 	return newProjectTaggingCommand(
 		options,
 		factory,
-		"tag ID NAME...",
-		"Tag a project",
-		verbTagged,
+		commandSpec{
+			long: `Attach each NAME to project ID.
+
+` + taggingContractHelp,
+			short: "Tag a project",
+			use:   "tag ID NAME...",
+			verb:  verbTagged,
+		},
 		func(ctx context.Context, application project.Application, id int64, names []string) (project.Tagging, error) {
 			return application.Tag(ctx, id, names)
 		},
@@ -168,9 +240,14 @@ func newProjectUntagCommand(options *rootOptions, factory applicationFactory) *c
 	return newProjectTaggingCommand(
 		options,
 		factory,
-		"untag ID NAME...",
-		"Untag a project",
-		verbUntagged,
+		commandSpec{
+			long: `Detach each NAME from project ID.
+
+` + taggingContractHelp,
+			short: "Untag a project",
+			use:   "untag ID NAME...",
+			verb:  verbUntagged,
+		},
 		func(ctx context.Context, application project.Application, id int64, names []string) (project.Tagging, error) {
 			return application.Untag(ctx, id, names)
 		},
@@ -180,14 +257,13 @@ func newProjectUntagCommand(options *rootOptions, factory applicationFactory) *c
 func newProjectTaggingCommand(
 	options *rootOptions,
 	factory applicationFactory,
-	use string,
-	short string,
-	verb mutationVerb,
+	spec commandSpec,
 	mutate projectTaggingMutation,
 ) *cobra.Command {
 	return &cobra.Command{
-		Use:   use,
-		Short: short,
+		Use:   spec.use,
+		Short: spec.short,
+		Long:  spec.long,
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(command *cobra.Command, args []string) error {
 			id, err := project.ParseID(args[0])
@@ -201,7 +277,7 @@ func newProjectTaggingCommand(
 				},
 				func(tagging project.Tagging) any { return tagging.Project },
 				func(output humanOutput, tagging project.Tagging) error {
-					return output.writeProjectTagging(verb, tagging)
+					return output.writeProjectTagging(spec.verb, tagging)
 				},
 			)
 		},
@@ -212,9 +288,27 @@ func newProjectDoneCommand(options *rootOptions, factory applicationFactory) *co
 	return newProjectResolveCommand(
 		options,
 		factory,
-		"done ID",
-		"Complete a project",
-		verbDone,
+		commandSpec{
+			long: `Mark an open project done, recording done_at, and cancel every open task
+in it in the same transaction.
+
+` + idGrammarHelp + `
+
+A project that is already done or cancelled is a conflict (exit 1), as
+is one filed under an archived area.
+
+` + blockerGuidanceHelp + `
+
+On success one line reads '✓ Done: project ID  TITLE', followed by
+'Cancelled N open tasks:' and one line per task when any were open. With
+--json {"project":ROW,"cancelled_tasks":[ROW...]} is written, with
+cancelled_tasks empty when none were open.
+
+` + outputContractHelp,
+			short: "Complete a project",
+			use:   "done ID",
+			verb:  verbDone,
+		},
 		project.ExitDone,
 	)
 }
@@ -223,9 +317,27 @@ func newProjectCancelCommand(options *rootOptions, factory applicationFactory) *
 	return newProjectResolveCommand(
 		options,
 		factory,
-		"cancel ID",
-		"Cancel a project",
-		verbCancelled,
+		commandSpec{
+			long: `Mark an open project cancelled, recording cancelled_at, and cancel every
+open task in it in the same transaction.
+
+` + idGrammarHelp + `
+
+A project that is already done or cancelled is a conflict (exit 1), as
+is one filed under an archived area.
+
+` + blockerGuidanceHelp + `
+
+On success one line reads '✗ Cancelled: project ID  TITLE', followed by
+'Cancelled N open tasks:' and one line per task when any were open. With
+--json {"project":ROW,"cancelled_tasks":[ROW...]} is written, with
+cancelled_tasks empty when none were open.
+
+` + outputContractHelp,
+			short: "Cancel a project",
+			use:   "cancel ID",
+			verb:  verbCancelled,
+		},
 		project.ExitCancelled,
 	)
 }
@@ -233,14 +345,13 @@ func newProjectCancelCommand(options *rootOptions, factory applicationFactory) *
 func newProjectResolveCommand(
 	options *rootOptions,
 	factory applicationFactory,
-	use string,
-	short string,
-	verb mutationVerb,
+	spec commandSpec,
 	exit project.Exit,
 ) *cobra.Command {
 	return &cobra.Command{
-		Use:   use,
-		Short: short,
+		Use:   spec.use,
+		Short: spec.short,
+		Long:  spec.long,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			id, err := project.ParseID(args[0])
@@ -253,7 +364,7 @@ func newProjectResolveCommand(
 				if err != nil {
 					return err
 				}
-				return writeCommandOutput(command, options, resolution, projectResolutionWriter(verb))
+				return writeCommandOutput(command, options, resolution, projectResolutionWriter(spec.verb))
 			})
 		},
 	}
@@ -264,7 +375,26 @@ func newProjectMoveCommand(options *rootOptions, factory applicationFactory) *co
 	command := &cobra.Command{
 		Use:   "move ID STAGE",
 		Short: "Move a project on its board",
-		Args:  cobra.ExactArgs(2),
+		Long: `Move a project to stage STAGE of the board it is on, placing it last in
+that stage unless a placement flag says otherwise. STAGE matches
+case-insensitively; a stage that is not on the project's board is
+not_found (exit 1). A project that is not on a board is a conflict (exit
+1), and a move to the current stage without a placement flag changes
+nothing. Stage defers on the project's tasks are kept.
+
+` + idGrammarHelp + `
+
+Placement is optional here, and the siblings are the projects in STAGE.
+
+` + placementHelp + `
+
+` + blockerGuidanceHelp + `
+
+On success one line reads '~ Moved: ◆ ID  TITLE → STAGE'; with --json the
+updated project row is written (fields as in 'gsd project show --help').
+
+` + outputContractHelp,
+		Args: cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := flags.validate(command); err != nil {
 				return err
@@ -295,7 +425,23 @@ func newProjectReopenCommand(options *rootOptions, factory applicationFactory) *
 	return &cobra.Command{
 		Use:   "reopen ID",
 		Short: "Reopen a project",
-		Args:  cobra.ExactArgs(1),
+		Long: `Return a done or cancelled project to open, clearing done_at and
+cancelled_at. Tasks cancelled when the project was resolved stay
+cancelled; reopen them one at a time with 'gsd reopen ID'.
+
+` + idGrammarHelp + `
+
+A project that is already open is a conflict (exit 1), as is one filed
+under an archived area.
+
+` + blockerGuidanceHelp + `
+
+On success one line reads '~ Reopened: project ID  TITLE'; with --json
+the updated project row is written (fields as in 'gsd project show
+--help').
+
+` + outputContractHelp,
+		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			id, err := project.ParseID(args[0])
 			if err != nil {
@@ -318,7 +464,22 @@ func newProjectReorderCommand(options *rootOptions, factory applicationFactory) 
 	command := &cobra.Command{
 		Use:   "reorder ID",
 		Short: "Reorder a project",
-		Args:  cobra.ExactArgs(1),
+		Long: `Move a project to a new position among its siblings, the projects filed
+under the same area or, for a project without one, those with no area.
+This is the order 'gsd projects list' shows; the position within a board
+stage is separate and changed by 'gsd project move'. One placement flag
+is required (usage error, exit 2, when none is given).
+
+` + idGrammarHelp + `
+
+` + placementHelp + `
+
+On success one line reads '~ Reordered: project ID  TITLE'; with --json
+the updated project row is written (fields as in 'gsd project show
+--help').
+
+` + outputContractHelp,
+		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := flags.validate(command); err != nil {
 				return err
@@ -352,7 +513,21 @@ func newProjectDeleteCommand(options *rootOptions, factory applicationFactory) *
 	command := &cobra.Command{
 		Use:   "delete ID",
 		Short: "Delete a project",
-		Args:  cobra.ExactArgs(1),
+		Long: `Delete a project permanently, whatever its status or board. Without
+--recursive a project that still contains tasks is a conflict (exit 1)
+whose message points to --recursive; with --recursive its tasks are
+deleted first, in the same transaction.
+
+` + idGrammarHelp + `
+
+On success one line reads '− Deleted: project ID  TITLE', followed by
+'Deleted N tasks:' and one line per task when --recursive removed any.
+With --json the deleted project row is written, or with --recursive
+{"project":ROW,"deleted_tasks":[ROW...]}, with deleted_tasks empty when
+there were none.
+
+` + outputContractHelp,
+		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			id, err := project.ParseID(args[0])
 			if err != nil {
@@ -398,7 +573,38 @@ func newProjectEditCommand(options *rootOptions, factory applicationFactory) *co
 	command := &cobra.Command{
 		Use:   "edit ID",
 		Short: "Edit a project",
-		Args:  cobra.ExactArgs(1),
+		Long: `Change one or more fields of a project. At least one of --title, --note,
+--area, --no-area, --board, and --no-board is required; without one the
+command fails with invalid_argument (exit 1) before the database is
+opened.
+
+` + idGrammarHelp + `
+
+--title TEXT and --note replace the title and note. --area ID and
+--no-area file the project under another area or under none; an archived
+source or destination area is a conflict (exit 1), while a resolved
+project may be refiled. --board NAME and --no-board put the project on a
+board, in its first stage and last among the projects there, or take it
+off its board; a project already on NAME stays where it is. A board move
+refuses a resolved project or an archived area (conflict, exit 1), needs
+a board with at least one stage, and clears every stage defer on the
+project's tasks, listing each cleared task. --area with --no-area and
+--board with --no-board are mutually exclusive, and --no-area and
+--no-board cannot be given as false (usage errors, exit 2).
+
+` + noteFlagHelp + `
+
+` + blockerGuidanceHelp + `
+
+On success one line reads '~ Edited: project ID  TITLE', or with --board
+or --no-board '~ Edited: ◆ ID  TITLE → BOARD/STAGE' (or '→ (no board)'),
+followed by a 'Cleared stage defer' line per cleared task. With --json
+the updated project row is written, except that a command with --board
+or --no-board writes {"project":ROW,"cleared_defers":[ROW...]}, with
+cleared_defers empty when nothing was cleared.
+
+` + outputContractHelp,
+		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := rejectFalseBooleanFlags(command, "no-area", "no-board"); err != nil {
 				return err

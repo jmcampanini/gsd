@@ -15,6 +15,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
@@ -1704,6 +1705,71 @@ func TestPersistentConfigFlagsReachApplicationFactory(t *testing.T) {
 	}
 	if result.configPath != "chosen.toml" || !result.configExplicit || result.openPath != "chosen.db" {
 		t.Errorf("factory config inputs = %#v, want explicit chosen.toml and chosen.db", result)
+	}
+}
+
+func TestExitCodesTopicPrintsSameHelpFromBothEntryPoints(t *testing.T) {
+	t.Parallel()
+
+	direct := runCommand(t, &fakeApplication{}, "exit-codes")
+	viaHelp := runCommand(t, &fakeApplication{}, "help", "exit-codes")
+
+	for name, result := range map[string]commandResult{"exit-codes": direct, "help exit-codes": viaHelp} {
+		if result.exitCode != 0 || result.stderr != "" || result.opens != 0 {
+			t.Fatalf("%s result = %#v, want stdout-only help without opening the database", name, result)
+		}
+	}
+	if direct.stdout != viaHelp.stdout {
+		t.Fatalf("exit-codes output differs between entry points:\n%s\n---\n%s", direct.stdout, viaHelp.stdout)
+	}
+	for _, want := range []string{"\n  0  ", "\n  1  ", "\n  2  ", "--json never changes the exit status"} {
+		if !strings.Contains(direct.stdout, want) {
+			t.Errorf("exit-codes help missing %q:\n%s", want, direct.stdout)
+		}
+	}
+
+	extra := runCommand(t, &fakeApplication{}, "exit-codes", "extra")
+	if extra.exitCode != 2 || extra.stdout != "" || extra.opens != 0 ||
+		!strings.Contains(extra.stderr, `unknown command "extra" for "gsd exit-codes"`) {
+		t.Errorf("exit-codes extra = %#v, want usage error naming the operand", extra)
+	}
+}
+
+func TestEveryApplicationCommandHasWrappedLongHelp(t *testing.T) {
+	t.Parallel()
+
+	// The root, 54 leaf commands, 9 command groups, and the exit-codes topic.
+	const wantCommands = 65
+	root := newRootCommand()
+
+	visited := 0
+	var visit func(*cobra.Command)
+	visit = func(command *cobra.Command) {
+		if command.Name() == "help" || command.Name() == "completion" {
+			return
+		}
+		visited++
+		if strings.TrimSpace(command.Long) == "" {
+			t.Errorf("%q has no long help", command.CommandPath())
+		}
+		for field, text := range map[string]string{"Long": command.Long, "Example": command.Example} {
+			for i, line := range strings.Split(text, "\n") {
+				if len(line) > 80 {
+					t.Errorf(
+						"%q %s line %d is %d columns, want at most 80: %q",
+						command.CommandPath(), field, i+1, len(line), line,
+					)
+				}
+			}
+		}
+		for _, child := range command.Commands() {
+			visit(child)
+		}
+	}
+	visit(root)
+
+	if visited != wantCommands {
+		t.Errorf("visited %d application commands, want %d", visited, wantCommands)
 	}
 }
 

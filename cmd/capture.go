@@ -18,7 +18,19 @@ func newCaptureCommand(
 	command := &cobra.Command{
 		Use:   "capture",
 		Short: "Capture an inbox task",
-		Args:  cobra.NoArgs,
+		Long: `Open a one-line prompt in the terminal and add what is typed as an open
+inbox task. Enter adds the text as the title (a blank title is ignored
+and the prompt stays), and esc or ctrl+c cancels, also while the add is
+in flight. The session ends after one add. This is the interactive form
+of 'gsd add TITLE', which takes the same title noninteractively.
+
+` + terminalContractHelp + `
+
+The exit status is 0 after an add or a cancel. When the add fails, the
+error shows in the prompt's footer, the next key press ends the session,
+and the command exits 1 with the same error on stderr. Nothing but the
+prompt is written to stdout.`,
+		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if options.json {
 				return usageError("--json is not supported by gsd capture; use gsd add TITLE for noninteractive capture")

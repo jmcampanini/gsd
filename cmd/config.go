@@ -28,9 +28,22 @@ func newConfigCommand(options *rootOptions, loadConfiguration configurationLoade
 		Short: "Print the effective configuration",
 		Long: `Print the effective configuration as redirectable TOML.
 
-Use --provenance to add the source of each value as a TOML comment. The global
---json flag is not supported by this command because TOML is its machine-readable
-format.`,
+` + databaseDiscoveryHelp + `
+
+The only key is db_path. The report is one line, db_path = "PATH", with
+PATH made absolute, and it can be saved as a config file. Use
+--provenance to add the source of each value as a TOML comment:
+'default', 'env: GSD_DB', 'flag: --db', or 'file: PATH'. There are no
+secret values to redact. An explicit --config file that is missing or
+unreadable, a file that cannot be parsed, or an empty db_path in a file
+is an invalid_argument error (exit 1) whose message starts with 'invalid
+configuration:'. This command loads the configuration but never opens
+the database, so it works before the database exists.
+
+The global --json flag is not supported by this command because TOML is
+its machine-readable format; giving it is a usage error (exit 2) raised
+before the configuration is loaded. Output goes to stdout, errors go to
+stderr as 'Error: <message>', and nothing prompts.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if options.json {

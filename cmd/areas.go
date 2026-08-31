@@ -12,7 +12,17 @@ func newAreasCommand(options *rootOptions, factory applicationFactory) *cobra.Co
 	command := &cobra.Command{
 		Use:   "areas",
 		Short: "Manage areas",
-		Args:  cobra.NoArgs,
+		Long: `Manage areas as a set: 'areas add TITLE' creates one and 'areas list'
+lists them. 'gsd area' holds the commands that act on one existing area.
+
+An area groups projects and loose tasks. It has a title, a note, tags, a
+position among all areas, and an archived state: an archived area is
+hidden from 'gsd areas list' by default, its tasks leave 'gsd
+available', and it blocks changes to the projects and tasks it contains
+until it is unarchived.
+
+` + groupContractHelp,
+		Args: cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
 			return usageError("areas requires a subcommand")
 		},
@@ -31,7 +41,19 @@ func newAreasAddCommand(options *rootOptions, factory applicationFactory) *cobra
 	command := &cobra.Command{
 		Use:   "add TITLE",
 		Short: "Add an area",
-		Args:  cobra.ExactArgs(1),
+		Long: `Create an active area titled TITLE and print it. TITLE must not be
+blank. The area is placed last among all areas.
+
+` + noteFlagHelp + `
+
+` + tagFlagHelp + `
+
+On success one line reads '+ Added area ID: TITLE' followed by any tags;
+with --json the new area row is written (fields as in 'gsd area show
+--help').
+
+` + outputContractHelp,
+		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			resolvedNote, err := resolveNote(command, note)
 			if err != nil {
@@ -60,7 +82,17 @@ func newAreasListCommand(options *rootOptions, factory applicationFactory) *cobr
 	command := &cobra.Command{
 		Use:   "list",
 		Short: "List areas",
-		Args:  cobra.NoArgs,
+		Long: `List areas, ordered by position and then ID. Active areas are listed by
+default; --archived lists only archived areas and --all lists both. The
+two flags are mutually exclusive (usage error, exit 2).
+
+The human table has id, title, and state columns, where state is
+'archived' or blank; an empty result prints nothing. With --json an array
+of area rows is written (fields as in 'gsd area show --help'), [] when
+empty.
+
+` + outputContractHelp,
+		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			slice := area.ListSliceActive
 			if archived {
@@ -90,7 +122,12 @@ func newAreaCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 	command := &cobra.Command{
 		Use:   "area",
 		Short: "Manage an area",
-		Args:  cobra.NoArgs,
+		Long: `Act on one existing area by ID: show, edit, tag, untag, reorder, archive,
+unarchive, and delete. New areas come from 'gsd areas add' and lists from
+'gsd areas list'; 'gsd areas --help' describes what an area is.
+
+` + groupContractHelp,
+		Args: cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
 			return usageError("area requires a subcommand")
 		},
@@ -113,7 +150,20 @@ func newAreaShowCommand(options *rootOptions, factory applicationFactory) *cobra
 	return &cobra.Command{
 		Use:   "show ID",
 		Short: "Show an area",
-		Args:  cobra.ExactArgs(1),
+		Long: `Print one area in full.
+
+` + idGrammarHelp + `
+
+The human form is a header line with a state glyph, the ID, and the
+title, then one row per field: note, archived at, position, created at,
+updated at, and tags. An empty field shows only its label, and a
+multi-line note is indented under its label. With --json the area row is
+written: id, title, note, archived_at, position, created_at, updated_at,
+and tags. Timestamps are UTC with millisecond precision, archived_at is
+null while the area is active, and tags is always an array.
+
+` + outputContractHelp,
+		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			id, err := area.ParseID(args[0])
 			if err != nil {
@@ -137,9 +187,14 @@ func newAreaTagCommand(options *rootOptions, factory applicationFactory) *cobra.
 	return newAreaTaggingCommand(
 		options,
 		factory,
-		"tag ID NAME...",
-		"Tag an area",
-		verbTagged,
+		commandSpec{
+			long: `Attach each NAME to area ID.
+
+` + taggingContractHelp,
+			short: "Tag an area",
+			use:   "tag ID NAME...",
+			verb:  verbTagged,
+		},
 		func(ctx context.Context, application area.Application, id int64, names []string) (area.Tagging, error) {
 			return application.Tag(ctx, id, names)
 		},
@@ -150,9 +205,14 @@ func newAreaUntagCommand(options *rootOptions, factory applicationFactory) *cobr
 	return newAreaTaggingCommand(
 		options,
 		factory,
-		"untag ID NAME...",
-		"Untag an area",
-		verbUntagged,
+		commandSpec{
+			long: `Detach each NAME from area ID.
+
+` + taggingContractHelp,
+			short: "Untag an area",
+			use:   "untag ID NAME...",
+			verb:  verbUntagged,
+		},
 		func(ctx context.Context, application area.Application, id int64, names []string) (area.Tagging, error) {
 			return application.Untag(ctx, id, names)
 		},
@@ -162,14 +222,13 @@ func newAreaUntagCommand(options *rootOptions, factory applicationFactory) *cobr
 func newAreaTaggingCommand(
 	options *rootOptions,
 	factory applicationFactory,
-	use string,
-	short string,
-	verb mutationVerb,
+	spec commandSpec,
 	mutate areaTaggingMutation,
 ) *cobra.Command {
 	return &cobra.Command{
-		Use:   use,
-		Short: short,
+		Use:   spec.use,
+		Short: spec.short,
+		Long:  spec.long,
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(command *cobra.Command, args []string) error {
 			id, err := area.ParseID(args[0])
@@ -183,7 +242,7 @@ func newAreaTaggingCommand(
 				},
 				func(tagging area.Tagging) any { return tagging.Area },
 				func(output humanOutput, tagging area.Tagging) error {
-					return output.writeAreaTagging(verb, tagging)
+					return output.writeAreaTagging(spec.verb, tagging)
 				},
 			)
 		},
@@ -196,9 +255,24 @@ func newAreaArchiveCommand(options *rootOptions, factory applicationFactory) *co
 	return newAreaMutationCommand(
 		options,
 		factory,
-		"archive ID",
-		"Archive an area",
-		verbArchived,
+		commandSpec{
+			long: `Archive an active area, recording archived_at. An archived area is
+hidden from 'gsd areas list' by default, its tasks leave 'gsd
+available', and it blocks changes to the projects and tasks it contains
+until 'gsd area unarchive ID'.
+
+` + idGrammarHelp + `
+
+An area that is already archived is a conflict (exit 1).
+
+On success one line reads '✗ Archived: area ID  TITLE'; with --json the
+updated area row is written (fields as in 'gsd area show --help').
+
+` + outputContractHelp,
+			short: "Archive an area",
+			use:   "archive ID",
+			verb:  verbArchived,
+		},
 		func(ctx context.Context, application area.Application, id int64) (area.Area, error) {
 			return application.Archive(ctx, id)
 		},
@@ -209,9 +283,21 @@ func newAreaUnarchiveCommand(options *rootOptions, factory applicationFactory) *
 	return newAreaMutationCommand(
 		options,
 		factory,
-		"unarchive ID",
-		"Unarchive an area",
-		verbUnarchived,
+		commandSpec{
+			long: `Return an archived area to active, clearing archived_at.
+
+` + idGrammarHelp + `
+
+An area that is already active is a conflict (exit 1).
+
+On success one line reads '~ Unarchived: area ID  TITLE'; with --json the
+updated area row is written (fields as in 'gsd area show --help').
+
+` + outputContractHelp,
+			short: "Unarchive an area",
+			use:   "unarchive ID",
+			verb:  verbUnarchived,
+		},
 		func(ctx context.Context, application area.Application, id int64) (area.Area, error) {
 			return application.Unarchive(ctx, id)
 		},
@@ -221,14 +307,13 @@ func newAreaUnarchiveCommand(options *rootOptions, factory applicationFactory) *
 func newAreaMutationCommand(
 	options *rootOptions,
 	factory applicationFactory,
-	use string,
-	short string,
-	verb mutationVerb,
+	spec commandSpec,
 	mutate areaMutation,
 ) *cobra.Command {
 	return &cobra.Command{
-		Use:   use,
-		Short: short,
+		Use:   spec.use,
+		Short: spec.short,
+		Long:  spec.long,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			id, err := area.ParseID(args[0])
@@ -241,7 +326,7 @@ func newAreaMutationCommand(
 				if mutationErr != nil {
 					return mutationErr
 				}
-				return writeCommandOutput(command, options, affected, areaMutationWriter(verb))
+				return writeCommandOutput(command, options, affected, areaMutationWriter(spec.verb))
 			})
 		},
 	}
@@ -252,7 +337,19 @@ func newAreaReorderCommand(options *rootOptions, factory applicationFactory) *co
 	command := &cobra.Command{
 		Use:   "reorder ID",
 		Short: "Reorder an area",
-		Args:  cobra.ExactArgs(1),
+		Long: `Move an area to a new position among all areas, the order 'gsd areas
+list' shows. One placement flag is required (usage error, exit 2, when
+none is given).
+
+` + idGrammarHelp + `
+
+` + placementHelp + `
+
+On success one line reads '~ Reordered: area ID  TITLE'; with --json the
+updated area row is written (fields as in 'gsd area show --help').
+
+` + outputContractHelp,
+		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := flags.validate(command); err != nil {
 				return err
@@ -286,7 +383,23 @@ func newAreaDeleteCommand(options *rootOptions, factory applicationFactory) *cob
 	command := &cobra.Command{
 		Use:   "delete ID",
 		Short: "Delete an area",
-		Args:  cobra.ExactArgs(1),
+		Long: `Delete an area permanently, archived or not. Without --recursive an area
+that still contains projects or tasks is a conflict (exit 1) whose
+message points to --recursive; with --recursive the tasks in its
+projects, its projects, and its loose tasks are deleted first, in the
+same transaction.
+
+` + idGrammarHelp + `
+
+On success one line reads '− Deleted: area ID  TITLE', followed by
+'Deleted N projects:' and 'Deleted N tasks:' with one line per row when
+--recursive removed any. With --json the deleted area row is written, or
+with --recursive
+{"area":ROW,"deleted_projects":[ROW...],"deleted_tasks":[ROW...]}, with
+empty arrays when there was nothing to delete.
+
+` + outputContractHelp,
+		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			id, err := area.ParseID(args[0])
 			if err != nil {
@@ -328,7 +441,19 @@ func newAreaEditCommand(options *rootOptions, factory applicationFactory) *cobra
 	command := &cobra.Command{
 		Use:   "edit ID",
 		Short: "Edit an area",
-		Args:  cobra.ExactArgs(1),
+		Long: `Change the title or note of an area. At least one of --title and --note
+is required; without one the command fails with invalid_argument (exit
+1) before the database is opened. An archived area can be edited.
+
+` + idGrammarHelp + `
+
+` + noteFlagHelp + `
+
+On success one line reads '~ Edited: area ID  TITLE'; with --json the
+updated area row is written (fields as in 'gsd area show --help').
+
+` + outputContractHelp,
+		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			id, err := area.ParseID(args[0])
 			if err != nil {
