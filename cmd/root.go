@@ -134,8 +134,53 @@ func newRootCommandWithRunners(
 	}
 	options.presentation = availablePresentation
 	root := &cobra.Command{
-		Use:           "gsd",
-		Short:         "Get shit done",
+		Use:   "gsd",
+		Short: "Get shit done",
+		Long: `Get shit done: a personal task manager kept in one SQLite database.
+
+A task has a title, a note, optional due and defer dates, tags, and a
+status of open, done, or cancelled. A project groups tasks and can sit on
+a board; an area groups projects and loose tasks and can be archived; a
+task belongs to one project, one area, or neither, which is the inbox. A
+board is an ordered list of stages that projects move through, and a task
+can defer until its project reaches a stage or promote its project to the
+next stage when done. A tag is a case-insensitive label that can be
+attached to tasks, projects, and areas. The logbook lists done and
+cancelled tasks and projects.
+
+Task commands sit at the top level: 'gsd add TITLE', 'gsd list', 'gsd
+show ID', 'gsd done ID', and their siblings. The other entities pair a
+plural group that adds and lists with a singular group that acts on one
+existing row: 'gsd projects' and 'gsd project', 'gsd areas' and 'gsd
+area', 'gsd boards' and 'gsd board', 'gsd stages' and 'gsd stage', with
+'gsd tags' covering both. 'gsd search EXPR' and 'gsd logbook' read across
+entities, and 'gsd tui' and 'gsd capture' are the interactive commands.
+Tasks, projects, and areas are addressed by ID; boards, stages, and tags
+by name.
+
+` + databaseDiscoveryHelp + `
+
+--json, --color, --config, and --db apply to every command. --json
+switches a noninteractive command to machine-readable output and is
+rejected by capture, config, and tui. --color MODE needs a value (auto,
+always, or never; default auto) and governs human output on stdout only:
+always forces color, never disables it, and auto disables it when stdout
+is not a terminal, TERM is dumb, or NO_COLOR is set and nonempty, except
+that an explicit --color auto ignores NO_COLOR. FORCE_COLOR, CLICOLOR, and
+CLICOLOR_FORCE are ignored. When color is on and stdout is a terminal, the
+terminal background is queried once to choose a light or dark palette,
+falling back to dark. Errors on stderr are never colored, and control
+characters in stored text are escaped before display.
+
+` + outputContractHelp + `
+
+Only capture and tui are interactive: they require a terminal on stdin and
+stdout and are the only commands that read keys. No command runs another
+program or uses the network.
+
+Run 'gsd config --help' for configuration precedence and the file format,
+'gsd help exit-codes' for exit-status meanings, and 'gsd <group> --help'
+for what each entity group's subcommands do.`,
 		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -153,7 +198,7 @@ func newRootCommandWithRunners(
 	root.PersistentFlags().Var(
 		colorValue{mode: &options.color},
 		"color",
-		"control color output: auto, always, or never",
+		"color output: auto, always, or never",
 	)
 	root.AddCommand(
 		newAddCommand(options, factory),
@@ -168,6 +213,7 @@ func newRootCommandWithRunners(
 		newDeleteCommand(options, factory),
 		newDoneCommand(options, factory),
 		newEditCommand(options, factory),
+		exitCodesTopic(),
 		newInboxCommand(options, factory),
 		newListCommand(options, factory),
 		newLogbookCommand(options, factory, location),

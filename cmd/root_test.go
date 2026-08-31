@@ -1707,6 +1707,33 @@ func TestPersistentConfigFlagsReachApplicationFactory(t *testing.T) {
 	}
 }
 
+func TestExitCodesTopicPrintsSameHelpFromBothEntryPoints(t *testing.T) {
+	t.Parallel()
+
+	direct := runCommand(t, &fakeApplication{}, "exit-codes")
+	viaHelp := runCommand(t, &fakeApplication{}, "help", "exit-codes")
+
+	for name, result := range map[string]commandResult{"exit-codes": direct, "help exit-codes": viaHelp} {
+		if result.exitCode != 0 || result.stderr != "" || result.opens != 0 {
+			t.Fatalf("%s result = %#v, want stdout-only help without opening the database", name, result)
+		}
+	}
+	if direct.stdout != viaHelp.stdout {
+		t.Fatalf("exit-codes output differs between entry points:\n%s\n---\n%s", direct.stdout, viaHelp.stdout)
+	}
+	for _, want := range []string{"\n  0  ", "\n  1  ", "\n  2  ", "--json never changes the exit status"} {
+		if !strings.Contains(direct.stdout, want) {
+			t.Errorf("exit-codes help missing %q:\n%s", want, direct.stdout)
+		}
+	}
+
+	extra := runCommand(t, &fakeApplication{}, "exit-codes", "extra")
+	if extra.exitCode != 2 || extra.stdout != "" || extra.opens != 0 ||
+		!strings.Contains(extra.stderr, `unknown command "extra" for "gsd exit-codes"`) {
+		t.Errorf("exit-codes extra = %#v, want usage error naming the operand", extra)
+	}
+}
+
 func TestHelpAndVersionDoNotOpenDatabase(t *testing.T) {
 	t.Parallel()
 
