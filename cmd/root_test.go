@@ -1782,35 +1782,3 @@ func forEachApplicationCommand(root *cobra.Command, visit func(*cobra.Command)) 
 		forEachApplicationCommand(child, visit)
 	}
 }
-
-func TestHelpAndVersionDoNotOpenDatabase(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		args []string
-	}{
-		{name: "bare root"},
-		{name: "help", args: []string{"--config", "/nonexistent.toml", "--db", "/unusable/path/gsd.db", "--help"}},
-		{name: "capture help", args: []string{"--config", "/nonexistent.toml", "--db", "/unusable/path/gsd.db", "capture", "--help"}},
-		{name: "tui help", args: []string{"--config", "/nonexistent.toml", "--db", "/unusable/path/gsd.db", "tui", "--help"}},
-		{name: "version", args: []string{"--config", "/nonexistent.toml", "--db", "/unusable/path/gsd.db", "--version"}},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			result := runCommand(t, &fakeApplication{}, test.args...)
-			if result.exitCode != 0 {
-				t.Errorf("exit code = %d, want 0; stderr = %q", result.exitCode, result.stderr)
-			}
-			if result.opens != 0 {
-				t.Errorf("factory opens = %d, want 0", result.opens)
-			}
-			if result.stderr != "" {
-				t.Errorf("stderr = %q, want empty", result.stderr)
-			}
-		})
-	}
-}

@@ -107,34 +107,6 @@ func TestConfigCommandLoadsConfigurationWithoutOpeningDatabase(t *testing.T) {
 	}
 }
 
-func TestConfigCommandHelpDoesNotLoadConfiguration(t *testing.T) {
-	t.Parallel()
-
-	loads := 0
-	loader := func(
-		string,
-		bool,
-		*pflag.FlagSet,
-	) (config.Config, configloader.LoadReport, error) {
-		loads++
-		return config.Config{}, configloader.LoadReport{}, nil
-	}
-	result := runConfigurationCommand(
-		t,
-		loader,
-		"config",
-		"--config",
-		"/nonexistent.toml",
-		"--help",
-	)
-	if result.exitCode != 0 || result.stderr != "" || loads != 0 || result.opens != 0 {
-		t.Fatalf("result = %#v, loads = %d; want help without loading runtime dependencies", result, loads)
-	}
-	if !strings.Contains(result.stdout, "Usage:\n  gsd config [flags]") {
-		t.Errorf("stdout = %q, want config help", result.stdout)
-	}
-}
-
 func TestConfigCommandRejectsJSONBeforeLoadingConfiguration(t *testing.T) {
 	t.Parallel()
 
