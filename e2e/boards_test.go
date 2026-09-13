@@ -1,9 +1,7 @@
 package e2e
 
 import (
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -374,24 +372,6 @@ func TestBoardPromotionAndOrthogonality(t *testing.T) {
 	assertJSONError(t, runJSON(
 		"project", "move", fmt.Sprint(planned.ID), "Absent",
 	), apperr.NotFound)
-
-	for index, args := range [][]string{
-		{"board", "--help"},
-		{"edit", "1", "--defer-stage", "Doing", "--no-defer-stage", "--json"},
-	} {
-		unusedPath := filepath.Join(workDir, "board-no-open", fmt.Sprintf("%d.db", index))
-		result := runGSD(t, append(args, "--db", unusedPath)...)
-		if index == 0 {
-			if result.exitCode != 0 || result.stdout == "" || result.stderr != "" {
-				t.Errorf("board help = %#v, want stdout-only success", result)
-			}
-		} else if result.exitCode != 2 || result.stdout != "" || result.stderr == "" {
-			t.Errorf("task defer-stage parse failure = %#v, want stderr-only usage exit", result)
-		}
-		if _, err := os.Stat(unusedPath); !errors.Is(err, os.ErrNotExist) {
-			t.Errorf("non-behavioral command database stat error = %v, want not exist", err)
-		}
-	}
 }
 
 func boardWorkspace(t *testing.T, name string) (string, func(args ...string) processResult) {

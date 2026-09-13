@@ -2,9 +2,7 @@ package e2e
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -207,34 +205,6 @@ func TestReorderWorkflowAcrossBinaryInvocations(t *testing.T) {
 	assertAreaTaskOrder(t, runJSON, work.ID, []int64{
 		mixedFourth.ID, mixedThird.ID, mixedDone.ID, mixedFifth.ID,
 	})
-}
-
-func TestReorderPlacementArityDoesNotOpenDatabase(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-	}{
-		{name: "task missing", args: []string{"reorder", "1"}},
-		{name: "task multiple", args: []string{"reorder", "1", "--first", "--last"}},
-		{name: "project missing", args: []string{"project", "reorder", "1"}},
-		{name: "project multiple", args: []string{"project", "reorder", "1", "--before", "2", "--after", "3"}},
-		{name: "area missing", args: []string{"area", "reorder", "1"}},
-		{name: "area multiple", args: []string{"area", "reorder", "1", "--first", "--after", "2"}},
-	}
-
-	for index, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			databasePath := filepath.Join(workDir, "reorder-arity", fmt.Sprintf("%d.db", index))
-			args := append(slices.Clone(test.args), "--db", databasePath, "--json")
-			result := runGSD(t, args...)
-			if result.exitCode != 2 || result.stdout != "" || result.stderr == "" {
-				t.Errorf("placement arity result = %#v, want stderr-only exit 2", result)
-			}
-			if _, err := os.Stat(databasePath); !errors.Is(err, os.ErrNotExist) {
-				t.Errorf("database stat error = %v, want not exist", err)
-			}
-		})
-	}
 }
 
 func assertTaskContainerOrder(

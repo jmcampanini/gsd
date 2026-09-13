@@ -194,11 +194,19 @@ for what each entity group's subcommands do.`,
 		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Args:          cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return command.Help()
 		},
 	}
+
+	// Cobra's Find strips flags from the root operands before execute
+	// registers --help and --version, so an unregistered --help would swallow
+	// the next flag and 'gsd --help --db PATH' would reject PATH as an
+	// unknown command. Registering both now lets that pass see they take no
+	// value while the root stays free of a validator, which keeps Cobra's
+	// "did you mean" suggestions and help-topic routing.
+	root.InitDefaultHelpFlag()
+	root.InitDefaultVersionFlag()
 
 	root.PersistentFlags().StringVar(&options.configPath, "config", "", "path to a TOML config file")
 	if err := config.RegisterFlags(root.PersistentFlags()); err != nil {

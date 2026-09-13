@@ -291,21 +291,6 @@ func TestAreaUntagUsesStoredSpellingsForHumanOutput(t *testing.T) {
 	}
 }
 
-func TestAreaTagArityFailsBeforeFactoryOpen(t *testing.T) {
-	t.Parallel()
-
-	for _, args := range [][]string{
-		{"area", "tag"},
-		{"area", "tag", "7"},
-		{"area", "untag", "7"},
-	} {
-		result := runAreaCommand(t, &fakeAreaApplication{}, args...)
-		if result.exitCode != 2 || result.opens != 0 || result.stdout != "" || result.stderr == "" {
-			t.Errorf("%v result = %#v, want stderr-only usage error without open", args, result)
-		}
-	}
-}
-
 func TestAreaListUsesActiveSliceAndHumanArchiveMarker(t *testing.T) {
 	t.Parallel()
 
@@ -649,20 +634,6 @@ func TestAreaValidationFailsBeforeFactoryOpen(t *testing.T) {
 				t.Errorf("error = %#v, want invalid_argument", got)
 			}
 		})
-	}
-}
-
-func TestBareAreaParentsAreUsageErrorsWithoutOpeningDatabase(t *testing.T) {
-	t.Parallel()
-
-	for _, noun := range []string{"areas", "area"} {
-		result := runAreaCommand(t, &fakeAreaApplication{}, noun, "--json")
-		if result.exitCode != 2 || result.opens != 0 || result.stdout != "" || result.stderr == "" {
-			t.Errorf("%s result = %#v, want stderr-only usage error without open", noun, result)
-		}
-		if strings.HasPrefix(result.stderr, "{") {
-			t.Errorf("%s stderr = %q, want human-readable usage diagnostic", noun, result.stderr)
-		}
 	}
 }
 

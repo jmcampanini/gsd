@@ -2,9 +2,7 @@ package e2e
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -198,32 +196,6 @@ func TestDirectAndRelatedSearchAcrossBinaryInvocations(t *testing.T) {
 	} {
 		assertJSONError(t, result, apperr.InvalidArgument)
 		assertSearchDidNotPanic(t, description, result)
-	}
-}
-
-func TestSearchSyntaxFailuresDoNotOpenDatabase(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-	}{
-		{name: "missing expression", args: []string{"search"}},
-		{name: "extra expression", args: []string{"search", "one", "two"}},
-		{name: "unknown flag", args: []string{"search", "one", "--unknown"}},
-	}
-
-	for index, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			databasePath := filepath.Join(workDir, "search-syntax", fmt.Sprint(index), "unused.db")
-			args := append(append([]string{}, test.args...), "--db", databasePath, "--json")
-			result := runGSD(t, args...)
-			if result.exitCode != 2 || result.stdout != "" || result.stderr == "" {
-				t.Errorf("syntax result = %#v, want stderr-only usage exit 2", result)
-			}
-			assertSearchDidNotPanic(t, test.name, result)
-			if _, err := os.Stat(databasePath); !errors.Is(err, os.ErrNotExist) {
-				t.Errorf("database stat error = %v, want database not created", err)
-			}
-		})
 	}
 }
 

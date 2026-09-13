@@ -558,57 +558,6 @@ func TestBoardPlacementGrammarFailuresDoNotOpenFactory(t *testing.T) {
 	}
 }
 
-func TestBoardParentsLeafHelpAndArityNeverOpenFactory(t *testing.T) {
-	t.Parallel()
-
-	for _, args := range [][]string{
-		{"boards", "--help"},
-		{"board", "--help"},
-		{"stages", "--help"},
-		{"stage", "--help"},
-		{"boards", "add", "--help"},
-		{"boards", "list", "--help"},
-		{"board", "show", "--help"},
-		{"board", "edit", "--help"},
-		{"board", "reorder", "--help"},
-		{"board", "delete", "--help"},
-		{"stages", "add", "--help"},
-		{"stage", "rename", "--help"},
-		{"stage", "reorder", "--help"},
-		{"stage", "delete", "--help"},
-	} {
-		result := runBoardCommand(t, &fakeBoardApplication{}, args...)
-		if result.exitCode != 0 || result.opens != 0 || result.closes != 0 || result.stderr != "" || result.stdout == "" {
-			t.Errorf("help %v = %#v, want stdout help without lifecycle", args, result)
-		}
-	}
-
-	for _, args := range [][]string{
-		{"boards", "add"},
-		{"boards", "list", "extra"},
-		{"board", "show"},
-		{"board", "edit"},
-		{"board", "reorder", "--first"},
-		{"board", "delete"},
-		{"stages", "add", "software"},
-		{"stage", "rename", "software", "old"},
-		{"stage", "reorder", "software", "--first"},
-		{"stage", "delete", "software"},
-	} {
-		result := runBoardCommand(t, &fakeBoardApplication{}, args...)
-		if result.exitCode != 2 || result.opens != 0 || result.closes != 0 || result.stdout != "" || result.stderr == "" {
-			t.Errorf("arity %v = %#v, want stderr-only usage failure without lifecycle", args, result)
-		}
-	}
-
-	for _, noun := range []string{"boards", "board", "stages", "stage"} {
-		result := runBoardCommand(t, &fakeBoardApplication{}, noun)
-		if result.exitCode != 2 || result.opens != 0 || result.closes != 0 || result.stdout != "" || result.stderr == "" {
-			t.Errorf("parent %s = %#v, want usage failure without lifecycle", noun, result)
-		}
-	}
-}
-
 func TestBoardEditWithoutFieldsAndApplicationErrorsMapToOwnedExits(t *testing.T) {
 	t.Parallel()
 

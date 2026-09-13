@@ -41,12 +41,7 @@ rejected as a usage error (exit 2).
 
 The exit status is 0 when a key ends the session, and 1 with the error
 on stderr when loading data fails.`,
-		Args: func(_ *cobra.Command, args []string) error {
-			if len(args) != 0 {
-				return usageError("gsd tui takes no positional arguments; use the gsd CLI for noninteractive access")
-			}
-			return nil
-		},
+		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if options.json {
 				return usageError("--json is not supported by gsd tui; use the gsd CLI for noninteractive access")

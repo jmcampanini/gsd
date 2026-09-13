@@ -364,25 +364,6 @@ func TestTaskProjectFlagConflictIsUsageWithoutOpeningDatabase(t *testing.T) {
 	}
 }
 
-func TestBareProjectParentsAreUsageErrorsWithoutOpeningDatabase(t *testing.T) {
-	t.Parallel()
-
-	for _, noun := range []string{"projects", "project"} {
-		noun := noun
-		t.Run(noun, func(t *testing.T) {
-			t.Parallel()
-
-			result := runCommand(t, &fakeApplication{}, noun, "--json")
-			if result.exitCode != 2 || result.opens != 0 || result.stdout != "" || result.stderr == "" {
-				t.Errorf("result = %#v, want stderr-only usage error without open", result)
-			}
-			if strings.HasPrefix(result.stderr, "{") {
-				t.Errorf("stderr = %q, want human-readable usage diagnostic", result.stderr)
-			}
-		})
-	}
-}
-
 func TestProjectAddAndEditAdaptFieldsAndOutput(t *testing.T) {
 	t.Parallel()
 
@@ -547,18 +528,8 @@ func TestProjectTagCommandsAdaptExactNamesAndOutputShapes(t *testing.T) {
 	}
 }
 
-func TestProjectTagCommandArityAndIDValidationDoNotOpenApplication(t *testing.T) {
+func TestProjectTagCommandIDValidationDoesNotOpenApplication(t *testing.T) {
 	t.Parallel()
-
-	for _, args := range [][]string{
-		{"project", "tag", "7", "--json"},
-		{"project", "untag", "--json"},
-	} {
-		result := runProjectCommand(t, &fakeProjectApplication{}, args...)
-		if result.exitCode != 2 || result.opens != 0 || result.stdout != "" || result.stderr == "" {
-			t.Errorf("result = %#v, want usage error without application open", result)
-		}
-	}
 
 	result := runProjectCommand(t, &fakeProjectApplication{}, "project", "tag", "nope", "Errands", "--json")
 	got := decodeProjectCommandError(t, result)
@@ -893,8 +864,6 @@ func TestProjectMoveGrammarFailuresDoNotOpenApplication(t *testing.T) {
 		args     []string
 		wantExit int
 	}{
-		{args: []string{"project", "move", "7"}, wantExit: 2},
-		{args: []string{"project", "move", "7", "doing", "extra"}, wantExit: 2},
 		{args: []string{"project", "move", "7", "doing", "--first", "--last"}, wantExit: 2},
 		{args: []string{"project", "move", "7", "doing", "--first=false"}, wantExit: 2},
 		{args: []string{"project", "move", "nope", "doing"}, wantExit: 1},

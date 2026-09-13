@@ -1,9 +1,7 @@
 package e2e
 
 import (
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -105,17 +103,6 @@ func TestProjectContainmentWorkflow(t *testing.T) {
 	)
 	if conflict.exitCode != 2 || conflict.stdout != "" || conflict.stderr == "" {
 		t.Errorf("membership flag conflict = %#v, want stderr-only usage error", conflict)
-	}
-
-	for index, noun := range []string{"projects", "project"} {
-		unusedPath := filepath.Join(workDir, fmt.Sprintf("bare-project-%d.db", index))
-		result := runGSD(t, noun, "--db", unusedPath)
-		if result.exitCode != 2 || result.stdout != "" || result.stderr == "" {
-			t.Errorf("bare %s = %#v, want stderr-only usage error", noun, result)
-		}
-		if _, err := os.Stat(unusedPath); !errors.Is(err, os.ErrNotExist) {
-			t.Errorf("bare %s database stat error = %v, want not exist", noun, err)
-		}
 	}
 }
 

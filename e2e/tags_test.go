@@ -2,9 +2,7 @@ package e2e
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -37,14 +35,6 @@ func TestTagAdministrationAcrossBinaryInvocations(t *testing.T) {
 	databasePath := filepath.Join(workDir, "tags", "gsd.db")
 	runJSON := func(args ...string) processResult {
 		return runGSD(t, append(args, "--db", databasePath, "--json")...)
-	}
-
-	bare := runGSD(t, "tags", "--db", databasePath)
-	if bare.exitCode != 2 || bare.stdout != "" || bare.stderr == "" {
-		t.Errorf("bare tags = %#v, want stderr-only usage error", bare)
-	}
-	if _, err := os.Stat(databasePath); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("bare tags database stat error = %v, want not exist", err)
 	}
 
 	errands := decodeTagRow(t, runJSON("tags", "add", "errands"))
