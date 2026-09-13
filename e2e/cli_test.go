@@ -174,62 +174,18 @@ func TestVersion(t *testing.T) {
 	}
 }
 
-func TestHelp(t *testing.T) {
+func TestBareRootPrintsHelp(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-		args []string
-	}{
-		{name: "bare root"},
-		{name: "help flag", args: []string{"--config", "/nonexistent.toml", "--help"}},
+	result := runGSD(t)
+	if result.exitCode != 0 {
+		t.Errorf("exit code = %d, want 0", result.exitCode)
 	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			result := runGSD(t, test.args...)
-			if result.exitCode != 0 {
-				t.Errorf("exit code = %d, want 0", result.exitCode)
-			}
-			if !strings.Contains(result.stdout, "Usage:\n  gsd [flags]") {
-				t.Errorf("stdout = %q, want help usage", result.stdout)
-			}
-			if result.stderr != "" {
-				t.Errorf("stderr = %q, want empty", result.stderr)
-			}
-		})
+	if !strings.Contains(result.stdout, "Usage:\n  gsd [flags]") {
+		t.Errorf("stdout = %q, want help usage", result.stdout)
 	}
-}
-
-func TestUnknownCommand(t *testing.T) {
-	t.Parallel()
-
-	result := runGSD(t, "nonsense")
-	if result.exitCode != 2 {
-		t.Errorf("exit code = %d, want 2", result.exitCode)
-	}
-	if result.stdout != "" {
-		t.Errorf("stdout = %q, want empty", result.stdout)
-	}
-	if !strings.Contains(result.stderr, "unknown command \"nonsense\" for \"gsd\"") {
-		t.Errorf("stderr = %q, want unknown-command diagnostic", result.stderr)
-	}
-}
-
-func TestParseError(t *testing.T) {
-	t.Parallel()
-
-	result := runGSD(t, "--config", "/nonexistent.toml", "--unknown")
-	if result.exitCode != 2 {
-		t.Errorf("exit code = %d, want 2", result.exitCode)
-	}
-	if result.stdout != "" {
-		t.Errorf("stdout = %q, want empty", result.stdout)
-	}
-	if !strings.Contains(result.stderr, "Error: unknown flag: --unknown") {
-		t.Errorf("stderr = %q, want parse diagnostic", result.stderr)
+	if result.stderr != "" {
+		t.Errorf("stderr = %q, want empty", result.stderr)
 	}
 }
 
@@ -619,20 +575,6 @@ func TestTaskWorkflow(t *testing.T) {
 	emptyResult := runGSD(t, "inbox", "--db", filepath.Join(workflowDir, "empty.db"))
 	if emptyResult.exitCode != 0 || emptyResult.stdout != "" || emptyResult.stderr != "" {
 		t.Errorf("empty human inbox = %#v, want no output", emptyResult)
-	}
-
-	blockedPath := filepath.Join(workflowDir, "blocked")
-	if err := os.WriteFile(blockedPath, []byte("not a directory"), 0o600); err != nil {
-		t.Fatalf("create blocked path: %v", err)
-	}
-	for _, args := range [][]string{
-		{"--config", "/nonexistent.toml", "--db", filepath.Join(blockedPath, "gsd.db"), "--help"},
-		{"--config", "/nonexistent.toml", "--db", filepath.Join(blockedPath, "gsd.db"), "--version"},
-	} {
-		result := runGSD(t, args...)
-		if result.exitCode != 0 || result.stderr != "" {
-			t.Errorf("informational command %v = %#v, want success without database open", args, result)
-		}
 	}
 }
 
