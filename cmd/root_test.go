@@ -1731,7 +1731,7 @@ func TestEveryApplicationCommandDeclaresPositionalGrammar(t *testing.T) {
 	// every command below the root is what keeps rejected operands out of
 	// command work. A group needs a runner too: Cobra prints help for a
 	// non-runnable command before it validates operands. The root is
-	// exempt here; root.go explains why it keeps a validator anyway.
+	// exempt: Cobra rejects unknown subcommands there and adds suggestions.
 	forEachApplicationCommand(newRootCommand(), func(command *cobra.Command) {
 		if command.HasParent() && command.Args == nil {
 			t.Errorf("%q has no Args validator", command.CommandPath())

@@ -10,12 +10,13 @@ func exitCodesTopic() *cobra.Command {
 cmd/root.go picks from the error a command returns.
 
   0  Success, including a bare 'gsd', --help, --version, and 'gsd help
-     NAME' for an unknown NAME (it prints the root help). Reported
-     outcomes that are not failures also exit 0: an empty list ([] with
-     --json), a tag already attached or already absent, 'done' on a
-     promoting task whose project is already at its last stage, a
-     'project move' to the project's current stage, and a capture or
-     tui session left with esc, q, or ctrl+c.
+     NAME' for an unknown NAME (it reports the unknown topic and the
+     root usage on stderr). Reported outcomes that are not failures also
+     exit 0: an empty list ([] with --json), a tag already attached or
+     already absent, 'done' on a promoting task whose project is
+     already at its last stage, a 'project move' to the project's
+     current stage, and a capture or tui session left with esc, q, or
+     ctrl+c.
   1  Application error. The categories are not_found (no row for an ID
      or name), invalid_argument (a bad ID, date, status, or search
      expression, an edit with no field flags, or an invalid
