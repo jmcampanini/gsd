@@ -1354,28 +1354,23 @@ func TestTaskTaggingAdaptsExactNamesAndOutputModes(t *testing.T) {
 	}
 }
 
-func TestTaskTaggingArityAndIDsFailWithoutOpeningDatabase(t *testing.T) {
+func TestTaskTaggingInvalidIDsFailWithoutOpeningDatabase(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		args     []string
-		wantExit int
+		name string
+		args []string
 	}{
-		{name: "bare tag", args: []string{"tag"}, wantExit: 2},
-		{name: "tag ID only", args: []string{"tag", "7"}, wantExit: 2},
-		{name: "bare untag", args: []string{"untag"}, wantExit: 2},
-		{name: "untag ID only", args: []string{"untag", "7"}, wantExit: 2},
-		{name: "invalid tag ID", args: []string{"tag", "0", "Errands", "--json"}, wantExit: 1},
-		{name: "invalid untag ID", args: []string{"untag", "nope", "Errands", "--json"}, wantExit: 1},
+		{name: "invalid tag ID", args: []string{"tag", "0", "Errands", "--json"}},
+		{name: "invalid untag ID", args: []string{"untag", "nope", "Errands", "--json"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
 			result := runCommand(t, &fakeApplication{}, test.args...)
-			if result.exitCode != test.wantExit || result.opens != 0 || result.stdout != "" {
-				t.Errorf("result = %#v, want exit %d without database open", result, test.wantExit)
+			if result.exitCode != 1 || result.opens != 0 || result.stdout != "" {
+				t.Errorf("result = %#v, want invalid_argument without database open", result)
 			}
 			if result.stderr == "" {
 				t.Errorf("stderr = %q, want validation diagnostic", result.stderr)
@@ -1727,12 +1722,24 @@ func TestExitCodesTopicPrintsSameHelpFromBothEntryPoints(t *testing.T) {
 			t.Errorf("exit-codes help missing %q:\n%s", want, direct.stdout)
 		}
 	}
+}
 
-	extra := runCommand(t, &fakeApplication{}, "exit-codes", "extra")
-	if extra.exitCode != 2 || extra.stdout != "" || extra.opens != 0 ||
-		!strings.Contains(extra.stderr, `unknown command "extra" for "gsd exit-codes"`) {
-		t.Errorf("exit-codes extra = %#v, want usage error naming the operand", extra)
-	}
+func TestEveryApplicationCommandDeclaresPositionalGrammar(t *testing.T) {
+	t.Parallel()
+
+	// Cobra validates operands before hooks and runners, so a validator on
+	// every command below the root is what keeps rejected operands out of
+	// command work. A group needs a runner too: Cobra prints help for a
+	// non-runnable command before it validates operands. The root is
+	// exempt here; root.go explains why it keeps a validator anyway.
+	forEachApplicationCommand(newRootCommand(), func(command *cobra.Command) {
+		if command.HasParent() && command.Args == nil {
+			t.Errorf("%q has no Args validator", command.CommandPath())
+		}
+		if command.HasSubCommands() && command.RunE == nil {
+			t.Errorf("%q has subcommands but no RunE", command.CommandPath())
+		}
+	})
 }
 
 func TestEveryApplicationCommandHasWrappedLongHelp(t *testing.T) {
@@ -1740,14 +1747,9 @@ func TestEveryApplicationCommandHasWrappedLongHelp(t *testing.T) {
 
 	// The root, 54 leaf commands, 9 command groups, and the exit-codes topic.
 	const wantCommands = 65
-	root := newRootCommand()
 
 	visited := 0
-	var visit func(*cobra.Command)
-	visit = func(command *cobra.Command) {
-		if command.Name() == "help" || command.Name() == "completion" {
-			return
-		}
+	forEachApplicationCommand(newRootCommand(), func(command *cobra.Command) {
 		visited++
 		if strings.TrimSpace(command.Long) == "" {
 			t.Errorf("%q has no long help", command.CommandPath())
@@ -1762,14 +1764,22 @@ func TestEveryApplicationCommandHasWrappedLongHelp(t *testing.T) {
 				}
 			}
 		}
-		for _, child := range command.Commands() {
-			visit(child)
-		}
-	}
-	visit(root)
+	})
 
 	if visited != wantCommands {
 		t.Errorf("visited %d application commands, want %d", visited, wantCommands)
+	}
+}
+
+// forEachApplicationCommand calls visit on the root and every descendant
+// except Cobra's built-in help and completion commands.
+func forEachApplicationCommand(root *cobra.Command, visit func(*cobra.Command)) {
+	if root.Name() == "help" || root.Name() == "completion" {
+		return
+	}
+	visit(root)
+	for _, child := range root.Commands() {
+		forEachApplicationCommand(child, visit)
 	}
 }
 

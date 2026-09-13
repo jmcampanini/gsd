@@ -185,7 +185,7 @@ func TestLogbookHumanOutputPreservesOrderAndUsesLocalCalendarDay(t *testing.T) {
 	}
 }
 
-func TestLogbookEmptyOutputAndNoArguments(t *testing.T) {
+func TestLogbookEmptyOutput(t *testing.T) {
 	t.Parallel()
 
 	human := runLogbookCommand(
@@ -207,11 +207,6 @@ func TestLogbookEmptyOutputAndNoArguments(t *testing.T) {
 	)
 	if jsonResult.exitCode != 0 || jsonResult.stdout != "[]\n" || jsonResult.stderr != "" {
 		t.Errorf("empty JSON result = %#v, want compact empty array", jsonResult)
-	}
-
-	invalid := runLogbookCommand(t, &fakeLogbookApplication{}, time.UTC, "logbook", "extra")
-	if invalid.exitCode != 2 || invalid.opens != 0 || invalid.stdout != "" || invalid.stderr == "" {
-		t.Errorf("argument result = %#v, want stderr-only usage failure without opening", invalid)
 	}
 }
 

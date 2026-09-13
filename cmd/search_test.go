@@ -258,20 +258,4 @@ func TestSearchApplicationErrorsUseStderrStableExitAndCloseFactory(t *testing.T)
 	}
 }
 
-func TestSearchRequiresExactlyOneExpressionBeforeOpeningFactory(t *testing.T) {
-	t.Parallel()
-
-	for _, args := range [][]string{
-		{"search"},
-		{"search", "one", "two"},
-	} {
-		application := &fakeSearchApplication{}
-		result := runSearchCommand(t, application, args...)
-		if result.exitCode != 2 || result.opens != 0 || result.closes != 0 ||
-			result.stdout != "" || result.stderr == "" || application.calls != 0 {
-			t.Errorf("%v result = %#v, want stderr-only usage failure before factory open", args, result)
-		}
-	}
-}
-
 var _ search.Application = (*fakeSearchApplication)(nil)

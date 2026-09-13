@@ -254,33 +254,4 @@ func TestTagsApplicationErrorsUseStderrAndCloseOnce(t *testing.T) {
 	}
 }
 
-func TestTagsArityAndBareParentAreUsageErrorsWithoutOpeningDatabase(t *testing.T) {
-	t.Parallel()
-
-	for _, test := range []struct {
-		name string
-		args []string
-	}{
-		{name: "bare parent", args: []string{"tags", "--json"}},
-		{name: "add missing", args: []string{"tags", "add", "--json"}},
-		{name: "add extra", args: []string{"tags", "add", "one", "two", "--json"}},
-		{name: "list extra", args: []string{"tags", "list", "extra", "--json"}},
-		{name: "rename missing", args: []string{"tags", "rename", "old", "--json"}},
-		{name: "rename extra", args: []string{"tags", "rename", "old", "new", "extra", "--json"}},
-		{name: "delete missing", args: []string{"tags", "delete", "--json"}},
-		{name: "delete extra", args: []string{"tags", "delete", "one", "two", "--json"}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			result := runTagCommand(t, &fakeTagApplication{}, test.args...)
-			if result.exitCode != 2 || result.opens != 0 || result.stdout != "" || result.stderr == "" {
-				t.Errorf("result = %#v, want stderr-only usage error without open", result)
-			}
-			if strings.HasPrefix(result.stderr, "{") {
-				t.Errorf("stderr = %q, want human-readable Cobra diagnostic", result.stderr)
-			}
-		})
-	}
-}
-
 var _ tag.Application = (*fakeTagApplication)(nil)

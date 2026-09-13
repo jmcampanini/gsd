@@ -194,7 +194,11 @@ for what each entity group's subcommands do.`,
 		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Args:          cobra.NoArgs,
+		// The root keeps a validator on purpose. Without one, Cobra checks
+		// root operands in Find, before it registers --help and --version, so
+		// 'gsd --help --db PATH' would reject PATH as an unknown command. The
+		// cost is that a misspelled command gets no "did you mean" hint.
+		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return command.Help()
 		},
