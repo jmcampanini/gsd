@@ -10,7 +10,7 @@ func exitCodesTopic() *cobra.Command {
 cmd/root.go picks from the error a command returns.
 
   0  Success, including a bare 'gsd', --help, --version, and 'gsd help
-     NAME' for an unknown NAME (it reports the unknown topic and the
+     NAME' for an unknown NAME (it prints 'Unknown help topic' and the
      root usage on stderr). Reported outcomes that are not failures also
      exit 0: an empty list ([] with --json), a tag already attached or
      already absent, 'done' on a promoting task whose project is

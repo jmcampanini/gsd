@@ -191,9 +191,10 @@ program or uses the network.
 Run 'gsd config --help' for configuration precedence and the file format,
 'gsd help exit-codes' for exit-status meanings, and 'gsd <group> --help'
 for what each entity group's subcommands do.`,
-		Version:       Version,
-		SilenceUsage:  true,
-		SilenceErrors: true,
+		Version:            Version,
+		DisableSuggestions: true,
+		SilenceUsage:       true,
+		SilenceErrors:      true,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return command.Help()
 		},
@@ -204,7 +205,8 @@ for what each entity group's subcommands do.`,
 	// the next flag and 'gsd --help --db PATH' would reject PATH as an
 	// unknown command. Registering both now lets that pass see they take no
 	// value while the root stays free of a validator, which keeps Cobra's
-	// "did you mean" suggestions and help-topic routing.
+	// help-topic routing. Suggestions are off so an unknown command reports
+	// only 'unknown command "x" for "gsd"', as the groups already do.
 	root.InitDefaultHelpFlag()
 	root.InitDefaultVersionFlag()
 

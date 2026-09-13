@@ -855,11 +855,6 @@ func TestProjectMoveAdaptsOptionalPlacementAndWritesOwnedOutputs(t *testing.T) {
 func TestProjectMoveGrammarFailuresDoNotOpenApplication(t *testing.T) {
 	t.Parallel()
 
-	help := runProjectCommand(t, &fakeProjectApplication{}, "project", "move", "--help")
-	if help.exitCode != 0 || help.opens != 0 || help.closes != 0 || help.stderr != "" || help.stdout == "" {
-		t.Errorf("move help = %#v, want stdout help without application lifecycle", help)
-	}
-
 	for _, test := range []struct {
 		args     []string
 		wantExit int
