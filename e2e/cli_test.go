@@ -59,7 +59,8 @@ func runTests(m *testing.M) int {
 
 	binaryPath = filepath.Join(workDir, "gsd")
 	expectedVersion = gitVersion(repositoryRoot)
-	build := exec.Command("make", "BUILD_DIR="+workDir, "build")
+	build := exec.Command("go", "build", "-trimpath", "-buildvcs=false",
+		"-ldflags", "-X github.com/jmcampanini/gsd/cmd.Version="+expectedVersion, "-o", binaryPath, ".")
 	build.Dir = repositoryRoot
 	build.Stdout = os.Stderr
 	build.Stderr = os.Stderr

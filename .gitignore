@@ -1,2 +1,6 @@
 /.sandbox/
 /build/
+
+# mise personal overrides
+mise.local.toml
+.mise.local.toml
