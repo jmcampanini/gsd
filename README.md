@@ -23,12 +23,18 @@ brew upgrade --fetch-HEAD gsd
 
 ### From source
 
-A source build requires Go (see `go.mod`).
+With Git and [mise](https://mise.jdx.dev) installed (`brew install mise` on macOS), mise supplies the pinned Go toolchain from `mise.toml`:
 
 ```sh
-make build
+git clone https://github.com/jmcampanini/gsd
+cd gsd
+mise trust
+mise install
+mise run build
 # then copy ./build/gsd to a directory on your PATH
 ```
+
+To upgrade, run `git pull`, rebuild with `mise install && mise run build`, and replace the binary on your `PATH`.
 
 ## Representative commands
 
@@ -62,4 +68,4 @@ db_path = "/Users/me/Sync/gsd.db"
 
 ## Verify
 
-`make check` runs the complete local verification contract. Its end-to-end tests drive the built binary through `tmux`, which must be on `PATH`.
+`mise run check` runs the complete local verification contract. Its end-to-end tests drive the built binary through `tmux`, which `mise.toml` pins and `mise install` supplies.

@@ -30,6 +30,18 @@ func TestMain(m *testing.M) {
 }
 
 func runTests(m *testing.M) int {
+	// The mise test task builds the binary through the build task and passes
+	// its path in GSD_E2E_BINARY, so the suite never builds for itself.
+	binaryPath = os.Getenv("GSD_E2E_BINARY")
+	if binaryPath == "" {
+		fmt.Fprintln(os.Stderr, "GSD_E2E_BINARY is not set; run the suite with 'mise run test'")
+		return 1
+	}
+	if _, err := os.Stat(binaryPath); err != nil {
+		fmt.Fprintf(os.Stderr, "stat e2e binary %q: %v\n", binaryPath, err)
+		return 1
+	}
+
 	repositoryRoot, err := filepath.Abs("..")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "resolve repository root: %v\n", err)
@@ -57,21 +69,17 @@ func runTests(m *testing.M) int {
 		_ = os.RemoveAll(workDir)
 	}()
 
-	binaryPath = filepath.Join(workDir, "gsd")
 	expectedVersion = gitVersion(repositoryRoot)
-	build := exec.Command("make", "BUILD_DIR="+workDir, "build")
-	build.Dir = repositoryRoot
-	build.Stdout = os.Stderr
-	build.Stderr = os.Stderr
-	if err := build.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "build e2e binary: %v\n", err)
-		return 1
-	}
 
 	return m.Run()
 }
 
+// gitVersion mirrors the version the mise build task injects: an explicit
+// VERSION override, else git describe, else "unknown".
 func gitVersion(repositoryRoot string) string {
+	if version := os.Getenv("VERSION"); version != "" {
+		return version
+	}
 	command := exec.Command("git", "describe", "--tags", "--dirty", "--always")
 	command.Dir = repositoryRoot
 	output, err := command.Output()

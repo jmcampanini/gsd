@@ -1,8 +1,9 @@
 ## Build and verification
 
-- Use Make targets instead of raw `go` or tool commands.
-- Run `make help` to discover available targets.
-- Run `make check` for the complete local verification contract.
+- This repository uses mise for tool versions and task execution. Run tasks with `mise run <task>`; do not call `go`, `golangci-lint`, `tmux`, or similar tools directly.
+- Run `mise tasks` to discover available tasks.
+- Run `mise run check` for the complete local verification contract.
+- `mise.toml` pins Go, golangci-lint, govulncheck, and the tmux used by the end-to-end tests; `mise.lock` records their checksums. Bump a tool with `mise upgrade --bump <tool>`, run `mise lock` and `mise run check`, and commit both files.
 
 ## Command architecture
 
