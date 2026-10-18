@@ -65,7 +65,3 @@ The database is one SQLite file. It defaults to `$XDG_DATA_HOME/gsd/gsd.db` (`~/
 # ~/.config/gsd/config.toml
 db_path = "/Users/me/Sync/gsd.db"
 ```
-
-## Verify
-
-`mise run check` runs the complete local verification contract. Its end-to-end tests drive the built binary through `tmux`, which `mise.toml` pins and `mise install` supplies.
