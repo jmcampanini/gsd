@@ -65,5 +65,3 @@ The database is one SQLite file. It defaults to `$XDG_DATA_HOME/gsd/gsd.db` (`~/
 # ~/.config/gsd/config.toml
 db_path = "/Users/me/Sync/gsd.db"
 ```
-
-See [AGENTS.md](AGENTS.md) for contributor guidance.
