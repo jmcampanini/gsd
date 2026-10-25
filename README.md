@@ -2,9 +2,11 @@
 
 Get shit done: a personal task manager kept in one SQLite database. A task lives in the inbox, in a project, or in an area; a project can move through the stages of a board; tags label tasks, projects, and areas; and the logbook lists what was done or cancelled. Every operation is a plain command with a `--json` mode, plus a read-only navigator (`gsd tui`) and a one-line capture prompt (`gsd capture`) for the terminal. No command runs another program or uses the network.
 
+
 ## Install
 
 gsd distributes from HEAD only; there is no release channel or tagged binary.
+
 
 ### Homebrew
 
@@ -18,6 +20,7 @@ Upgrade to the latest commit:
 ```sh
 brew upgrade --fetch-HEAD gsd
 ```
+
 
 ### From source
 
@@ -33,6 +36,7 @@ mise run build
 ```
 
 To upgrade, run `git pull`, rebuild with `mise install && mise run build`, and replace the binary on your `PATH`.
+
 
 ## Representative commands
 
@@ -52,6 +56,7 @@ To upgrade, run `git pull`, rebuild with `mise install && mise run build`, and r
 | `gsd config --provenance` | Print the effective configuration and where each value came from. |
 
 The canonical reference is `gsd --help`, each command's `--help`, and the help topic `gsd help exit-codes`.
+
 
 ## Configuration
 
