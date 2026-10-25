@@ -13,7 +13,7 @@ func newAreaShowCommand(options *rootOptions, factory applicationFactory) *cobra
 		Short: "Show an area",
 		Long: `Print one area in full.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 The human form is a header line with a state glyph, the ID, and the
 title, then one row per field: note, archived at, position, created at,

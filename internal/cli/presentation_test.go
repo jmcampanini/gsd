@@ -17,7 +17,7 @@ import (
 
 type interactiveColorCase struct {
 	name            string
-	Environment     []string
+	environment     []string
 	args            []string
 	detected        colorprofile.Profile
 	wantProfile     colorprofile.Profile
@@ -29,7 +29,7 @@ func interactiveColorCases(command string) []interactiveColorCase {
 	return []interactiveColorCase{
 		{
 			name:            "detected TrueColor",
-			Environment:     []string{"TERM=xterm-256color", "KEEP=value"},
+			environment:     []string{"TERM=xterm-256color", "KEEP=value"},
 			args:            []string{command},
 			detected:        colorprofile.TrueColor,
 			wantProfile:     colorprofile.TrueColor,
@@ -38,7 +38,7 @@ func interactiveColorCases(command string) []interactiveColorCase {
 		},
 		{
 			name:            "detected ANSI256",
-			Environment:     []string{"TERM=xterm-256color", "KEEP=value"},
+			environment:     []string{"TERM=xterm-256color", "KEEP=value"},
 			args:            []string{command},
 			detected:        colorprofile.ANSI256,
 			wantProfile:     colorprofile.ANSI256,
@@ -47,7 +47,7 @@ func interactiveColorCases(command string) []interactiveColorCase {
 		},
 		{
 			name:            "detected ANSI",
-			Environment:     []string{"TERM=xterm", "KEEP=value"},
+			environment:     []string{"TERM=xterm", "KEEP=value"},
 			args:            []string{command},
 			detected:        colorprofile.ANSI,
 			wantProfile:     colorprofile.ANSI,
@@ -56,7 +56,7 @@ func interactiveColorCases(command string) []interactiveColorCase {
 		},
 		{
 			name:            "detected ASCII",
-			Environment:     []string{"TERM=xterm", "KEEP=value"},
+			environment:     []string{"TERM=xterm", "KEEP=value"},
 			args:            []string{command},
 			detected:        colorprofile.ASCII,
 			wantProfile:     colorprofile.ASCII,
@@ -65,7 +65,7 @@ func interactiveColorCases(command string) []interactiveColorCase {
 		},
 		{
 			name:            "detected NoTTY",
-			Environment:     []string{"TERM=xterm", "KEEP=value"},
+			environment:     []string{"TERM=xterm", "KEEP=value"},
 			args:            []string{command},
 			detected:        colorprofile.NoTTY,
 			wantProfile:     colorprofile.NoTTY,
@@ -74,28 +74,28 @@ func interactiveColorCases(command string) []interactiveColorCase {
 		},
 		{
 			name:            "NO_COLOR disables color",
-			Environment:     []string{"NO_COLOR=1", "TERM=xterm-256color", "KEEP=value"},
+			environment:     []string{"NO_COLOR=1", "TERM=xterm-256color", "KEEP=value"},
 			args:            []string{command},
 			wantProfile:     colorprofile.NoTTY,
 			wantEnvironment: []string{"TERM=xterm-256color", "KEEP=value"},
 		},
 		{
 			name:            "TERM dumb disables color",
-			Environment:     []string{"TERM=dumb", "KEEP=value"},
+			environment:     []string{"TERM=dumb", "KEEP=value"},
 			args:            []string{command},
 			wantProfile:     colorprofile.NoTTY,
 			wantEnvironment: []string{"TERM=dumb", "KEEP=value"},
 		},
 		{
 			name:            "explicit always overrides environment",
-			Environment:     []string{"NO_COLOR=1", "TERM=dumb", "KEEP=value"},
+			environment:     []string{"NO_COLOR=1", "TERM=dumb", "KEEP=value"},
 			args:            []string{command, "--color", "always"},
 			wantProfile:     colorprofile.TrueColor,
 			wantEnvironment: []string{"TERM=dumb", "KEEP=value"},
 		},
 		{
 			name:            "explicit never disables color",
-			Environment:     []string{"TERM=xterm-256color", "KEEP=value"},
+			environment:     []string{"TERM=xterm-256color", "KEEP=value"},
 			args:            []string{command, "--color=never"},
 			wantProfile:     colorprofile.NoTTY,
 			wantEnvironment: []string{"TERM=xterm-256color", "KEEP=value"},

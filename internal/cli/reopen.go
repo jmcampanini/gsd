@@ -17,7 +17,7 @@ func newReopenCommand(options *rootOptions, factory applicationFactory) *cobra.C
 			long: `Return a done or cancelled task to open, clearing done_at and
 cancelled_at.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 A task that is already open is a conflict (exit 1).
 

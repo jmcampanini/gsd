@@ -17,7 +17,7 @@ func newDeleteCommand(options *rootOptions, factory applicationFactory) *cobra.C
 			long: `Delete a task permanently, whatever its status and wherever it lives; a
 resolved project or an archived area does not block deletion.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 On success one line reads '− Deleted: ID  TITLE'; with --json the deleted
 task row is written (fields as in 'gsd show --help').

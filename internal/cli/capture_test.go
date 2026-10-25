@@ -42,7 +42,7 @@ func TestCaptureCommandPassesRuntimeDependenciesAndColorCapability(t *testing.T)
 			}
 
 			dependencies := render.DefaultPresentationDependencies()
-			dependencies.Environment = func() []string { return test.Environment }
+			dependencies.Environment = func() []string { return test.environment }
 			inputChecked := false
 			outputChecked := false
 			dependencies.IsTerminalReader = func(reader io.Reader) bool {

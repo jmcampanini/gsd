@@ -23,7 +23,7 @@ func newProjectEditCommand(options *rootOptions, factory applicationFactory) *co
 command fails with invalid_argument (exit 1) before the database is
 opened.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 --title TEXT and --note replace the title and note. --area ID and
 --no-area file the project under another area or under none; an archived

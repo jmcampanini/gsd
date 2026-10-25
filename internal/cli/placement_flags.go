@@ -6,23 +6,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type reorderFlags struct {
+type placementFlags struct {
 	afterIDValue  string
 	beforeIDValue string
 	first         bool
 	last          bool
 }
 
-func (f *reorderFlags) register(command *cobra.Command, entity string) {
+func (f *placementFlags) register(command *cobra.Command, entity string) {
 	f.registerFlags(command, entity)
 	command.MarkFlagsOneRequired("after", "before", "first", "last")
 }
 
-func (f *reorderFlags) registerOptional(command *cobra.Command, entity string) {
+func (f *placementFlags) registerOptional(command *cobra.Command, entity string) {
 	f.registerFlags(command, entity)
 }
 
-func (f *reorderFlags) registerFlags(command *cobra.Command, entity string) {
+func (f *placementFlags) registerFlags(command *cobra.Command, entity string) {
 	command.Flags().StringVar(&f.afterIDValue, "after", "", "place after "+entity+" ID")
 	command.Flags().StringVar(&f.beforeIDValue, "before", "", "place before "+entity+" ID")
 	command.Flags().BoolVar(&f.first, "first", false, "place first")
@@ -30,11 +30,11 @@ func (f *reorderFlags) registerFlags(command *cobra.Command, entity string) {
 	command.MarkFlagsMutuallyExclusive("after", "before", "first", "last")
 }
 
-func (f reorderFlags) validate(command *cobra.Command) error {
+func (f placementFlags) validate(command *cobra.Command) error {
 	return rejectFalseBooleanFlags(command, "first", "last")
 }
 
-func (f reorderFlags) optionalPlacement(
+func (f placementFlags) optionalPlacement(
 	command *cobra.Command,
 	parseID func(string) (int64, error),
 ) (*domain.Placement, error) {
@@ -48,7 +48,7 @@ func (f reorderFlags) optionalPlacement(
 	return &placement, nil
 }
 
-func (f reorderFlags) placement(
+func (f placementFlags) placement(
 	command *cobra.Command,
 	parseID func(string) (int64, error),
 ) (domain.Placement, error) {

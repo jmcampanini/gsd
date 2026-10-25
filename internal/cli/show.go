@@ -13,7 +13,7 @@ func newShowCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 		Short: "Show a task",
 		Long: `Print one task in full.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 The human form is a header line with a status glyph, the ID, and the
 title (plus ↑ when the task promotes), then one row per field: project,

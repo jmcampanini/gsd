@@ -8,7 +8,7 @@ import (
 )
 
 func newReorderCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	flags := reorderFlags{}
+	flags := placementFlags{}
 	command := &cobra.Command{
 		Use:   "reorder ID",
 		Short: "Reorder a task",
@@ -16,7 +16,7 @@ func newReorderCommand(options *rootOptions, factory applicationFactory) *cobra.
 container: the inbox, one project, or one area. One placement flag is
 required (usage error, exit 2, when none is given).
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 ` + clihelp.PlacementHelp + `
 

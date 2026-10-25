@@ -13,7 +13,7 @@ func newProjectShowCommand(options *rootOptions, factory applicationFactory) *co
 		Short: "Show a project",
 		Long: `Print one project in full.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 The human form is a header line with a status glyph, the ID, and the
 title, then one row per field: area, board (as BOARD/STAGE), note, done

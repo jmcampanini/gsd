@@ -16,7 +16,7 @@ func newAreaUnarchiveCommand(options *rootOptions, factory applicationFactory) *
 		commandSpec{
 			long: `Return an archived area to active, clearing archived_at.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 An area that is already active is a conflict (exit 1).
 

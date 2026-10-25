@@ -21,37 +21,37 @@ const (
 	ColorNever  ColorMode = "never"
 )
 
-// ColorDecision describes whether color is disabled, detected, or forced.
-type ColorDecision uint8
+// colorDecision describes whether color is disabled, detected, or forced.
+type colorDecision uint8
 
 const (
-	ColorDisabled ColorDecision = iota
-	ColorDetected
-	ColorForced
+	colorDisabled colorDecision = iota
+	colorDetected
+	colorForced
 )
 
-// ResolveColor applies explicit color settings, NO_COLOR, and terminal detection.
-func ResolveColor(
+// resolveColor applies explicit color settings, NO_COLOR, and terminal detection.
+func resolveColor(
 	mode ColorMode,
 	explicit bool,
 	noColor string,
 	isTerminal bool,
 	terminalName string,
-) ColorDecision {
+) colorDecision {
 	if explicit {
 		switch mode {
 		case ColorAlways:
-			return ColorForced
+			return colorForced
 		case ColorNever:
-			return ColorDisabled
+			return colorDisabled
 		case ColorAuto:
 			noColor = ""
 		}
 	}
 	if noColor != "" || !isTerminal || terminalName == "dumb" {
-		return ColorDisabled
+		return colorDisabled
 	}
-	return ColorDetected
+	return colorDetected
 }
 
 // PresentationDependencies supplies terminal, environment, and clock observations.
@@ -113,16 +113,16 @@ func (p Presentation) Resolve(writer io.Writer, explicit bool) ColorResolution {
 	terminal := p.Dependencies.IsTerminalWriter(writer)
 	scrubbed := scrubColorEnvironment(environment)
 	profile := colorprofile.NoTTY
-	switch ResolveColor(
+	switch resolveColor(
 		*p.Mode,
 		explicit,
 		environmentValue(environment, "NO_COLOR"),
 		terminal,
 		environmentValue(environment, "TERM"),
 	) {
-	case ColorForced:
+	case colorForced:
 		profile = colorprofile.TrueColor
-	case ColorDetected:
+	case colorDetected:
 		profile = p.Dependencies.DetectProfile(writer, scrubbed)
 	}
 	return ColorResolution{
@@ -139,7 +139,7 @@ func (p Presentation) Output(input io.Reader, writer io.Writer, explicit bool) H
 	if tui.CanRenderColor(resolution.Profile, resolution.Terminal) {
 		dark = p.Dependencies.HasDarkBackground(input, writer)
 	}
-	return NewHumanOutput(
+	return newHumanOutput(
 		&colorprofile.Writer{Forward: writer, Profile: resolution.Profile},
 		dark,
 		p.Dependencies.Now().In(p.Location).Format(time.DateOnly),

@@ -42,7 +42,7 @@ func runTests(m *testing.M) int {
 		return 1
 	}
 
-	repositoryRoot, err := filepath.Abs("..")
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "resolve repository root: %v\n", err)
 		return 1

@@ -8,7 +8,7 @@ import (
 )
 
 func newProjectMoveCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	flags := reorderFlags{}
+	flags := placementFlags{}
 	command := &cobra.Command{
 		Use:   "move ID STAGE",
 		Short: "Move a project on its board",
@@ -19,7 +19,7 @@ not_found (exit 1). A project that is not on a board is a conflict (exit
 1), and a move to the current stage without a placement flag changes
 nothing. Stage defers on the project's tasks are kept.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 Placement is optional here, and the siblings are the projects in STAGE.
 

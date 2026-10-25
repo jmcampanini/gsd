@@ -1,17 +1,13 @@
 package cli
 
 import (
-	"github.com/jmcampanini/gsd/internal/clierror"
 	"github.com/jmcampanini/gsd/internal/clihelp"
 	"github.com/jmcampanini/gsd/internal/tag"
 	"github.com/spf13/cobra"
 )
 
 func newTagsCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	command := &cobra.Command{
-		Use:   "tags",
-		Short: "Manage tags",
-		Long: `Manage tags: 'tags add NAME' creates one, 'tags list' lists them with
+	command := newCommandGroup("tags", "Manage tags", `Manage tags: 'tags add NAME' creates one, 'tags list' lists them with
 usage counts, 'tags rename OLD NEW' renames one, and 'tags delete NAME'
 removes one. Attach and detach tags with 'gsd tag', 'gsd untag', 'gsd
 project tag', 'gsd project untag', 'gsd area tag', and 'gsd area untag'.
@@ -20,14 +16,9 @@ A tag is a label with a title that is unique case-insensitively. It can
 be attached to any number of tasks, projects, and areas, and it must
 exist before it is attached; attaching never creates one.
 
-` + clihelp.NameGrammarHelp + `
+`+clihelp.NameGrammarHelp+`
 
-` + clihelp.GroupContractHelp,
-		Args: cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			return clierror.Usage("tags requires a subcommand")
-		},
-	}
+`+clihelp.GroupContractHelp)
 	command.AddCommand(
 		newTagsAddCommand(options, factory),
 		newTagsDeleteCommand(options, factory),

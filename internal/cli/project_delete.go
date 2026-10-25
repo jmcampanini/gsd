@@ -18,7 +18,7 @@ func newProjectDeleteCommand(options *rootOptions, factory applicationFactory) *
 whose message points to --recursive; with --recursive its tasks are
 deleted first, in the same transaction.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 On success one line reads '− Deleted: project ID  TITLE', followed by
 'Deleted N tasks:' and one line per task when --recursive removed any.

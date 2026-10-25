@@ -15,7 +15,7 @@ func newProjectReopenCommand(options *rootOptions, factory applicationFactory) *
 cancelled_at. Tasks cancelled when the project was resolved stay
 cancelled; reopen them one at a time with 'gsd reopen ID'.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 A project that is already open is a conflict (exit 1), as is one filed
 under an archived area.

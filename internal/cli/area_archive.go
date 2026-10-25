@@ -19,7 +19,7 @@ hidden from 'gsd areas list' by default, its tasks leave 'gsd
 available', and it blocks changes to the projects and tasks it contains
 until 'gsd area unarchive ID'.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 An area that is already archived is a conflict (exit 1).
 

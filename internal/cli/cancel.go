@@ -16,7 +16,7 @@ func newCancelCommand(options *rootOptions, factory applicationFactory) *cobra.C
 		commandSpec{
 			long: `Mark an open task cancelled, recording cancelled_at.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 A task that is already done or cancelled is a conflict (exit 1).
 

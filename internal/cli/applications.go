@@ -78,8 +78,9 @@ func withBoardApplication(
 }
 
 // The with*Output wrappers run one application call and hand the result to
-// renderResult with a per-command JSON payload selector. Commands whose JSON
-// and human modes share one payload use writeCommandOutput instead.
+// renderResult with a per-command JSON payload selector; the project, area,
+// and tag variants sit in their group files. Commands whose JSON and human
+// modes share one payload use writeCommandOutput instead.
 func withTaskOutput[T any](
 	command *cobra.Command,
 	options *rootOptions,

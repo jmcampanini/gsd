@@ -4,26 +4,17 @@ import (
 	"context"
 
 	"github.com/jmcampanini/gsd/internal/area"
-	"github.com/jmcampanini/gsd/internal/clierror"
 	"github.com/jmcampanini/gsd/internal/clihelp"
 	"github.com/jmcampanini/gsd/internal/render"
 	"github.com/spf13/cobra"
 )
 
 func newAreaCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	command := &cobra.Command{
-		Use:   "area",
-		Short: "Manage an area",
-		Long: `Act on one existing area by ID: show, edit, tag, untag, reorder, archive,
+	command := newCommandGroup("area", "Manage an area", `Act on one existing area by ID: show, edit, tag, untag, reorder, archive,
 unarchive, and delete. New areas come from 'gsd areas add' and lists from
 'gsd areas list'; 'gsd areas --help' describes what an area is.
 
-` + clihelp.GroupContractHelp,
-		Args: cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			return clierror.Usage("area requires a subcommand")
-		},
-	}
+`+clihelp.GroupContractHelp)
 	command.AddCommand(
 		newAreaArchiveCommand(options, factory),
 		newAreaDeleteCommand(options, factory),

@@ -8,7 +8,7 @@ import (
 )
 
 func newProjectReorderCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	flags := reorderFlags{}
+	flags := placementFlags{}
 	command := &cobra.Command{
 		Use:   "reorder ID",
 		Short: "Reorder a project",
@@ -18,7 +18,7 @@ This is the order 'gsd projects list' shows; the position within a board
 stage is separate and changed by 'gsd project move'. One placement flag
 is required (usage error, exit 2, when none is given).
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 ` + clihelp.PlacementHelp + `
 

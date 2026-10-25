@@ -13,7 +13,7 @@ func newDoneCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 		Short: "Complete a task",
 		Long: `Mark an open task done, recording done_at.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 A task that is already done or cancelled is a conflict (exit 1). When the
 task promotes and its project is on a board, the project moves to the

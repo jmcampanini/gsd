@@ -8,7 +8,7 @@ import (
 )
 
 func newAreaReorderCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	flags := reorderFlags{}
+	flags := placementFlags{}
 	command := &cobra.Command{
 		Use:   "reorder ID",
 		Short: "Reorder an area",
@@ -16,7 +16,7 @@ func newAreaReorderCommand(options *rootOptions, factory applicationFactory) *co
 list' shows. One placement flag is required (usage error, exit 2, when
 none is given).
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 ` + clihelp.PlacementHelp + `
 

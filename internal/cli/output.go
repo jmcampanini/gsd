@@ -8,8 +8,8 @@ import (
 // renderResult is the single JSON/human dispatch point. Sites whose two modes
 // share one payload route here through writeCommandOutput; commands whose JSON
 // payload differs from the human model (flag-keyed envelopes, bare-row echoes)
-// route through the with*Output wrappers in applications.go, which pair this dispatch
-// with a per-command payload selector. capture and config are not dispatch
+// route through the with*Output wrappers, which sit beside the commands that
+// use them and pair this dispatch with a per-command payload selector. capture and config are not dispatch
 // sites: both reject --json outright. If another cross-cutting output surface
 // lands (--quiet, CSV), extend renderResult - dispatch exists only here.
 func renderResult[T any](

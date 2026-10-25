@@ -18,7 +18,7 @@ func newAreaEditCommand(options *rootOptions, factory applicationFactory) *cobra
 is required; without one the command fails with invalid_argument (exit
 1) before the database is opened. An archived area can be edited.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 ` + clihelp.NoteFlagHelp + `
 

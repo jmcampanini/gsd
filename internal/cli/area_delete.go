@@ -19,7 +19,7 @@ message points to --recursive; with --recursive the tasks in its
 projects, its projects, and its loose tasks are deleted first, in the
 same transaction.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 On success one line reads '− Deleted: area ID  TITLE', followed by
 'Deleted N projects:' and 'Deleted N tasks:' with one line per row when

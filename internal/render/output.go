@@ -105,8 +105,8 @@ type HumanOutput struct {
 	today  string
 }
 
-// NewHumanOutput selects a palette and uses today for relative date styling.
-func NewHumanOutput(writer io.Writer, dark bool, today string) HumanOutput {
+// newHumanOutput selects a palette and uses today for relative date styling.
+func newHumanOutput(writer io.Writer, dark bool, today string) HumanOutput {
 	theme := tui.ThemeForBackground(dark)
 	return HumanOutput{
 		writer: writer,
@@ -137,49 +137,42 @@ func SamePayload[T any](value T) any {
 	return value
 }
 
-// TaskMutationWriter binds the rendering options for a command result.
 func TaskMutationWriter(verb MutationVerb) func(HumanOutput, task.Task) error {
 	return func(output HumanOutput, current task.Task) error {
-		return output.WriteTaskMutation(verb, current)
+		return output.writeTaskMutation(verb, current)
 	}
 }
 
-// ProjectMutationWriter binds the rendering options for a command result.
 func ProjectMutationWriter(verb MutationVerb) func(HumanOutput, project.Project) error {
 	return func(output HumanOutput, current project.Project) error {
 		return output.WriteProjectMutation(verb, current)
 	}
 }
 
-// ProjectResolutionWriter binds the rendering options for a command result.
 func ProjectResolutionWriter(verb MutationVerb) func(HumanOutput, project.Resolution) error {
 	return func(output HumanOutput, resolution project.Resolution) error {
 		return output.writeProjectResolution(verb, resolution)
 	}
 }
 
-// AreaMutationWriter binds the rendering options for a command result.
 func AreaMutationWriter(verb MutationVerb) func(HumanOutput, area.Area) error {
 	return func(output HumanOutput, current area.Area) error {
 		return output.writeAreaMutation(verb, current)
 	}
 }
 
-// BoardMutationWriter binds the rendering options for a command result.
 func BoardMutationWriter(verb MutationVerb) func(HumanOutput, board.Board) error {
 	return func(output HumanOutput, current board.Board) error {
 		return output.writeBoardMutation(verb, current)
 	}
 }
 
-// StageMutationWriter binds the rendering options for a command result.
 func StageMutationWriter(verb MutationVerb) func(HumanOutput, board.StageResult) error {
 	return func(output HumanOutput, result board.StageResult) error {
 		return output.writeStageMutation(verb, result)
 	}
 }
 
-// LogbookWriter binds the rendering options for a command result.
 func LogbookWriter(location *time.Location) func(HumanOutput, []logbook.Entry) error {
 	return func(output HumanOutput, entries []logbook.Entry) error {
 		return output.writeLogbook(entries, location)
@@ -195,17 +188,14 @@ func WriteCommandError(writer io.Writer, jsonMode bool, err error) error {
 	return writeErr
 }
 
-// WriteAddedTask writes added task.
 func (o HumanOutput) WriteAddedTask(created task.Task) error {
 	return o.writeAddedEntity("task", created.ID, created.Title, created.Tags)
 }
 
-// WriteAddedProject writes added project.
 func (o HumanOutput) WriteAddedProject(created project.Project) error {
 	return o.writeAddedEntity("project", created.ID, created.Title, created.Tags)
 }
 
-// WriteAddedArea writes added area.
 func (o HumanOutput) WriteAddedArea(created area.Area) error {
 	return o.writeAddedEntity("area", created.ID, created.Title, created.Tags)
 }
@@ -230,7 +220,6 @@ func (o HumanOutput) addedTagSuffix(titles []string) string {
 	return "  " + o.humanTagTitles(titles)
 }
 
-// WriteAddedBoard writes added board.
 func (o HumanOutput) WriteAddedBoard(addition board.Addition) error {
 	stages := make([]string, len(addition.Stages))
 	for index, stage := range addition.Stages {
@@ -246,7 +235,6 @@ func (o HumanOutput) WriteAddedBoard(addition board.Addition) error {
 	return err
 }
 
-// WriteAddedStage writes added stage.
 func (o HumanOutput) WriteAddedStage(result board.StageResult) error {
 	_, err := fmt.Fprintf(
 		o.writer,
@@ -258,7 +246,6 @@ func (o HumanOutput) WriteAddedStage(result board.StageResult) error {
 	return err
 }
 
-// WriteRenamedStage writes renamed stage.
 func (o HumanOutput) WriteRenamedStage(result board.StageRenameResult) error {
 	_, err := fmt.Fprintf(
 		o.writer,
@@ -276,7 +263,6 @@ func (o HumanOutput) writeStageMutation(verb MutationVerb, result board.StageRes
 	return o.writeStageMutationValues(verb, result.Board, result.Stage)
 }
 
-// WriteStageDeletion writes stage deletion.
 func (o HumanOutput) WriteStageDeletion(deletion board.StageDeletion) error {
 	if err := o.writeStageMutationValues(VerbDeleted, deletion.Board, deletion.Stage); err != nil {
 		return err
@@ -296,7 +282,6 @@ func (o HumanOutput) writeStageMutationValues(verb MutationVerb, currentBoard bo
 	return err
 }
 
-// WriteAddedTag writes added tag.
 func (o HumanOutput) WriteAddedTag(created tag.Tag) error {
 	_, err := fmt.Fprintf(
 		o.writer,
@@ -307,7 +292,6 @@ func (o HumanOutput) WriteAddedTag(created tag.Tag) error {
 	return err
 }
 
-// WriteRenamedTag writes renamed tag.
 func (o HumanOutput) WriteRenamedTag(oldName, newName string) error {
 	_, err := fmt.Fprintf(
 		o.writer,
@@ -319,7 +303,6 @@ func (o HumanOutput) WriteRenamedTag(oldName, newName string) error {
 	return err
 }
 
-// WriteTagDeletion writes tag deletion.
 func (o HumanOutput) WriteTagDeletion(deletion tag.Deletion) error {
 	plural := ""
 	if deletion.Detached != 1 {
@@ -336,17 +319,14 @@ func (o HumanOutput) WriteTagDeletion(deletion tag.Deletion) error {
 	return err
 }
 
-// WriteTaskTagging writes task tagging.
 func (o HumanOutput) WriteTaskTagging(verb MutationVerb, tagging task.Tagging) error {
 	return o.writeEntityTagging(verb, "task", tagging.Task.ID, tagging.TagTitles)
 }
 
-// WriteProjectTagging writes project tagging.
 func (o HumanOutput) WriteProjectTagging(verb MutationVerb, tagging project.Tagging) error {
 	return o.writeEntityTagging(verb, "project", tagging.Project.ID, tagging.TagTitles)
 }
 
-// WriteAreaTagging writes area tagging.
 func (o HumanOutput) WriteAreaTagging(verb MutationVerb, tagging area.Tagging) error {
 	return o.writeEntityTagging(verb, "area", tagging.Area.ID, tagging.TagTitles)
 }
@@ -388,12 +368,10 @@ func (o HumanOutput) writeBoardMutation(verb MutationVerb, current board.Board) 
 	return err
 }
 
-// WriteBoardDeletion writes board deletion.
 func (o HumanOutput) WriteBoardDeletion(deletion board.Deletion) error {
 	return o.writeBoardMutation(VerbDeleted, deletion.Board)
 }
 
-// WriteAreaDeletion writes area deletion.
 func (o HumanOutput) WriteAreaDeletion(deletion area.Deletion) error {
 	if err := o.writeAreaMutation(VerbDeleted, deletion.Area); err != nil {
 		return err
@@ -412,7 +390,6 @@ func (o HumanOutput) writeNarratedProjects(projects []project.Project) error {
 	return o.writeNarration("Deleted", "project", rows)
 }
 
-// WriteOpenTaskList writes open task list.
 func (o HumanOutput) WriteOpenTaskList(tasks []task.ViewTask) error {
 	rows := make([][]string, 0, len(tasks))
 	for _, current := range tasks {
@@ -430,7 +407,6 @@ func (o HumanOutput) WriteOpenTaskList(tasks []task.ViewTask) error {
 	)
 }
 
-// WriteTaskList writes task list.
 func (o HumanOutput) WriteTaskList(tasks []task.Task) error {
 	rows := make([][]string, 0, len(tasks))
 	for _, current := range tasks {
@@ -449,8 +425,8 @@ func (o HumanOutput) WriteTaskList(tasks []task.Task) error {
 	)
 }
 
-// WriteTaskMutation writes task mutation.
-func (o HumanOutput) WriteTaskMutation(verb MutationVerb, current task.Task) error {
+// writeTaskMutation writes task mutation.
+func (o HumanOutput) writeTaskMutation(verb MutationVerb, current task.Task) error {
 	_, err := fmt.Fprintf(
 		o.writer,
 		"%s %s: %s  %s\n",
@@ -462,17 +438,15 @@ func (o HumanOutput) WriteTaskMutation(verb MutationVerb, current task.Task) err
 	return err
 }
 
-// WriteTaskEdition writes task edition.
 func (o HumanOutput) WriteTaskEdition(edition task.Edition) error {
-	if err := o.WriteTaskMutation(VerbEdited, edition.Task); err != nil {
+	if err := o.writeTaskMutation(VerbEdited, edition.Task); err != nil {
 		return err
 	}
 	return o.writeClearedStageDefers(edition.ClearedDefers)
 }
 
-// WriteTaskCompletion writes task completion.
 func (o HumanOutput) WriteTaskCompletion(completion task.Completion) error {
-	if err := o.WriteTaskMutation(VerbDone, completion.Task); err != nil {
+	if err := o.writeTaskMutation(VerbDone, completion.Task); err != nil {
 		return err
 	}
 	if completion.Promotion == nil {
@@ -520,7 +494,6 @@ func (o HumanOutput) writeClearedStageDefers(tasks []task.Task) error {
 	return nil
 }
 
-// WriteProjectMutation writes project mutation.
 func (o HumanOutput) WriteProjectMutation(verb MutationVerb, current project.Project) error {
 	_, err := fmt.Fprintf(
 		o.writer,
@@ -533,7 +506,6 @@ func (o HumanOutput) WriteProjectMutation(verb MutationVerb, current project.Pro
 	return err
 }
 
-// WriteProjectBoardEdit writes project board edit.
 func (o HumanOutput) WriteProjectBoardEdit(edition project.Edition) error {
 	destination := "(no board)"
 	if edition.Location != nil {
@@ -546,7 +518,6 @@ func (o HumanOutput) WriteProjectBoardEdit(edition project.Edition) error {
 	return o.writeClearedStageDefers(edition.ClearedDefers)
 }
 
-// WriteProjectMovement writes project movement.
 func (o HumanOutput) WriteProjectMovement(movement project.Movement) error {
 	return o.writeProjectBoardMutation(
 		verbMoved,
@@ -580,7 +551,6 @@ func (o HumanOutput) writeProjectResolution(verb MutationVerb, resolution projec
 	return o.writeNarratedTasks("Cancelled", "open task", resolution.CancelledTasks)
 }
 
-// WriteProjectDeletion writes project deletion.
 func (o HumanOutput) WriteProjectDeletion(deletion project.Deletion) error {
 	if err := o.WriteProjectMutation(VerbDeleted, deletion.Project); err != nil {
 		return err
@@ -635,7 +605,6 @@ func (o HumanOutput) writeNarration(action, noun string, rows []narratedRow) err
 	return nil
 }
 
-// WriteProjectList writes project list.
 func (o HumanOutput) WriteProjectList(projects []project.Project) error {
 	rows := make([][]string, 0, len(projects))
 	for _, current := range projects {
@@ -653,7 +622,6 @@ func (o HumanOutput) WriteProjectList(projects []project.Project) error {
 	)
 }
 
-// WriteBoardList writes board list.
 func (o HumanOutput) WriteBoardList(boards []board.ListedBoard) error {
 	rows := make([][]string, 0, len(boards))
 	for _, current := range boards {
@@ -669,7 +637,6 @@ func (o HumanOutput) WriteBoardList(boards []board.ListedBoard) error {
 	return o.writeCollection([]string{"board", "stages"}, rows, -1, 1)
 }
 
-// WriteBoard writes board.
 func (o HumanOutput) WriteBoard(shown board.Show) error {
 	stageTitles := make([]string, len(shown.Stages))
 	stageWidth := 0
@@ -723,7 +690,6 @@ func (o HumanOutput) WriteBoard(shown board.Show) error {
 	return nil
 }
 
-// WriteTagList writes tag list.
 func (o HumanOutput) WriteTagList(tags []tag.ListedTag) error {
 	nameWidth := 0
 	visible := make([]string, len(tags))
@@ -745,7 +711,6 @@ func (o HumanOutput) WriteTagList(tags []tag.ListedTag) error {
 	return nil
 }
 
-// WriteAreaList writes area list.
 func (o HumanOutput) WriteAreaList(areas []area.Area) error {
 	rows := make([][]string, 0, len(areas))
 	for _, current := range areas {
@@ -767,7 +732,6 @@ func (o HumanOutput) WriteAreaList(areas []area.Area) error {
 	)
 }
 
-// WriteSearchHits writes search hits.
 func (o HumanOutput) WriteSearchHits(hits []search.Hit) error {
 	rows := make([][]string, 0, len(hits))
 	for _, hit := range hits {
@@ -850,7 +814,6 @@ func (o HumanOutput) writeLogbook(entries []logbook.Entry, location *time.Locati
 	)
 }
 
-// WriteTask writes task.
 func (o HumanOutput) WriteTask(current task.Task) error {
 	glyph := glyphTaskOpen
 	switch current.Status {
@@ -860,25 +823,24 @@ func (o HumanOutput) WriteTask(current task.Task) error {
 		glyph = o.styles.red.Render(glyphCancelled)
 	}
 	fields := []detailField{
-		{Label: "project", Value: o.Metadata(nullableInt64(current.ProjectID))},
-		{Label: "area", Value: o.Metadata(nullableInt64(current.AreaID))},
+		{Label: "project", Value: o.metadata(nullableInt64(current.ProjectID))},
+		{Label: "area", Value: o.metadata(nullableInt64(current.AreaID))},
 		{Label: "note", Value: text.Human(current.Note, true)},
 		{Label: "due on", Value: o.detailDueDate(current)},
-		{Label: "defer until", Value: o.Metadata(text.Human(nullableString(current.DeferUntil), false))},
-		{Label: "defer stage", Value: o.Metadata(text.Human(nullableString(current.DeferStageTitle), false))},
-		{Label: "promotes", Value: o.Metadata(strconv.FormatBool(current.Promotes))},
-		{Label: "done at", Value: o.Metadata(text.Human(nullableString(current.DoneAt), false))},
-		{Label: "cancelled at", Value: o.Metadata(text.Human(nullableString(current.CancelledAt), false))},
+		{Label: "defer until", Value: o.metadata(text.Human(nullableString(current.DeferUntil), false))},
+		{Label: "defer stage", Value: o.metadata(text.Human(nullableString(current.DeferStageTitle), false))},
+		{Label: "promotes", Value: o.metadata(strconv.FormatBool(current.Promotes))},
+		{Label: "done at", Value: o.metadata(text.Human(nullableString(current.DoneAt), false))},
+		{Label: "cancelled at", Value: o.metadata(text.Human(nullableString(current.CancelledAt), false))},
 		{Label: "status", Value: o.statusWord(current.Status)},
-		{Label: "position", Value: o.Metadata(strconv.FormatInt(current.Position, 10))},
-		{Label: "created at", Value: o.Metadata(text.Human(current.CreatedAt, false))},
-		{Label: "updated at", Value: o.Metadata(text.Human(current.UpdatedAt, false))},
+		{Label: "position", Value: o.metadata(strconv.FormatInt(current.Position, 10))},
+		{Label: "created at", Value: o.metadata(text.Human(current.CreatedAt, false))},
+		{Label: "updated at", Value: o.metadata(text.Human(current.UpdatedAt, false))},
 		{Label: "tags", Value: o.humanTagTitles(current.Tags)},
 	}
 	return o.writeDetail(glyph, current.ID, o.taskTitle(current), fields)
 }
 
-// WriteProject writes project.
 func (o HumanOutput) WriteProject(detail project.Detail) error {
 	current := detail.Project
 	boardLocation := ""
@@ -887,15 +849,15 @@ func (o HumanOutput) WriteProject(detail project.Detail) error {
 			text.Human(detail.Location.StageTitle, false)
 	}
 	fields := []detailField{
-		{Label: "area", Value: o.Metadata(nullableInt64(current.AreaID))},
-		{Label: "board", Value: o.Metadata(boardLocation)},
+		{Label: "area", Value: o.metadata(nullableInt64(current.AreaID))},
+		{Label: "board", Value: o.metadata(boardLocation)},
 		{Label: "note", Value: text.Human(current.Note, true)},
-		{Label: "done at", Value: o.Metadata(text.Human(nullableString(current.DoneAt), false))},
-		{Label: "cancelled at", Value: o.Metadata(text.Human(nullableString(current.CancelledAt), false))},
+		{Label: "done at", Value: o.metadata(text.Human(nullableString(current.DoneAt), false))},
+		{Label: "cancelled at", Value: o.metadata(text.Human(nullableString(current.CancelledAt), false))},
 		{Label: "status", Value: o.statusWord(current.Status)},
-		{Label: "position", Value: o.Metadata(strconv.FormatInt(current.Position, 10))},
-		{Label: "created at", Value: o.Metadata(text.Human(current.CreatedAt, false))},
-		{Label: "updated at", Value: o.Metadata(text.Human(current.UpdatedAt, false))},
+		{Label: "position", Value: o.metadata(strconv.FormatInt(current.Position, 10))},
+		{Label: "created at", Value: o.metadata(text.Human(current.CreatedAt, false))},
+		{Label: "updated at", Value: o.metadata(text.Human(current.UpdatedAt, false))},
 		{Label: "tags", Value: o.humanTagTitles(current.Tags)},
 	}
 	return o.writeDetail(o.projectGlyph(current.Status), current.ID, text.Human(current.Title, false), fields)
@@ -912,7 +874,6 @@ func (o HumanOutput) projectGlyph(status string) string {
 	}
 }
 
-// WriteArea writes area.
 func (o HumanOutput) WriteArea(current area.Area) error {
 	glyph := glyphAreaActive
 	if current.ArchivedAt != nil {
@@ -920,10 +881,10 @@ func (o HumanOutput) WriteArea(current area.Area) error {
 	}
 	fields := []detailField{
 		{Label: "note", Value: text.Human(current.Note, true)},
-		{Label: "archived at", Value: o.Metadata(text.Human(nullableString(current.ArchivedAt), false))},
-		{Label: "position", Value: o.Metadata(strconv.FormatInt(current.Position, 10))},
-		{Label: "created at", Value: o.Metadata(text.Human(current.CreatedAt, false))},
-		{Label: "updated at", Value: o.Metadata(text.Human(current.UpdatedAt, false))},
+		{Label: "archived at", Value: o.metadata(text.Human(nullableString(current.ArchivedAt), false))},
+		{Label: "position", Value: o.metadata(strconv.FormatInt(current.Position, 10))},
+		{Label: "created at", Value: o.metadata(text.Human(current.CreatedAt, false))},
+		{Label: "updated at", Value: o.metadata(text.Human(current.UpdatedAt, false))},
 		{Label: "tags", Value: o.humanTagTitles(current.Tags)},
 	}
 	return o.writeDetail(glyph, current.ID, text.Human(current.Title, false), fields)
@@ -1002,7 +963,7 @@ func (o HumanOutput) statusWord(status string) string {
 	}
 }
 
-func (o HumanOutput) Metadata(value string) string {
+func (o HumanOutput) metadata(value string) string {
 	if value == "" {
 		return ""
 	}

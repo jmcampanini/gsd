@@ -52,16 +52,6 @@ type applicationFactory func(
 	*pflag.FlagSet,
 ) (applications, io.Closer, error)
 
-// commandSpec is the data by which the parallel task, project, and area
-// command constructors differ: the usage line, both help texts, and the
-// mutation verb used in human output.
-type commandSpec struct {
-	long  string
-	short string
-	use   string
-	verb  render.MutationVerb
-}
-
 // Execute runs the command tree and returns the process exit status.
 func Execute() int {
 	return execute(newRootCommand(), os.Args[1:])

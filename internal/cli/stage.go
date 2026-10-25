@@ -6,7 +6,7 @@ import (
 )
 
 func newStageCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	command := newBoardCommandGroup("stage", "Manage a stage", `Act on one existing stage, named by its board and its own name: rename,
+	command := newCommandGroup("stage", "Manage a stage", `Act on one existing stage, named by its board and its own name: rename,
 reorder, and delete. New stages come from 'gsd stages add', and 'gsd
 boards --help' describes boards and stages.
 

@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 
-	"github.com/jmcampanini/gsd/internal/clierror"
 	"github.com/jmcampanini/gsd/internal/clihelp"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/render"
@@ -11,20 +10,12 @@ import (
 )
 
 func newProjectCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	command := &cobra.Command{
-		Use:   "project",
-		Short: "Manage a project",
-		Long: `Act on one existing project by ID: show, edit, tag, untag, reorder, move
+	command := newCommandGroup("project", "Manage a project", `Act on one existing project by ID: show, edit, tag, untag, reorder, move
 (between the stages of its board), done, cancel, reopen, and delete. New
 projects come from 'gsd projects add' and lists from 'gsd projects list';
 'gsd projects --help' describes what a project is.
 
-` + clihelp.GroupContractHelp,
-		Args: cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			return clierror.Usage("project requires a subcommand")
-		},
-	}
+`+clihelp.GroupContractHelp)
 	command.AddCommand(
 		newProjectCancelCommand(options, factory),
 		newProjectDeleteCommand(options, factory),

@@ -48,7 +48,7 @@ func TestTUICommandPassesApplicationsRuntimeOptionsAndLocation(t *testing.T) {
 			}
 
 			presentation := render.DefaultPresentationDependencies()
-			presentation.Environment = func() []string { return test.Environment }
+			presentation.Environment = func() []string { return test.environment }
 			inputChecked := false
 			outputChecked := false
 			presentation.IsTerminalReader = func(reader io.Reader) bool {

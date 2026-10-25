@@ -30,7 +30,7 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 without one the command fails with invalid_argument (exit 1) before the
 database is opened.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 --title TEXT and --note replace the title and note. --due DATE and
 --no-due set or clear the due date, and --defer DATE and --no-defer the

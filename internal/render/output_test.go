@@ -38,7 +38,7 @@ func renderHumanOnBackground(
 ) string {
 	t.Helper()
 	var output bytes.Buffer
-	human := NewHumanOutput(
+	human := newHumanOutput(
 		&colorprofile.Writer{Forward: &output, Profile: profile},
 		dark,
 		"2026-08-02",
@@ -82,7 +82,7 @@ func TestHumanOutputSelectsBackgroundAdaptiveAccents(t *testing.T) {
 	t.Parallel()
 
 	render := func(output HumanOutput) error {
-		return output.WriteTaskMutation(VerbDone, task.Task{ID: 5, Title: "Take out recycling"})
+		return output.writeTaskMutation(VerbDone, task.Task{ID: 5, Title: "Take out recycling"})
 	}
 	light := renderHumanOnBackground(t, colorprofile.TrueColor, false, render)
 	dark := renderHumanOnBackground(t, colorprofile.TrueColor, true, render)
@@ -158,22 +158,22 @@ func TestFinalGlyphVocabulary(t *testing.T) {
 			return o.WriteAddedTask(task.Task{ID: 1, Title: "Task"})
 		}},
 		{name: "delete", prefix: "− Deleted: 1", render: func(o HumanOutput) error {
-			return o.WriteTaskMutation(VerbDeleted, task.Task{ID: 1, Title: "Task"})
+			return o.writeTaskMutation(VerbDeleted, task.Task{ID: 1, Title: "Task"})
 		}},
 		{name: "complete", prefix: "✓ Done: 1", render: func(o HumanOutput) error {
-			return o.WriteTaskMutation(VerbDone, task.Task{ID: 1, Title: "Task"})
+			return o.writeTaskMutation(VerbDone, task.Task{ID: 1, Title: "Task"})
 		}},
 		{name: "cancel", prefix: "✗ Cancelled: 1", render: func(o HumanOutput) error {
-			return o.WriteTaskMutation(VerbCancelled, task.Task{ID: 1, Title: "Task"})
+			return o.writeTaskMutation(VerbCancelled, task.Task{ID: 1, Title: "Task"})
 		}},
 		{name: "edit", prefix: "~ Edited: 1", render: func(o HumanOutput) error {
-			return o.WriteTaskMutation(VerbEdited, task.Task{ID: 1, Title: "Task"})
+			return o.writeTaskMutation(VerbEdited, task.Task{ID: 1, Title: "Task"})
 		}},
 		{name: "reopen", prefix: "~ Reopened: 1", render: func(o HumanOutput) error {
-			return o.WriteTaskMutation(VerbReopened, task.Task{ID: 1, Title: "Task"})
+			return o.writeTaskMutation(VerbReopened, task.Task{ID: 1, Title: "Task"})
 		}},
 		{name: "reorder", prefix: "~ Reordered: 1", render: func(o HumanOutput) error {
-			return o.WriteTaskMutation(VerbReordered, task.Task{ID: 1, Title: "Task"})
+			return o.writeTaskMutation(VerbReordered, task.Task{ID: 1, Title: "Task"})
 		}},
 		{name: "archive", prefix: "✗ Archived: area 3", render: func(o HumanOutput) error {
 			return o.writeAreaMutation(VerbArchived, area.Area{ID: 3, Title: "Area"})

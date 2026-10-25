@@ -15,7 +15,7 @@ func newProjectDoneCommand(options *rootOptions, factory applicationFactory) *co
 			long: `Mark an open project done, recording done_at, and cancel every open task
 in it in the same transaction.
 
-` + clihelp.IdGrammarHelp + `
+` + clihelp.IDGrammarHelp + `
 
 A project that is already done or cancelled is a conflict (exit 1), as
 is one filed under an archived area.
