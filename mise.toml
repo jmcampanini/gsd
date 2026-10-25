@@ -1,4 +1,4 @@
-min_version = "2026.1.0"
+min_version = "2026.9.18"
 
 [settings]
 lockfile = true
@@ -11,6 +11,10 @@ golangci-lint = "2.14.0"
 # tmux drives the end-to-end tests. Pinning it here gives local and CI runs
 # the same tmux; users of the built binary do not need it.
 tmux = "3.7c"
+# node hosts markdownlint-cli2, which lints the tracked Markdown with the
+# shared rules in .markdownlint-cli2.jsonc.
+node = "24.21.0"
+"npm:markdownlint-cli2" = "0.24.0"
 
 [env]
 # Go's default GOTOOLCHAIN=auto lets it download and run whatever toolchain
@@ -42,6 +46,10 @@ run = "golangci-lint run ./..."
 [tasks.lint-fix]
 description = "Run static analysis with --fix."
 run = "golangci-lint run --fix ./..."
+
+[tasks.lint-markdown]
+description = "Lint tracked Markdown using the shared Markdown rules."
+run = "git ls-files -z -- '*.md' '*.markdown' | xargs -0 markdownlint-cli2"
 
 [tasks.fmt]
 description = "Format Go source files."
@@ -83,7 +91,7 @@ run = "govulncheck ./..."
 # Add report-only tasks here; fixers (fmt, lint-fix, tidy) stay out.
 [tasks.check]
 description = "Run the complete local verification contract."
-depends = ["fmt-check", "tidy-check", "lint", "test", "version-check", "vuln"]
+depends = ["fmt-check", "tidy-check", "lint", "lint-markdown", "test", "version-check", "vuln"]
 
 [tasks.clean]
 description = "Remove build artifacts and the Go test cache."

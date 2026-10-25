@@ -2,7 +2,8 @@
 
 - Run tasks with `mise run <task>`; do not call `go`, `golangci-lint`, `tmux`, or similar tools directly.
 - Run `mise run check` for the complete local verification contract.
-- Bump a tool with `mise upgrade --bump <tool>`, run `mise lock` and `mise run check`, and commit both files.
+- Bump a tool with `mise upgrade --bump <tool>`, run `mise lock` and `mise run check`, and commit `mise.toml`, `mise.lock`, and the generated `.mise/locks/` files.
+
 
 ## Command architecture
 
@@ -28,6 +29,7 @@
 - Parameterize duplicated flows only when the variation is data or a single function value.
 - Keep type-varying orchestration flows concretely parallel until divergence proves the coordination cost.
 - Command help is the canonical user-facing documentation and the README is a landing page; keep both consistent with observable behavior, and compose repeated help text from the shared fragments in `internal/clihelp/helptext.go` instead of copying it between commands.
+
 
 ## Test ownership
 
