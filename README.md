@@ -1,8 +1,6 @@
 # gsd
 
-Get shit done: a personal task manager kept in one SQLite database. A task lives in the inbox, in a project, or in an area; a project can move through the stages of a board; tags label tasks, projects, and areas; and the logbook lists what was done or cancelled. Every operation is a plain command with a `--json` mode, plus a read-only navigator (`gsd tui`) and a one-line capture prompt (`gsd capture`) for the terminal.
-
-Command help is the canonical reference: `gsd --help` and each command's `--help` describe every user-facing contract, `gsd config --help` describes where the database and configuration are found, and `gsd help exit-codes` describes exit statuses.
+Get shit done: a personal task manager kept in one SQLite database. A task lives in the inbox, in a project, or in an area; a project can move through the stages of a board; tags label tasks, projects, and areas; and the logbook lists what was done or cancelled. Every operation is a plain command with a `--json` mode, plus a read-only navigator (`gsd tui`) and a one-line capture prompt (`gsd capture`) for the terminal. No command runs another program or uses the network.
 
 ## Install
 
@@ -53,13 +51,13 @@ To upgrade, run `git pull`, rebuild with `mise install && mise run build`, and r
 | `gsd tui` | Browse everything in the terminal without changing it. |
 | `gsd config --provenance` | Print the effective configuration and where each value came from. |
 
-## Required external programs
+The canonical reference is `gsd --help`, each command's `--help`, and the help topic `gsd help exit-codes`.
 
-None. gsd runs no other program and uses no network.
+## Configuration
 
-## Database and configuration
+The config file is discovered at `$XDG_CONFIG_HOME/gsd/config.toml` (`~/.config/gsd/config.toml` when `XDG_CONFIG_HOME` is unset). The database defaults to `$XDG_DATA_HOME/gsd/gsd.db` (`~/.local/share/gsd/gsd.db` when `XDG_DATA_HOME` is unset).
 
-The database is one SQLite file. It defaults to `$XDG_DATA_HOME/gsd/gsd.db` (`~/.local/share/gsd/gsd.db` when `XDG_DATA_HOME` is unset) and can be moved with `db_path` in `$XDG_CONFIG_HOME/gsd/config.toml` (`~/.config/gsd/config.toml` when unset), the `GSD_DB` environment variable, or `--db PATH`, each overriding the one before; `--config PATH` names a config file explicitly. `gsd config --help` documents the full precedence and `gsd config` prints the value in effect.
+See `gsd config --help` for configuration precedence and the file format.
 
 ```toml
 # ~/.config/gsd/config.toml
