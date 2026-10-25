@@ -1,0 +1,435 @@
+package render
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+
+	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/jmcampanini/gsd/internal/area"
+	"github.com/jmcampanini/gsd/internal/board"
+	"github.com/jmcampanini/gsd/internal/domain"
+	"github.com/jmcampanini/gsd/internal/project"
+	"github.com/jmcampanini/gsd/internal/search"
+	"github.com/jmcampanini/gsd/internal/task"
+)
+
+const (
+	latteGreenSGR  = "38;2;64;160;43"
+	frappeGreenSGR = "38;2;166;209;137"
+	frappeRedSGR   = "38;2;231;130;132"
+)
+
+func renderHuman(
+	t *testing.T,
+	profile colorprofile.Profile,
+	render func(HumanOutput) error,
+) string {
+	t.Helper()
+	return renderHumanOnBackground(t, profile, true, render)
+}
+
+func renderHumanOnBackground(
+	t *testing.T,
+	profile colorprofile.Profile,
+	dark bool,
+	render func(HumanOutput) error,
+) string {
+	t.Helper()
+	var output bytes.Buffer
+	human := newHumanOutput(
+		&colorprofile.Writer{Forward: &output, Profile: profile},
+		dark,
+		"2026-08-02",
+	)
+	if err := render(human); err != nil {
+		t.Fatalf("render human output: %v", err)
+	}
+	return output.String()
+}
+
+func TestHumanCollectionStructureIsModeIndependent(t *testing.T) {
+	t.Parallel()
+
+	overdue := "2026-08-01"
+	future := "2026-08-05"
+	tasks := []task.Task{
+		{ID: 2, Title: "Open", Status: "open", DueOn: &overdue},
+		{ID: 12, Title: "Finished", Status: "done", DueOn: &overdue},
+		{ID: 20, Title: "Later", Status: "open", DueOn: &future},
+	}
+	render := func(output HumanOutput) error { return output.WriteTaskList(tasks) }
+	plain := renderHuman(t, colorprofile.NoTTY, render)
+	styled := renderHuman(t, colorprofile.TrueColor, render)
+
+	want := "  id  title     status  dates\n" +
+		"   2  Open      open    due 2026-08-01\n" +
+		"  12  Finished  done    due 2026-08-01\n" +
+		"  20  Later     open    due 2026-08-05\n"
+	if plain != want {
+		t.Errorf("plain collection = %q, want %q", plain, want)
+	}
+	if !strings.Contains(styled, "\x1b[") {
+		t.Errorf("styled collection = %q, want ANSI", styled)
+	}
+	if stripped := ansi.Strip(styled); stripped != plain {
+		t.Errorf("stripped styled collection = %q, want structure %q", stripped, plain)
+	}
+}
+
+func TestHumanOutputSelectsBackgroundAdaptiveAccents(t *testing.T) {
+	t.Parallel()
+
+	render := func(output HumanOutput) error {
+		return output.writeTaskMutation(VerbDone, task.Task{ID: 5, Title: "Take out recycling"})
+	}
+	light := renderHumanOnBackground(t, colorprofile.TrueColor, false, render)
+	dark := renderHumanOnBackground(t, colorprofile.TrueColor, true, render)
+	if !strings.Contains(light, latteGreenSGR) {
+		t.Errorf("light mutation = %q, want Catppuccin Latte green", light)
+	}
+	if !strings.Contains(dark, frappeGreenSGR) {
+		t.Errorf("dark mutation = %q, want Catppuccin Frappé green", dark)
+	}
+}
+
+func TestUrgentDatesApplyOnlyToOpenTasks(t *testing.T) {
+	t.Parallel()
+
+	due := "2026-08-02"
+	styled := renderHuman(t, colorprofile.TrueColor, func(output HumanOutput) error {
+		return output.WriteTaskList([]task.Task{
+			{ID: 1, Title: "Urgent", Status: "open", DueOn: &due},
+			{ID: 2, Title: "Settled", Status: "done", DueOn: &due},
+		})
+	})
+	var urgentRow, settledRow string
+	for _, line := range strings.Split(styled, "\n") {
+		if strings.Contains(line, "Urgent") {
+			urgentRow = line
+		}
+		if strings.Contains(line, "Settled") {
+			settledRow = line
+		}
+	}
+	if !strings.Contains(urgentRow, "\x1b[1;") || !strings.Contains(urgentRow, frappeRedSGR) {
+		t.Errorf("open due row = %q, want bold Frappé red", urgentRow)
+	}
+	if settledRow == "" || strings.Contains(settledRow, "\x1b[1;") {
+		t.Errorf("resolved due row = %q, want no bold urgency", settledRow)
+	}
+}
+
+func TestFinalGlyphVocabulary(t *testing.T) {
+	t.Parallel()
+
+	archivedAt := "2026-08-01T12:00:00Z"
+	tests := []struct {
+		name   string
+		prefix string
+		render func(HumanOutput) error
+	}{
+		{name: "task open", prefix: "• 1  Task", render: func(o HumanOutput) error {
+			return o.WriteTask(task.Task{ID: 1, Title: "Task", Status: "open"})
+		}},
+		{name: "task done", prefix: "✓ 1  Task", render: func(o HumanOutput) error {
+			return o.WriteTask(task.Task{ID: 1, Title: "Task", Status: "done"})
+		}},
+		{name: "task cancelled", prefix: "✗ 1  Task", render: func(o HumanOutput) error {
+			return o.WriteTask(task.Task{ID: 1, Title: "Task", Status: "cancelled"})
+		}},
+		{name: "project open", prefix: "◆ 2  Project", render: func(o HumanOutput) error {
+			return o.WriteProject(project.Detail{Project: project.Project{ID: 2, Title: "Project", Status: "open"}})
+		}},
+		{name: "project done", prefix: "✓ 2  Project", render: func(o HumanOutput) error {
+			return o.WriteProject(project.Detail{Project: project.Project{ID: 2, Title: "Project", Status: "done"}})
+		}},
+		{name: "project cancelled", prefix: "✗ 2  Project", render: func(o HumanOutput) error {
+			return o.WriteProject(project.Detail{Project: project.Project{ID: 2, Title: "Project", Status: "cancelled"}})
+		}},
+		{name: "area active", prefix: "● 3  Area", render: func(o HumanOutput) error {
+			return o.WriteArea(area.Area{ID: 3, Title: "Area"})
+		}},
+		{name: "area archived", prefix: "✗ 3  Area", render: func(o HumanOutput) error {
+			return o.WriteArea(area.Area{ID: 3, Title: "Area", ArchivedAt: &archivedAt})
+		}},
+		{name: "add", prefix: "+ Added task 1", render: func(o HumanOutput) error {
+			return o.WriteAddedTask(task.Task{ID: 1, Title: "Task"})
+		}},
+		{name: "delete", prefix: "− Deleted: 1", render: func(o HumanOutput) error {
+			return o.writeTaskMutation(VerbDeleted, task.Task{ID: 1, Title: "Task"})
+		}},
+		{name: "complete", prefix: "✓ Done: 1", render: func(o HumanOutput) error {
+			return o.writeTaskMutation(VerbDone, task.Task{ID: 1, Title: "Task"})
+		}},
+		{name: "cancel", prefix: "✗ Cancelled: 1", render: func(o HumanOutput) error {
+			return o.writeTaskMutation(VerbCancelled, task.Task{ID: 1, Title: "Task"})
+		}},
+		{name: "edit", prefix: "~ Edited: 1", render: func(o HumanOutput) error {
+			return o.writeTaskMutation(VerbEdited, task.Task{ID: 1, Title: "Task"})
+		}},
+		{name: "reopen", prefix: "~ Reopened: 1", render: func(o HumanOutput) error {
+			return o.writeTaskMutation(VerbReopened, task.Task{ID: 1, Title: "Task"})
+		}},
+		{name: "reorder", prefix: "~ Reordered: 1", render: func(o HumanOutput) error {
+			return o.writeTaskMutation(VerbReordered, task.Task{ID: 1, Title: "Task"})
+		}},
+		{name: "archive", prefix: "✗ Archived: area 3", render: func(o HumanOutput) error {
+			return o.writeAreaMutation(VerbArchived, area.Area{ID: 3, Title: "Area"})
+		}},
+		{name: "unarchive", prefix: "~ Unarchived: area 3", render: func(o HumanOutput) error {
+			return o.writeAreaMutation(VerbUnarchived, area.Area{ID: 3, Title: "Area"})
+		}},
+		{name: "tag", prefix: "+# Tagged: task 1", render: func(o HumanOutput) error {
+			return o.WriteTaskTagging(VerbTagged, task.Tagging{Task: task.Task{ID: 1}, TagTitles: []string{"Home"}})
+		}},
+		{name: "untag", prefix: "−# Untagged: task 1", render: func(o HumanOutput) error {
+			return o.WriteTaskTagging(VerbUntagged, task.Tagging{Task: task.Task{ID: 1}, TagTitles: []string{"Home"}})
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got := renderHuman(t, colorprofile.NoTTY, test.render)
+			if !strings.HasPrefix(got, test.prefix) {
+				t.Errorf("output = %q, want prefix %q", got, test.prefix)
+			}
+		})
+	}
+}
+
+func TestProjectBoardEditUsesResolvedStatusGlyph(t *testing.T) {
+	t.Parallel()
+
+	location := &project.Location{BoardTitle: "Software", StageTitle: "Doing"}
+	for _, test := range []struct {
+		name   string
+		status string
+		glyph  string
+	}{
+		{name: "done", status: "done", glyph: "✓"},
+		{name: "cancelled", status: "cancelled", glyph: "✗"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := renderHuman(t, colorprofile.NoTTY, func(output HumanOutput) error {
+				return output.WriteProjectBoardEdit(project.Edition{
+					Project:  project.Project{ID: 7, Title: "Finished", Status: test.status},
+					Location: location,
+				})
+			})
+			want := "~ Edited: " + test.glyph + " 7  Finished → Software/Doing\n"
+			if got != want {
+				t.Errorf("board edit = %q, want resolved glyph output %q", got, want)
+			}
+		})
+	}
+}
+
+func TestProjectBoardEditNarratesClearedStageDefersAfterMovement(t *testing.T) {
+	t.Parallel()
+
+	got := renderHuman(t, colorprofile.NoTTY, func(output HumanOutput) error {
+		return output.WriteProjectBoardEdit(project.Edition{
+			Project:       project.Project{ID: 7, Title: "Milestone"},
+			Location:      &project.Location{BoardTitle: "Software", StageTitle: "Doing"},
+			ClearedDefers: []task.Task{{ID: 18, Title: "Waiting"}},
+		})
+	})
+	want := "~ Edited: ◆ 7  Milestone → Software/Doing\n" +
+		"  └ Cleared stage defer: 18  Waiting\n"
+	if got != want {
+		t.Errorf("board edit = %q, want movement followed by clear narration %q", got, want)
+	}
+}
+
+func TestCascadeUsesStandardTreeBranches(t *testing.T) {
+	t.Parallel()
+
+	got := renderHuman(t, colorprofile.NoTTY, func(output HumanOutput) error {
+		return output.WriteProjectDeletion(project.Deletion{
+			Project: project.Project{ID: 4, Title: "Kitchen"},
+			DeletedTasks: []task.Task{
+				{ID: 18, Title: "First"},
+				{ID: 19, Title: "Second"},
+				{ID: 21, Title: "Third"},
+			},
+		})
+	})
+	want := "− Deleted: project 4  Kitchen\n" +
+		"Deleted 3 tasks:\n" +
+		"  ├ 18  First\n" +
+		"  ├ 19  Second\n" +
+		"  └ 21  Third\n"
+	if got != want {
+		t.Errorf("cascade = %q, want %q", got, want)
+	}
+}
+
+func TestStageAwareTaskPresentationShowsMarkersDefersAndDetails(t *testing.T) {
+	t.Parallel()
+
+	stage := "Review"
+	promoting := task.Task{ID: 7, Title: "Capstone", Status: "open", Promotes: true, DeferStageTitle: &stage}
+	plainList := renderHuman(t, colorprofile.NoTTY, func(output HumanOutput) error {
+		return output.WriteTaskList([]task.Task{promoting})
+	})
+	if !strings.Contains(plainList, "Capstone ↑") || !strings.Contains(plainList, "defer→Review") {
+		t.Errorf("task list = %q, want promotion marker and stage defer", plainList)
+	}
+	openList := renderHuman(t, colorprofile.NoTTY, func(output HumanOutput) error {
+		return output.WriteOpenTaskList([]task.ViewTask{{Task: promoting}})
+	})
+	if !strings.Contains(openList, "Capstone ↑") || !strings.Contains(openList, "defer→Review") {
+		t.Errorf("open list = %q, want promotion marker and stage defer", openList)
+	}
+	shown := renderHuman(t, colorprofile.NoTTY, func(output HumanOutput) error {
+		return output.WriteTask(promoting)
+	})
+	for _, fragment := range []string{"• 7  Capstone ↑\n", "defer stage   Review\n", "promotes      true\n"} {
+		if !strings.Contains(shown, fragment) {
+			t.Errorf("task show = %q, want fragment %q", shown, fragment)
+		}
+	}
+	searched := renderHuman(t, colorprofile.NoTTY, func(output HumanOutput) error {
+		return output.WriteSearchHits([]search.Hit{{Kind: search.KindTask, Task: &promoting}})
+	})
+	if !strings.Contains(searched, "Capstone ↑") {
+		t.Errorf("search = %q, want promotion marker", searched)
+	}
+	styled := renderHuman(t, colorprofile.TrueColor, func(output HumanOutput) error {
+		return output.WriteTask(promoting)
+	})
+	if !strings.Contains(styled, "\x1b[2m↑") || ansi.Strip(styled) != shown {
+		t.Errorf("styled show = %q, want faint marker with stable stripped structure", styled)
+	}
+}
+
+func TestStageAwareMutationNarrationUsesStableTreesAndPromotionMovement(t *testing.T) {
+	t.Parallel()
+
+	edition := renderHuman(t, colorprofile.NoTTY, func(output HumanOutput) error {
+		return output.WriteTaskEdition(task.Edition{
+			Task:          task.Task{ID: 7, Title: "Capstone"},
+			ClearedDefers: []task.Task{{ID: 18, Title: "First"}, {ID: 19, Title: "Second"}},
+		})
+	})
+	wantEdition := "~ Edited: 7  Capstone\n" +
+		"  ├ Cleared stage defer: 18  First\n" +
+		"  └ Cleared stage defer: 19  Second\n"
+	if edition != wantEdition {
+		t.Errorf("edition = %q, want %q", edition, wantEdition)
+	}
+
+	deletion := renderHuman(t, colorprofile.NoTTY, func(output HumanOutput) error {
+		return output.WriteStageDeletion(board.StageDeletion{
+			Board: board.Board{Title: "Software"}, Stage: board.Stage{Title: "Review"},
+			ClearedDefers: []task.Task{{ID: 20, Title: "Waiting"}},
+		})
+	})
+	wantDeletion := "− Deleted: stage Software/Review\n" +
+		"  └ Cleared stage defer: 20  Waiting\n"
+	if deletion != wantDeletion {
+		t.Errorf("stage deletion = %q, want %q", deletion, wantDeletion)
+	}
+
+	project := domain.Project{ID: 12, Title: "Milestone"}
+	for _, test := range []struct {
+		name      string
+		promotion *task.Promotion
+		want      string
+	}{
+		{name: "moved", promotion: &task.Promotion{Project: project, StageTitle: "Doing"}, want: "~ Promoted: ◆ 12  Milestone → Doing\n"},
+		{name: "last stage", promotion: &task.Promotion{Project: project, StageTitle: "Review", LastStage: true}, want: "~ Promoted: ◆ 12  Milestone → Review (already at last stage)\n"},
+		{name: "off board"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got := renderHuman(t, colorprofile.NoTTY, func(output HumanOutput) error {
+				return output.WriteTaskCompletion(task.Completion{
+					Task: task.Task{ID: 7, Title: "Capstone", Promotes: true}, Promotion: test.promotion,
+				})
+			})
+			want := "✓ Done: 7  Capstone\n" + test.want
+			if got != want {
+				t.Errorf("completion = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestShowUsesGlyphHeadlineAndLowercaseOutline(t *testing.T) {
+	t.Parallel()
+
+	due := "2026-08-15"
+	got := renderHuman(t, colorprofile.NoTTY, func(output HumanOutput) error {
+		return output.WriteTask(task.Task{
+			ID:        12,
+			Title:     "Book dentist appointment",
+			Note:      "first line\nsecond line",
+			DueOn:     &due,
+			Status:    "open",
+			CreatedAt: "2026-08-01T12:00:00Z",
+			Tags:      []string{"errand", "health"},
+		})
+	})
+	for _, fragment := range []string{
+		"• 12  Book dentist appointment\n",
+		"    note          first line\n                  second line\n",
+		"    due on        2026-08-15\n",
+		"    tags          #errand #health\n",
+	} {
+		if !strings.Contains(got, fragment) {
+			t.Errorf("show = %q, want fragment %q", got, fragment)
+		}
+	}
+	if strings.Contains(got, "    id") || strings.Contains(got, "    title") {
+		t.Errorf("show = %q, want ID and title only in headline", got)
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(got, "\n"), "\n") {
+		if strings.HasSuffix(line, " ") {
+			t.Errorf("show line = %q, want no trailing spaces", line)
+		}
+	}
+}
+
+func TestSearchHumanTableAppliesFaintAndStatusStyles(t *testing.T) {
+	t.Parallel()
+
+	projectTitle := "Bathroom"
+	areaTitle := "Home"
+	archivedAt := "2026-08-04T12:00:00Z"
+	hits := []search.Hit{
+		{Kind: search.KindTask, Task: &task.Task{ID: 2, Title: "Fix sink", Status: "done"}, ProjectTitle: &projectTitle, GoverningAreaTitle: &areaTitle},
+		{Kind: search.KindProject, Project: &project.Project{ID: 12, Title: "Release", Status: "cancelled"}},
+		{Kind: search.KindArea, Area: &area.Area{ID: 20, Title: "Cabin", ArchivedAt: &archivedAt}},
+	}
+	styled := renderHuman(t, colorprofile.TrueColor, func(output HumanOutput) error {
+		return output.WriteSearchHits(hits)
+	})
+	plain := renderHuman(t, colorprofile.NoTTY, func(output HumanOutput) error {
+		return output.WriteSearchHits(hits)
+	})
+
+	if ansi.Strip(styled) != plain {
+		t.Errorf("stripped styled table = %q, want plain table %q", ansi.Strip(styled), plain)
+	}
+	for _, line := range strings.Split(styled, "\n") {
+		switch {
+		case strings.Contains(line, "Fix sink"):
+			if strings.Count(line, "\x1b[2m") < 3 || !strings.Contains(line, frappeGreenSGR) {
+				t.Errorf("task row = %q, want faint kind/ID/context and green done status", line)
+			}
+		case strings.Contains(line, "Release"):
+			if strings.Count(line, "\x1b[2m") < 2 || !strings.Contains(line, frappeRedSGR) {
+				t.Errorf("project row = %q, want faint kind/ID and red cancelled status", line)
+			}
+		case strings.Contains(line, "Cabin"):
+			if strings.Count(line, "\x1b[2m") < 2 || !strings.Contains(line, frappeRedSGR) {
+				t.Errorf("area row = %q, want faint kind/ID and red archived status", line)
+			}
+		}
+	}
+}

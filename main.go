@@ -3,9 +3,9 @@ package main
 import (
 	"os"
 
-	"github.com/jmcampanini/gsd/cmd"
+	"github.com/jmcampanini/gsd/internal/cli"
 )
 
 func main() {
-	os.Exit(cmd.Execute())
+	os.Exit(cli.Execute())
 }

@@ -20,14 +20,14 @@
 - Help, version, and argument parsing must not open the database.
 - Return stable coded application errors from service/store boundaries.
 - Convert unexpected errors to `internal` and Cobra syntax failures to `usage` at the root adapter.
-- In cmd, any uncoded error maps to `usage` (exit 2) because Cobra parse failures arrive uncoded: wrap application errors in `normalizeApplicationError` and build deliberate usage errors with `usageError`.
+- In `internal/cli`, any uncoded error maps to `usage` (exit 2) because Cobra parse failures arrive uncoded: wrap application errors in `clierror.NormalizeApplication` and build deliberate usage errors with `clierror.Usage`.
 - Service and store error messages state semantics only.
-- Recovery guidance that names CLI flags or command spellings is presentation and is composed by the command adapter.
+- Recovery guidance that names CLI flags or command spellings is presentation and is composed in `internal/clierror`.
 - Route all success and error rendering through shared writers so JSON remains compact and newline-terminated, errors stay on stderr, and human output stays on stdout.
 - Task, project, and area tag service flows are intentionally parallel. When changing one, compare it with both siblings and keep only entity-specific differences.
 - Parameterize duplicated flows only when the variation is data or a single function value.
 - Keep type-varying orchestration flows concretely parallel until divergence proves the coordination cost.
-- Command help is the canonical user-facing documentation and the README is a landing page; keep both consistent with observable behavior, and compose repeated help text from the shared fragments in `cmd/helptext.go` instead of copying it between commands.
+- Command help is the canonical user-facing documentation and the README is a landing page; keep both consistent with observable behavior, and compose repeated help text from the shared fragments in `internal/clihelp/helptext.go` instead of copying it between commands.
 
 ## Test ownership
 
