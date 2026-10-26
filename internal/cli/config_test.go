@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,22 +16,29 @@ import (
 	"github.com/spf13/pflag"
 )
 
-func TestWriteConfigReportRendersRedirectableTOMLAndActionableProvenance(t *testing.T) {
+func TestWriteConfigReportRendersLoadedValueThenEffectiveBlock(t *testing.T) {
 	t.Parallel()
 
-	loaded := config.Config{DBPath: "relative/gsd.db"}
-	effectivePath, err := filepath.Abs(loaded.DBPath)
-	if err != nil {
-		t.Fatalf("resolve expected effective path: %v", err)
+	loaded := config.Loaded{
+		Config:    config.Config{DBPath: "relative/gsd.db"},
+		Effective: config.Effective{DBPath: "/work/relative/gsd.db"},
 	}
+
 	var plain bytes.Buffer
-	if err := writeConfigReport(&plain, loaded, configloader.LoadReport{}, false); err != nil {
+	if err := writeConfigReport(&plain, loaded, false); err != nil {
 		t.Fatalf("writeConfigReport(plain) error = %v", err)
 	}
-	wantPlain := fmt.Sprintf("db_path = %q\n", effectivePath)
-	if plain.String() != wantPlain {
-		t.Errorf("plain report = %q, want redirectable TOML %q", plain.String(), wantPlain)
+
+	want := "db_path = \"relative/gsd.db\"\n" +
+		"\n# Effective\n" +
+		"# effective_db_path = \"/work/relative/gsd.db\"\n"
+	if plain.String() != want {
+		t.Errorf("plain report = %q, want %q", plain.String(), want)
 	}
+}
+
+func TestWriteConfigReportAppendsProvenanceTableWithActionableSources(t *testing.T) {
+	t.Parallel()
 
 	tests := []struct {
 		name   string
@@ -48,12 +54,23 @@ func TestWriteConfigReportRendersRedirectableTOMLAndActionableProvenance(t *test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
+			loaded := config.Loaded{
+				Config:    config.Config{DBPath: "relative/gsd.db"},
+				Effective: config.Effective{DBPath: "/work/relative/gsd.db"},
+				Report:    configloader.LoadReport{Updates: configloader.Updates{config.DBPathKey: test.source}},
+			}
+
 			var output bytes.Buffer
-			report := configloader.LoadReport{Updates: configloader.Updates{config.DBPathKey: test.source}}
-			if err := writeConfigReport(&output, loaded, report, true); err != nil {
+			if err := writeConfigReport(&output, loaded, true); err != nil {
 				t.Fatalf("writeConfigReport(provenance) error = %v", err)
 			}
-			want := fmt.Sprintf("db_path = %q # %s\n", effectivePath, test.want)
+
+			want := "db_path = \"relative/gsd.db\"\n" +
+				"\n# Effective\n" +
+				"# effective_db_path = \"/work/relative/gsd.db\"\n" +
+				"\n# Provenance\n" +
+				"# Field    Value              Source\n" +
+				fmt.Sprintf("# db_path  \"relative/gsd.db\"  %s\n", test.want)
 			if output.String() != want {
 				t.Errorf("provenance report = %q, want %q", output.String(), want)
 			}
@@ -65,18 +82,18 @@ func TestConfigCommandLoadsConfigurationWithoutOpeningDatabase(t *testing.T) {
 	t.Parallel()
 
 	loads := 0
-	loader := func(
-		path string,
-		explicit bool,
-		flags *pflag.FlagSet,
-	) (config.Config, configloader.LoadReport, error) {
+	loader := func(path string, explicit bool, flags *pflag.FlagSet) (config.Loaded, error) {
 		loads++
 		databasePath, _ := flags.GetString("db")
 		if path != "chosen.toml" || !explicit || databasePath != "chosen.db" {
 			t.Errorf("load inputs = (%q, %t, %q), want chosen paths", path, explicit, databasePath)
 		}
-		return config.Config{DBPath: databasePath}, configloader.LoadReport{
-			Updates: configloader.Updates{config.DBPathKey: pflagloader.SourcePFlag},
+		return config.Loaded{
+			Config:    config.Config{DBPath: databasePath},
+			Effective: config.Effective{DBPath: "/work/chosen.db"},
+			Report: configloader.LoadReport{
+				Updates: configloader.Updates{config.DBPathKey: pflagloader.SourcePFlag},
+			},
 		}, nil
 	}
 
@@ -94,11 +111,12 @@ func TestConfigCommandLoadsConfigurationWithoutOpeningDatabase(t *testing.T) {
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)
 	}
-	chosenPath, err := filepath.Abs("chosen.db")
-	if err != nil {
-		t.Fatalf("resolve expected chosen path: %v", err)
-	}
-	want := fmt.Sprintf("db_path = %q # flag: --db\n", chosenPath)
+	want := "db_path = \"chosen.db\"\n" +
+		"\n# Effective\n" +
+		"# effective_db_path = \"/work/chosen.db\"\n" +
+		"\n# Provenance\n" +
+		"# Field    Value        Source\n" +
+		"# db_path  \"chosen.db\"  flag: --db\n"
 	if result.stdout != want {
 		t.Errorf("stdout = %q, want effective config %q with flag provenance", result.stdout, want)
 	}
@@ -111,13 +129,9 @@ func TestConfigCommandRejectsJSONBeforeLoadingConfiguration(t *testing.T) {
 	t.Parallel()
 
 	loads := 0
-	loader := func(
-		string,
-		bool,
-		*pflag.FlagSet,
-	) (config.Config, configloader.LoadReport, error) {
+	loader := func(string, bool, *pflag.FlagSet) (config.Loaded, error) {
 		loads++
-		return config.Config{}, configloader.LoadReport{}, nil
+		return config.Loaded{}, nil
 	}
 	result := runConfigurationCommand(t, loader, "config", "--json")
 	if result.exitCode != 2 || result.stdout != "" || loads != 0 || result.opens != 0 {
@@ -131,12 +145,8 @@ func TestConfigCommandRejectsJSONBeforeLoadingConfiguration(t *testing.T) {
 func TestConfigCommandMapsLoadFailuresWithoutOpeningDatabase(t *testing.T) {
 	t.Parallel()
 
-	loader := func(
-		string,
-		bool,
-		*pflag.FlagSet,
-	) (config.Config, configloader.LoadReport, error) {
-		return config.Config{}, configloader.LoadReport{}, apperr.New(
+	loader := func(string, bool, *pflag.FlagSet) (config.Loaded, error) {
+		return config.Loaded{}, apperr.New(
 			apperr.InvalidArgument,
 			"invalid configuration: missing file",
 			nil,

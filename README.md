@@ -75,7 +75,7 @@ The canonical reference is `gsd --help`, each command's `--help`, and the help t
 
 The config file is discovered at `$XDG_CONFIG_HOME/gsd/config.toml` (`~/.config/gsd/config.toml` when `XDG_CONFIG_HOME` is unset). The database defaults to `$XDG_DATA_HOME/gsd/gsd.db` (`~/.local/share/gsd/gsd.db` when `XDG_DATA_HOME` is unset).
 
-See `gsd config --help` for configuration precedence and the file format.
+See `gsd config --help` for configuration precedence and the file format. `gsd config` prints the loaded values as TOML followed by an `# Effective` comment block naming the absolute database path in use. `--provenance` appends where each value came from.
 
 ```toml
 # ~/.config/gsd/config.toml

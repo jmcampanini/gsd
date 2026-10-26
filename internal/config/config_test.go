@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	configloader "github.com/jmcampanini/go-config-loader/configloader"
@@ -20,8 +21,9 @@ func TestLoadAppliesDatabasePathPrecedenceAndProvenance(t *testing.T) {
 		data   string
 	}
 	type expectation struct {
-		path   string
-		source string
+		value     string
+		effective string
+		source    string
 	}
 	tests := []struct {
 		name        string
@@ -33,10 +35,8 @@ func TestLoadAppliesDatabasePathPrecedenceAndProvenance(t *testing.T) {
 		{
 			name: "default",
 			want: func(current paths) expectation {
-				return expectation{
-					path:   filepath.Join(current.data, "gsd", "gsd.db"),
-					source: configloader.SourceDefault,
-				}
+				path := filepath.Join(current.data, "gsd", "gsd.db")
+				return expectation{value: path, effective: path, source: configloader.SourceDefault}
 			},
 		},
 		{
@@ -44,8 +44,9 @@ func TestLoadAppliesDatabasePathPrecedenceAndProvenance(t *testing.T) {
 			fileValue: "file.db",
 			want: func(current paths) expectation {
 				return expectation{
-					path:   filepath.Join(filepath.Dir(current.config), "file.db"),
-					source: current.config,
+					value:     "file.db",
+					effective: filepath.Join(filepath.Dir(current.config), "file.db"),
+					source:    current.config,
 				}
 			},
 		},
@@ -54,7 +55,11 @@ func TestLoadAppliesDatabasePathPrecedenceAndProvenance(t *testing.T) {
 			fileValue:   "file.db",
 			environment: "environment.db",
 			want: func(paths) expectation {
-				return expectation{path: "environment.db", source: configloader.SourceEnv}
+				return expectation{
+					value:     "environment.db",
+					effective: workingDirectoryPath(t, "environment.db"),
+					source:    configloader.SourceEnv,
+				}
 			},
 		},
 		{
@@ -63,7 +68,11 @@ func TestLoadAppliesDatabasePathPrecedenceAndProvenance(t *testing.T) {
 			environment: "environment.db",
 			flag:        "flag.db",
 			want: func(paths) expectation {
-				return expectation{path: "flag.db", source: pflagloader.SourcePFlag}
+				return expectation{
+					value:     "flag.db",
+					effective: workingDirectoryPath(t, "flag.db"),
+					source:    pflagloader.SourcePFlag,
+				}
 			},
 		},
 	}
@@ -84,17 +93,20 @@ func TestLoadAppliesDatabasePathPrecedenceAndProvenance(t *testing.T) {
 			}
 			flags := newFlags(t, flagArgs(test.flag)...)
 
-			loaded, report, err := config.Load("", false, flags)
+			loaded, err := config.Load("", false, flags)
 			if err != nil {
 				t.Fatalf("Load() error = %v", err)
 			}
 
 			want := test.want(paths{config: configPath, data: dataHome})
-			if loaded.DBPath != want.path {
-				t.Errorf("Load() DBPath = %q, want %q", loaded.DBPath, want.path)
+			if loaded.Config.DBPath != want.value {
+				t.Errorf("Load() Config.DBPath = %q, want loaded value %q", loaded.Config.DBPath, want.value)
 			}
-			if report.Updates["dbpath"] != want.source {
-				t.Errorf("Load() source = %q, want %q", report.Updates["dbpath"], want.source)
+			if loaded.Effective.DBPath != want.effective {
+				t.Errorf("Load() Effective.DBPath = %q, want %q", loaded.Effective.DBPath, want.effective)
+			}
+			if loaded.Report.Updates["dbpath"] != want.source {
+				t.Errorf("Load() source = %q, want %q", loaded.Report.Updates["dbpath"], want.source)
 			}
 		})
 	}
@@ -113,40 +125,69 @@ func TestLoadUsesExplicitFileInsteadOfDiscoveryBeforeHigherPrioritySources(t *te
 	writeConfig(t, discovered, "db_path = 'discovered.db'\n")
 	writeConfig(t, explicit, "db_path = 'explicit.db'\n")
 
-	loaded, report, err := config.Load(explicit, true, newFlags(t))
+	loaded, err := config.Load(explicit, true, newFlags(t))
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	want := filepath.Join(filepath.Dir(explicit), "explicit.db")
-	if loaded.DBPath != want {
-		t.Errorf("Load() DBPath = %q, want %q", loaded.DBPath, want)
+	if loaded.Config.DBPath != "explicit.db" {
+		t.Errorf("Load() Config.DBPath = %q, want explicit file value", loaded.Config.DBPath)
 	}
-	if len(report.LoadedFiles) != 1 || report.LoadedFiles[0] != explicit {
-		t.Errorf("Load() files = %#v, want only %q", report.LoadedFiles, explicit)
+	want := filepath.Join(filepath.Dir(explicit), "explicit.db")
+	if loaded.Effective.DBPath != want {
+		t.Errorf("Load() Effective.DBPath = %q, want %q", loaded.Effective.DBPath, want)
+	}
+	if len(loaded.Report.LoadedFiles) != 1 || loaded.Report.LoadedFiles[0] != explicit {
+		t.Errorf("Load() files = %#v, want only %q", loaded.Report.LoadedFiles, explicit)
 	}
 }
 
-func TestLoadKeepsRelativeEnvironmentAndFlagPathsWorkingDirectoryRelative(t *testing.T) {
+func TestLoadResolvesRelativeExplicitFileAgainstWorkingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("HOME", filepath.Join(dir, "home"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data"))
+	t.Setenv("GSD_DB", "")
+	writeConfig(t, filepath.Join(dir, "settings", "config.toml"), "db_path = 'nested/gsd.db'\n")
+
+	loaded, err := config.Load(filepath.Join("settings", "config.toml"), true, newFlags(t))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	want := filepath.Join(dir, "settings", "nested", "gsd.db")
+	if loaded.Effective.DBPath != want {
+		t.Errorf("Load() Effective.DBPath = %q, want absolute %q", loaded.Effective.DBPath, want)
+	}
+}
+
+func TestLoadResolvesRelativeEnvironmentAndFlagPathsAgainstWorkingDirectory(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", filepath.Join(dir, "home"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data"))
 	t.Setenv("GSD_DB", "environment.db")
 
-	environment, _, err := config.Load("", false, newFlags(t))
+	environment, err := config.Load("", false, newFlags(t))
 	if err != nil {
 		t.Fatalf("Load(environment) error = %v", err)
 	}
-	if environment.DBPath != "environment.db" {
-		t.Errorf("environment DBPath = %q, want unchanged relative path", environment.DBPath)
+	if environment.Config.DBPath != "environment.db" {
+		t.Errorf("environment Config.DBPath = %q, want unchanged relative path", environment.Config.DBPath)
+	}
+	if want := workingDirectoryPath(t, "environment.db"); environment.Effective.DBPath != want {
+		t.Errorf("environment Effective.DBPath = %q, want %q", environment.Effective.DBPath, want)
 	}
 
-	flag, _, err := config.Load("", false, newFlags(t, "--db", "flag.db"))
+	flag, err := config.Load("", false, newFlags(t, "--db", "flag.db"))
 	if err != nil {
 		t.Fatalf("Load(flag) error = %v", err)
 	}
-	if flag.DBPath != "flag.db" {
-		t.Errorf("flag DBPath = %q, want unchanged relative path", flag.DBPath)
+	if flag.Config.DBPath != "flag.db" {
+		t.Errorf("flag Config.DBPath = %q, want unchanged relative path", flag.Config.DBPath)
+	}
+	if want := workingDirectoryPath(t, "flag.db"); flag.Effective.DBPath != want {
+		t.Errorf("flag Effective.DBPath = %q, want %q", flag.Effective.DBPath, want)
 	}
 }
 
@@ -160,13 +201,14 @@ func TestLoadIgnoresEmptyLegacyOverrides(t *testing.T) {
 
 	configPath := filepath.Join(configHome, "gsd", "config.toml")
 	writeConfig(t, configPath, "db_path = 'file.db'\n")
-	loaded, report, err := config.Load("", false, newFlags(t, "--db="))
+	loaded, err := config.Load("", false, newFlags(t, "--db="))
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
 	want := filepath.Join(filepath.Dir(configPath), "file.db")
-	if loaded.DBPath != want || report.Updates["dbpath"] != configPath {
-		t.Errorf("Load() = %#v, source %q; want file value %q and source", loaded, report.Updates["dbpath"], want)
+	if loaded.Config.DBPath != "file.db" || loaded.Effective.DBPath != want ||
+		loaded.Report.Updates["dbpath"] != configPath {
+		t.Errorf("Load() = %#v; want file value resolving to %q from %q", loaded, want, configPath)
 	}
 }
 
@@ -178,24 +220,27 @@ func TestLoadDefaultsToHomeDataDirectoryWithoutXDGDataHome(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv("GSD_DB", "")
 
-	loaded, report, err := config.Load("", false, newFlags(t))
+	loaded, err := config.Load("", false, newFlags(t))
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
 	want := filepath.Join(home, ".local", "share", "gsd", "gsd.db")
-	if loaded.DBPath != want || report.Updates["dbpath"] != configloader.SourceDefault {
-		t.Errorf("Load() = %#v, source %q; want default %q", loaded, report.Updates["dbpath"], want)
+	if loaded.Config.DBPath != want || loaded.Effective.DBPath != want ||
+		loaded.Report.Updates["dbpath"] != configloader.SourceDefault {
+		t.Errorf("Load() = %#v; want default %q", loaded, want)
 	}
 }
 
-func TestLoadRejectsEmptyFilePathBeforeHigherPriorityOverrides(t *testing.T) {
+func TestLoadLetsHigherPriorityOverridesReplaceEmptyFilePath(t *testing.T) {
 	tests := []struct {
 		name        string
 		environment string
 		flagArgs    []string
+		want        string
+		wantSource  string
 	}{
-		{name: "environment", environment: "environment.db"},
-		{name: "flag", flagArgs: []string{"--db", "flag.db"}},
+		{name: "environment", environment: "environment.db", want: "environment.db", wantSource: configloader.SourceEnv},
+		{name: "flag", flagArgs: []string{"--db", "flag.db"}, want: "flag.db", wantSource: pflagloader.SourcePFlag},
 	}
 
 	for _, test := range tests {
@@ -208,10 +253,15 @@ func TestLoadRejectsEmptyFilePathBeforeHigherPriorityOverrides(t *testing.T) {
 			t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data"))
 			t.Setenv("GSD_DB", test.environment)
 
-			_, _, err := config.Load(path, true, newFlags(t, test.flagArgs...))
-			code, ok := apperr.CodeOf(err)
-			if !ok || code != apperr.InvalidArgument {
-				t.Errorf("Load() error = %v, want invalid_argument", err)
+			loaded, err := config.Load(path, true, newFlags(t, test.flagArgs...))
+			if err != nil {
+				t.Fatalf("Load() error = %v, want the override to replace the empty file value", err)
+			}
+			if loaded.Config.DBPath != test.want || loaded.Report.Updates["dbpath"] != test.wantSource {
+				t.Errorf("Load() = %#v; want %q from %q", loaded, test.want, test.wantSource)
+			}
+			if want := workingDirectoryPath(t, test.want); loaded.Effective.DBPath != want {
+				t.Errorf("Load() Effective.DBPath = %q, want %q", loaded.Effective.DBPath, want)
 			}
 		})
 	}
@@ -225,7 +275,7 @@ func TestLoadFailsWhenDefaultHomeIsUnavailableWithoutOverride(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv("GSD_DB", "")
 
-	_, _, err := config.Load("", false, newFlags(t))
+	_, err := config.Load("", false, newFlags(t))
 	if err == nil {
 		t.Fatal("Load() error = nil, want unavailable default home error")
 	}
@@ -251,12 +301,12 @@ func TestLoadDoesNotRequireDefaultHomeWhenLegacyOverrideExists(t *testing.T) {
 			t.Setenv("XDG_DATA_HOME", "")
 			t.Setenv("GSD_DB", test.environment)
 
-			loaded, report, err := config.Load("", false, newFlags(t, test.flagArgs...))
+			loaded, err := config.Load("", false, newFlags(t, test.flagArgs...))
 			if err != nil {
 				t.Fatalf("Load() error = %v", err)
 			}
-			if loaded.DBPath != test.want || report.Updates["dbpath"] != test.wantSource {
-				t.Errorf("Load() = %#v, source %q; want %q from %q", loaded, report.Updates["dbpath"], test.want, test.wantSource)
+			if loaded.Config.DBPath != test.want || loaded.Report.Updates["dbpath"] != test.wantSource {
+				t.Errorf("Load() = %#v; want %q from %q", loaded, test.want, test.wantSource)
 			}
 		})
 	}
@@ -321,13 +371,16 @@ func TestLoadRejectsConfigFailuresAsInvalidArguments(t *testing.T) {
 			t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data"))
 			t.Setenv("GSD_DB", "")
 
-			_, _, err := config.Load(test.setup(t, dir), true, newFlags(t))
+			_, err := config.Load(test.setup(t, dir), true, newFlags(t))
 			if err == nil {
 				t.Fatal("Load() error = nil, want invalid_argument")
 			}
 			code, ok := apperr.CodeOf(err)
 			if !ok || code != apperr.InvalidArgument {
 				t.Errorf("Load() error = %v, want invalid_argument", err)
+			}
+			if !strings.HasPrefix(err.Error(), "invalid configuration:") {
+				t.Errorf("Load() error = %q, want 'invalid configuration:' prefix", err)
 			}
 		})
 	}
@@ -371,7 +424,7 @@ func TestLoadTreatsOnlyAbsentDiscoveredConfigAsOptional(t *testing.T) {
 				writeConfig(t, path, test.content)
 			}
 
-			_, _, err := config.Load("", false, newFlags(t))
+			_, err := config.Load("", false, newFlags(t))
 			if test.wantErr {
 				code, ok := apperr.CodeOf(err)
 				if !ok || code != apperr.InvalidArgument {
@@ -402,6 +455,17 @@ func flagArgs(value string) []string {
 		return nil
 	}
 	return []string{"--db", value}
+}
+
+// workingDirectoryPath returns path joined onto the process working directory,
+// the location a relative --db or GSD_DB value must resolve to.
+func workingDirectoryPath(t *testing.T, path string) string {
+	t.Helper()
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("resolve working directory: %v", err)
+	}
+	return filepath.Join(workingDirectory, path)
 }
 
 func writeConfig(t *testing.T, path, content string) {
