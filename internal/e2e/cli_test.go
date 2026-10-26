@@ -74,12 +74,9 @@ func runTests(m *testing.M) int {
 	return m.Run()
 }
 
-// gitVersion mirrors the version the mise build task injects: an explicit
-// VERSION override, else git describe, else "unknown".
+// gitVersion mirrors the version the mise build task injects: git describe,
+// else "unknown".
 func gitVersion(repositoryRoot string) string {
-	if version := os.Getenv("VERSION"); version != "" {
-		return version
-	}
 	command := exec.Command("git", "describe", "--tags", "--dirty", "--always")
 	command.Dir = repositoryRoot
 	output, err := command.Output()
