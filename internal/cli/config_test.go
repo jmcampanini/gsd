@@ -150,7 +150,7 @@ func TestConfigCommandMapsLoadFailuresWithoutOpeningDatabase(t *testing.T) {
 	if result.exitCode != 1 || result.stdout != "" || result.opens != 0 {
 		t.Fatalf("result = %#v, want stderr-only application error without database open", result)
 	}
-	if result.stderr != "Error: invalid configuration: missing file\n" {
+	if result.stderr != "gsd: invalid configuration: missing file\n" {
 		t.Errorf("stderr = %q, want config diagnostic", result.stderr)
 	}
 }

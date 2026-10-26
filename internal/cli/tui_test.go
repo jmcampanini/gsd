@@ -145,16 +145,41 @@ func TestTUICommandRejectsNoninteractiveInvocationBeforeOpeningApplication(t *te
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		args     []string
-		inputOK  bool
-		outputOK bool
-		marker   string
+		name        string
+		args        []string
+		environment []string
+		inputOK     bool
+		outputOK    bool
+		marker      string
 	}{
 		{name: "JSON", args: []string{"tui", "--json"}, inputOK: true, outputOK: true, marker: "--json"},
 		{name: "non-terminal input", args: []string{"tui"}, outputOK: true, marker: "terminal input"},
 		{name: "non-terminal output", args: []string{"tui"}, inputOK: true, marker: "terminal output"},
 		{name: "forced color with non-terminal output", args: []string{"tui", "--color=always"}, inputOK: true, marker: "terminal output"},
+		{
+			name:        "dumb terminal",
+			args:        []string{"tui"},
+			environment: []string{"TERM=dumb"},
+			inputOK:     true,
+			outputOK:    true,
+			marker:      "cursor control (TERM is dumb or unset)",
+		},
+		{
+			name:        "forced color on a dumb terminal",
+			args:        []string{"tui", "--color=always"},
+			environment: []string{"TERM=dumb"},
+			inputOK:     true,
+			outputOK:    true,
+			marker:      "cursor control (TERM is dumb or unset)",
+		},
+		{
+			name:        "unset TERM",
+			args:        []string{"tui"},
+			environment: []string{"KEEP=value"},
+			inputOK:     true,
+			outputOK:    true,
+			marker:      "cursor control (TERM is dumb or unset)",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -168,7 +193,12 @@ func TestTUICommandRejectsNoninteractiveInvocationBeforeOpeningApplication(t *te
 				opens++
 				return applications{}, closeRecorder{close: func() {}}, nil
 			}
+			environment := test.environment
+			if environment == nil {
+				environment = []string{"TERM=xterm"}
+			}
 			presentation := render.DefaultPresentationDependencies()
+			presentation.Environment = func() []string { return environment }
 			presentation.IsTerminalReader = func(io.Reader) bool { return test.inputOK }
 			presentation.IsTerminalWriter = func(io.Writer) bool { return test.outputOK }
 			root := newRootCommandWithRunners(
@@ -190,7 +220,8 @@ func TestTUICommandRejectsNoninteractiveInvocationBeforeOpeningApplication(t *te
 			if exitCode != 2 || stdout.String() != "" {
 				t.Errorf("exit/stdout = %d/%q, want usage exit 2 and empty stdout", exitCode, stdout.String())
 			}
-			if !strings.Contains(stderr.String(), test.marker) ||
+			if !strings.HasPrefix(stderr.String(), "gsd: ") || strings.Count(stderr.String(), "\n") != 1 ||
+				!strings.Contains(stderr.String(), test.marker) ||
 				!strings.HasSuffix(stderr.String(), "use the gsd CLI for noninteractive access\n") {
 				t.Errorf("stderr = %q, want %q and required CLI guidance", stderr.String(), test.marker)
 			}
@@ -221,6 +252,7 @@ func TestTUICommandMapsRunnerErrorsToExitOne(t *testing.T) {
 				return applications{}, closeRecorder{close: func() { closes++ }}, nil
 			}
 			presentation := render.DefaultPresentationDependencies()
+			presentation.Environment = func() []string { return []string{"TERM=xterm"} }
 			presentation.IsTerminalReader = func(io.Reader) bool { return true }
 			presentation.IsTerminalWriter = func(io.Writer) bool { return true }
 			root := newRootCommandWithRunners(
@@ -241,7 +273,7 @@ func TestTUICommandMapsRunnerErrorsToExitOne(t *testing.T) {
 			if exitCode != 1 || stdout.String() != "" || closes != 1 {
 				t.Errorf("exit/stdout/closes = %d/%q/%d, want stderr-only exit 1 and close", exitCode, stdout.String(), closes)
 			}
-			if stderr.String() != "Error: "+test.err.Error()+"\n" {
+			if stderr.String() != "gsd: "+test.err.Error()+"\n" {
 				t.Errorf("stderr = %q, want standard runner diagnostic", stderr.String())
 			}
 		})

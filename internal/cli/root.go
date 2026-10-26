@@ -148,15 +148,12 @@ next stage when done. A tag is a case-insensitive label that can be
 attached to tasks, projects, and areas. The logbook lists done and
 cancelled tasks and projects.
 
-Task commands sit at the top level: 'gsd add TITLE', 'gsd list', 'gsd
-show ID', 'gsd done ID', and their siblings. The other entities pair a
-plural group that adds and lists with a singular group that acts on one
-existing row: 'gsd projects' and 'gsd project', 'gsd areas' and 'gsd
-area', 'gsd boards' and 'gsd board', 'gsd stages' and 'gsd stage', with
-'gsd tags' covering both. 'gsd search EXPR' and 'gsd logbook' read across
-entities, and 'gsd tui' and 'gsd capture' are the interactive commands.
+Task commands sit at the top level, and the command list below names
+them. The other entities pair a plural group that adds and lists with a
+singular group that acts on one existing row; 'gsd tags' covers both.
 Tasks, projects, and areas are addressed by ID; boards, stages, and tags
-by name.
+by name. 'gsd config --help' covers configuration precedence and the file
+format, and 'gsd help exit-codes' lists every exit status and its meaning.
 
 ` + clihelp.DatabaseDiscoveryHelp + `
 
@@ -165,22 +162,38 @@ switches a noninteractive command to machine-readable output and is
 rejected by capture, config, and tui. --color MODE needs a value (auto,
 always, or never; default auto) and governs human output on stdout only:
 always forces color, never disables it, and auto disables it when stdout
-is not a terminal, TERM is dumb, or NO_COLOR is set and nonempty, except
-that an explicit --color auto ignores NO_COLOR. FORCE_COLOR, CLICOLOR, and
+is not a terminal, TERM is dumb, or NO_COLOR is set and nonempty; only
+always and never override NO_COLOR. FORCE_COLOR, CLICOLOR, and
 CLICOLOR_FORCE are ignored. When color is on and stdout is a terminal, the
 terminal background is queried once to choose a light or dark palette,
 falling back to dark. Errors on stderr are never colored, and control
 characters in stored text are escaped before display.
 
-` + clihelp.OutputContractHelp + `
+` + clihelp.OutputStreamsHelp + `
 
-Only capture and tui are interactive: they require a terminal on stdin and
-stdout and are the only commands that read keys. No command runs another
-program or uses the network.
+Only capture and tui are interactive: they require a terminal with cursor
+control on stdin and stdout and are the only commands that read keys. No
+command runs another program or uses the network.
 
-Run 'gsd config --help' for configuration precedence and the file format,
-'gsd help exit-codes' for exit-status meanings, and 'gsd <group> --help'
-for what each entity group's subcommands do.`,
+Common tasks:
+  Add an inbox task:              gsd add TITLE
+  List the tasks you can do now:  gsd available
+  Show a task:                    gsd show ID
+  Complete a task:                gsd done ID
+  Search tasks, projects, areas:  gsd search EXPR
+  Review finished work:           gsd logbook
+  Browse everything read-only:    gsd tui
+
+Command groups:
+  area      One existing area by ID:                         gsd area --help
+  areas     Adding and listing areas:                        gsd areas --help
+  board     One existing board by name:                      gsd board --help
+  boards    Adding and listing boards:                       gsd boards --help
+  project   One existing project by ID:                      gsd project --help
+  projects  Adding and listing projects:                     gsd projects --help
+  stage     One existing stage by board and name:            gsd stage --help
+  stages    Adding stages to a board:                        gsd stages --help
+  tags      Creating, listing, renaming, and deleting tags:  gsd tags --help`,
 		Version:            Version,
 		DisableSuggestions: true,
 		SilenceUsage:       true,

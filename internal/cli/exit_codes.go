@@ -3,10 +3,10 @@ package cli
 import "github.com/spf13/cobra"
 
 func exitCodesTopic() *cobra.Command {
-	return &cobra.Command{
-		Use:   "exit-codes",
-		Short: "Exit codes and error categories",
-		Long: `gsd exits 0, 1, or 2. main.go returns the status that the root adapter in
+	return newHelpTopic(
+		"exit-codes",
+		"Exit codes and error categories",
+		`gsd exits 0, 1, or 2. main.go returns the status that the root adapter in
 internal/cli/root.go picks from the error a command returns.
 
   0  Success, including a bare 'gsd', --help, --version, and 'gsd help
@@ -24,7 +24,7 @@ internal/cli/root.go picks from the error a command returns.
      twice, deleting an occupied project or area without --recursive,
      a duplicate name, or a resolved project or archived area blocking
      a change), and internal (an unexpected failure such as an
-     unreadable database). 'Error: <message>' goes to stderr, or with
+     unreadable database). 'gsd: <message>' goes to stderr, or with
      --json one line {"error":{"code":CODE,"message":TEXT}}; stdout
      stays empty. Bad IDs, bad statuses, and missing field flags are
      rejected before the database is opened.
@@ -32,14 +32,11 @@ internal/cli/root.go picks from the error a command returns.
      count, a flag needing a value, conflicting flags or a missing
      required flag group, --first=false or --last=false, a bare command
      group, --json on capture, config, or tui, and capture or tui
-     without a terminal or with operands. 'Error: <message>' goes to
-     stderr even with --json, stdout stays empty, and the database is
-     never opened.
+     without a terminal, with an unset or dumb TERM, or with operands.
+     'gsd: <message>' goes to stderr even with --json, stdout stays
+     empty, and the database is never opened.
 
---json never changes the exit status.`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
-		},
-	}
+--json never changes the exit status. This topic prints its text to stdout,
+needs no terminal or database, and never prompts.`,
+	)
 }

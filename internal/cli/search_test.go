@@ -212,7 +212,7 @@ func TestSearchApplicationErrorsUseStderrStableExitAndCloseFactory(t *testing.T)
 	}
 
 	uncoded := runSearchCommand(t, &fakeSearchApplication{err: errors.New("search failed")}, "search", "term")
-	if uncoded.exitCode != 1 || uncoded.stdout != "" || uncoded.stderr != "Error: search failed\n" ||
+	if uncoded.exitCode != 1 || uncoded.stdout != "" || uncoded.stderr != "gsd: search failed\n" ||
 		uncoded.opens != 1 || uncoded.closes != 1 {
 		t.Errorf("uncoded result = %#v, want normalized internal stderr error", uncoded)
 	}

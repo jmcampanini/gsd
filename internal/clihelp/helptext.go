@@ -4,15 +4,25 @@
 // separators.
 package clihelp
 
-// OutputContractHelp states where output and errors go and how --json
-// changes them.
-const OutputContractHelp = `Output goes to stdout. Errors go to stderr as 'Error: <message>' and leave
+// OutputStreamsHelp states where output and errors go and how --json
+// changes them. The root composes it alone; data commands compose it
+// through OutputContractHelp.
+const OutputStreamsHelp = `Output goes to stdout. Errors go to stderr as 'gsd: <message>' and leave
 stdout empty. Nothing prompts. --json writes one JSON value on a single
 line to stdout, newline-terminated and free of terminal escapes; an
 application error then goes to stderr as one line
 {"error":{"code":CODE,"message":TEXT}}, where CODE is not_found,
 invalid_argument, conflict, or internal, while usage errors stay
 human-readable. The exit status is the same with and without --json.`
+
+// DatabaseUseHelp names the one path a data command creates and states that
+// it reads no other file.
+const DatabaseUseHelp = `The command opens the database chosen as 'gsd --help' describes, creating
+its directory and file when missing, and reads no other file.`
+
+// OutputContractHelp is the contract every command that reads or changes
+// data composes: the output streams and the database it opens.
+const OutputContractHelp = OutputStreamsHelp + "\n\n" + DatabaseUseHelp
 
 // GroupContractHelp explains that a command group runs nothing itself.
 const GroupContractHelp = `The group itself does nothing: running it without a subcommand, or with a
@@ -115,9 +125,13 @@ ID'.`
 
 // TerminalContractHelp states the terminal requirements shared by the tui
 // and capture commands.
-const TerminalContractHelp = `Stdin and stdout must both be terminals and --json is not accepted; each
-violation is a usage error (exit 2) whose message names the noninteractive
-alternative, raised before the database is opened. The session runs in the
-terminal's alternate screen, which is restored on exit. Color follows the
---color rules in 'gsd --help', and when color is on the terminal background
-is queried once to choose a light or dark palette.`
+const TerminalContractHelp = `Stdin and stdout must both be terminals, TERM must name a terminal with
+cursor control (an unset or dumb TERM is refused), and --json is not
+accepted; each violation is a usage error (exit 2) whose message names the
+noninteractive alternative, raised before the database is opened. Color is
+not required: the session renders in plain text when color is off. The
+session runs in the terminal's alternate screen, which is restored on
+exit. Color follows the --color rules in 'gsd --help', and when color is on
+the terminal background is queried once to choose a light or dark palette.
+
+` + DatabaseUseHelp

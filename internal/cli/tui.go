@@ -49,14 +49,14 @@ on stderr when loading data fails.`,
 				return clierror.Usage("--json is not supported by gsd tui; use the gsd CLI for noninteractive access")
 			}
 			if !options.presentation.IsTerminalInput(command.InOrStdin()) {
-				return clierror.Usage("gsd tui requires terminal input; use the gsd CLI for noninteractive access")
+				return clierror.Usage("tui requires terminal input; use the gsd CLI for noninteractive access")
 			}
-			resolution := options.presentation.Resolve(
-				command.OutOrStdout(),
-				command.Root().PersistentFlags().Changed("color"),
-			)
+			resolution := options.presentation.Resolve(command.OutOrStdout())
 			if !resolution.Terminal {
-				return clierror.Usage("gsd tui requires terminal output; use the gsd CLI for noninteractive access")
+				return clierror.Usage("tui requires terminal output; use the gsd CLI for noninteractive access")
+			}
+			if !resolution.CursorControl {
+				return clierror.Usage("tui requires a terminal with cursor control (TERM is dumb or unset); use the gsd CLI for noninteractive access")
 			}
 
 			return withApplications(command, options, factory, func(available applications) error {

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/clierror"
@@ -1626,7 +1627,7 @@ func TestHumanInternalErrorRetainsDiagnosticContext(t *testing.T) {
 	if result.stdout != "" {
 		t.Errorf("stdout = %q, want empty", result.stdout)
 	}
-	if result.stderr != "Error: open database: permission denied\n" {
+	if result.stderr != "gsd: open database: permission denied\n" {
 		t.Errorf("stderr = %q, want actionable diagnostic", result.stderr)
 	}
 }
@@ -1705,23 +1706,22 @@ func TestPersistentConfigFlagsReachApplicationFactory(t *testing.T) {
 	}
 }
 
-func TestExitCodesTopicPrintsSameHelpFromBothEntryPoints(t *testing.T) {
+func TestExitCodesTopicListsEveryStatusAndTheStderrFormat(t *testing.T) {
 	t.Parallel()
 
-	direct := runCommand(t, &fakeApplication{}, "exit-codes")
-	viaHelp := runCommand(t, &fakeApplication{}, "help", "exit-codes")
-
-	for name, result := range map[string]commandResult{"exit-codes": direct, "help exit-codes": viaHelp} {
-		if result.exitCode != 0 || result.stderr != "" || result.opens != 0 {
-			t.Fatalf("%s result = %#v, want stdout-only help without opening the database", name, result)
-		}
+	result := runCommand(t, &fakeApplication{}, "help", "exit-codes")
+	if result.exitCode != 0 || result.stderr != "" || result.opens != 0 {
+		t.Fatalf("result = %#v, want stdout-only help without opening the database", result)
 	}
-	if direct.stdout != viaHelp.stdout {
-		t.Fatalf("exit-codes output differs between entry points:\n%s\n---\n%s", direct.stdout, viaHelp.stdout)
-	}
-	for _, want := range []string{"\n  0  ", "\n  1  ", "\n  2  ", "--json never changes the exit status"} {
-		if !strings.Contains(direct.stdout, want) {
-			t.Errorf("exit-codes help missing %q:\n%s", want, direct.stdout)
+	for _, want := range []string{
+		"\n  0  ",
+		"\n  1  ",
+		"\n  2  ",
+		"'gsd: <message>' goes to stderr",
+		"--json never changes the exit status",
+	} {
+		if !strings.Contains(result.stdout, want) {
+			t.Errorf("exit-codes help missing %q:\n%s", want, result.stdout)
 		}
 	}
 }
@@ -1731,45 +1731,73 @@ func TestEveryApplicationCommandDeclaresPositionalGrammar(t *testing.T) {
 
 	// Cobra validates operands before hooks and runners, so a validator on
 	// every command below the root is what keeps rejected operands out of
-	// command work. A group needs a runner too: Cobra prints help for a
-	// non-runnable command before it validates operands. The root is
-	// exempt: Cobra rejects unknown subcommands there and routes 'help'.
+	// command work. A group or a help topic needs a runner too: Cobra prints
+	// help for a non-runnable command before it validates operands. The
+	// root is exempt: Cobra rejects unknown subcommands there and routes
+	// 'help'.
 	forEachApplicationCommand(newRootCommand(), func(command *cobra.Command) {
 		if command.HasParent() && command.Args == nil {
 			t.Errorf("%q has no Args validator", command.CommandPath())
 		}
-		if command.HasSubCommands() && command.RunE == nil {
-			t.Errorf("%q has subcommands but no RunE", command.CommandPath())
+		if (command.HasSubCommands() || isHelpTopic(command)) && !command.Runnable() {
+			t.Errorf("%q is a command group or help topic but is not runnable", command.CommandPath())
 		}
 	})
 }
 
-func TestEveryApplicationCommandHasWrappedLongHelp(t *testing.T) {
+func TestEveryApplicationCommandMeetsTheHelpBaseline(t *testing.T) {
 	t.Parallel()
 
 	// The root, 54 leaf commands, 9 command groups, and the exit-codes topic.
 	const wantCommands = 65
+	const wantHelpTopics = 1
 
 	visited := 0
+	helpTopics := 0
 	forEachApplicationCommand(newRootCommand(), func(command *cobra.Command) {
 		visited++
-		if strings.TrimSpace(command.Long) == "" {
-			t.Errorf("%q has no long help", command.CommandPath())
+		path := command.CommandPath()
+		operands := strings.Fields(path)[1:]
+		if strings.TrimSpace(command.Short) == "" {
+			t.Errorf("%q has no short help", path)
 		}
-		for field, text := range map[string]string{"Long": command.Long, "Example": command.Example} {
-			for i, line := range strings.Split(text, "\n") {
-				if len(line) > 80 {
-					t.Errorf(
-						"%q %s line %d is %d columns, want at most 80: %q",
-						command.CommandPath(), field, i+1, len(line), line,
-					)
-				}
+		if strings.TrimSpace(command.Long) == "" {
+			t.Errorf("%q has no long help", path)
+		}
+
+		// Rendering through a fresh tree measures what a terminal shows,
+		// flag usage and the command list included, not only the Long text.
+		rendered := runCommand(t, &fakeApplication{}, append(operands, "--help")...)
+		if rendered.exitCode != 0 || rendered.stderr != "" || rendered.opens != 0 || rendered.stdout == "" {
+			t.Errorf("%q --help result = %#v, want stdout-only help without opening the database", path, rendered)
+		}
+		for i, line := range strings.Split(rendered.stdout, "\n") {
+			if width := ansi.StringWidth(line); width > 80 {
+				t.Errorf("%q help line %d is %d columns, want at most 80: %q", path, i+1, width, line)
+			}
+		}
+
+		if !isHelpTopic(command) {
+			return
+		}
+		helpTopics++
+		direct := runCommand(t, &fakeApplication{}, operands...)
+		viaHelp := runCommand(t, &fakeApplication{}, append([]string{"help"}, operands...)...)
+		for entry, result := range map[string]commandResult{"direct": direct, "help": viaHelp} {
+			if result.exitCode != 0 || result.stderr != "" || result.opens != 0 {
+				t.Errorf("%q %s result = %#v, want stdout-only help without opening the database", path, entry, result)
+			}
+			if result.stdout != rendered.stdout {
+				t.Errorf("%q %s invocation prints text other than its help:\n%s\n---\n%s", path, entry, result.stdout, rendered.stdout)
 			}
 		}
 	})
 
 	if visited != wantCommands {
 		t.Errorf("visited %d application commands, want %d", visited, wantCommands)
+	}
+	if helpTopics != wantHelpTopics {
+		t.Errorf("visited %d help topics, want %d", helpTopics, wantHelpTopics)
 	}
 }
 

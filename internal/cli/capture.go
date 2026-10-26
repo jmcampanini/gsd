@@ -38,14 +38,14 @@ prompt is written to stdout.`,
 				return clierror.Usage("--json is not supported by gsd capture; use gsd add TITLE for noninteractive capture")
 			}
 			if !options.presentation.IsTerminalInput(command.InOrStdin()) {
-				return clierror.Usage("gsd capture requires terminal input; use gsd add TITLE for noninteractive capture")
+				return clierror.Usage("capture requires terminal input; use gsd add TITLE for noninteractive capture")
 			}
-			resolution := options.presentation.Resolve(
-				command.OutOrStdout(),
-				command.Root().PersistentFlags().Changed("color"),
-			)
+			resolution := options.presentation.Resolve(command.OutOrStdout())
 			if !resolution.Terminal {
-				return clierror.Usage("gsd capture requires terminal output; use gsd add TITLE for noninteractive capture")
+				return clierror.Usage("capture requires terminal output; use gsd add TITLE for noninteractive capture")
+			}
+			if !resolution.CursorControl {
+				return clierror.Usage("capture requires a terminal with cursor control (TERM is dumb or unset); use gsd add TITLE for noninteractive capture")
 			}
 
 			return withTaskApplication(command, options, factory, func(application task.Application) error {

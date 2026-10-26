@@ -80,18 +80,18 @@ func interactiveColorCases(command string) []interactiveColorCase {
 			wantEnvironment: []string{"TERM=xterm-256color", "KEEP=value"},
 		},
 		{
-			name:            "TERM dumb disables color",
-			environment:     []string{"TERM=dumb", "KEEP=value"},
-			args:            []string{command},
+			name:            "explicit auto still honors NO_COLOR",
+			environment:     []string{"NO_COLOR=1", "TERM=xterm-256color", "KEEP=value"},
+			args:            []string{command, "--color", "auto"},
 			wantProfile:     colorprofile.NoTTY,
-			wantEnvironment: []string{"TERM=dumb", "KEEP=value"},
+			wantEnvironment: []string{"TERM=xterm-256color", "KEEP=value"},
 		},
 		{
-			name:            "explicit always overrides environment",
-			environment:     []string{"NO_COLOR=1", "TERM=dumb", "KEEP=value"},
+			name:            "explicit always overrides NO_COLOR",
+			environment:     []string{"NO_COLOR=1", "TERM=xterm", "KEEP=value"},
 			args:            []string{command, "--color", "always"},
 			wantProfile:     colorprofile.TrueColor,
-			wantEnvironment: []string{"TERM=dumb", "KEEP=value"},
+			wantEnvironment: []string{"TERM=xterm", "KEEP=value"},
 		},
 		{
 			name:            "explicit never disables color",
@@ -136,7 +136,7 @@ func TestErrorStreamStaysUnstyledAndEscaped(t *testing.T) {
 	if exitCode := execute(root, []string{"inbox"}); exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1", exitCode)
 	}
-	if stdout.String() != "" || stderr.String() != "Error: tag already exists: Evil\\x1b]8;;https://example.com\\a\n" {
+	if stdout.String() != "" || stderr.String() != "gsd: tag already exists: Evil\\x1b]8;;https://example.com\\a\n" {
 		t.Errorf("stdout/stderr = %q/%q, want escaped plain stderr error", stdout.String(), stderr.String())
 	}
 }
