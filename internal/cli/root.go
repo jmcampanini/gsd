@@ -250,12 +250,12 @@ func defaultApplicationFactory(
 	configPathExplicit bool,
 	flags *pflag.FlagSet,
 ) (applications, io.Closer, error) {
-	loaded, _, err := config.Load(configPath, configPathExplicit, flags)
+	loaded, err := config.Load(configPath, configPathExplicit, flags)
 	if err != nil {
 		return applications{}, nil, err
 	}
 
-	database, err := store.Open(ctx, loaded.DBPath)
+	database, err := store.Open(ctx, loaded.Effective.DBPath)
 	if err != nil {
 		return applications{}, nil, err
 	}

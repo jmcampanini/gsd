@@ -264,8 +264,14 @@ func TestDatabaseConfigPrecedenceAndFailures(t *testing.T) {
 	if fromExplicit.ID != 1 {
 		t.Errorf("explicit task ID = %d, want 1 in explicit database", fromExplicit.ID)
 	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(explicitConfig), "explicit.db")); err != nil {
+	explicitDatabase := filepath.Join(filepath.Dir(explicitConfig), "explicit.db")
+	if _, err := os.Stat(explicitDatabase); err != nil {
 		t.Errorf("explicit database stat error = %v", err)
+	}
+	explicitReport := runGSDWithEnv(t, baseEnvironment, "config", "--config", explicitConfig)
+	wantExplicitReport := configReport("explicit.db", explicitDatabase)
+	if explicitReport.exitCode != 0 || explicitReport.stdout != wantExplicitReport || explicitReport.stderr != "" {
+		t.Errorf("explicit config report = %#v, want %q naming the opened database", explicitReport, wantExplicitReport)
 	}
 
 	assertJSONError(
@@ -304,10 +310,19 @@ func TestConfigReportRoundTripsWithoutOpeningDatabase(t *testing.T) {
 
 	first := runGSDWithEnv(t, environment, "config", "--config", configPath)
 	wantDatabase := filepath.Join(filepath.Dir(configPath), "nested", "gsd.db")
-	wantReport := fmt.Sprintf("db_path = %q\n", wantDatabase)
+	wantReport := configReport("nested/gsd.db", wantDatabase)
 	if first.exitCode != 0 || first.stdout != wantReport || first.stderr != "" {
 		t.Fatalf("first config report = %#v, want %q", first, wantReport)
 	}
+
+	snapshotPath := filepath.Join(dir, "snapshot", "config.toml")
+	writeE2EConfig(t, snapshotPath, first.stdout)
+	roundTrip := runGSDWithEnv(t, environment, "config", "--config", snapshotPath)
+	wantRoundTrip := configReport("nested/gsd.db", filepath.Join(filepath.Dir(snapshotPath), "nested", "gsd.db"))
+	if roundTrip.exitCode != 0 || roundTrip.stdout != wantRoundTrip || roundTrip.stderr != "" {
+		t.Errorf("round-trip report = %#v, want saved value resolved against the snapshot %q", roundTrip, wantRoundTrip)
+	}
+
 	relativeEnvironmentDatabase := filepath.Join("relative", filepath.Base(dir), "environment.db")
 	environmentDatabase, err := filepath.Abs(relativeEnvironmentDatabase)
 	if err != nil {
@@ -326,24 +341,24 @@ func TestConfigReportRoundTripsWithoutOpeningDatabase(t *testing.T) {
 		configPath,
 		"--provenance",
 	)
-	wantProvenance := fmt.Sprintf("db_path = %q # env: GSD_DB\n", environmentDatabase)
+	wantProvenance := fmt.Sprintf(
+		"db_path = %q # env: GSD_DB\n\n# Effective\n# effective_db_path = %q\n",
+		relativeEnvironmentDatabase,
+		environmentDatabase,
+	)
 	if provenance.exitCode != 0 || provenance.stdout != wantProvenance || provenance.stderr != "" {
 		t.Errorf("provenance report = %#v, want %q", provenance, wantProvenance)
 	}
 	environmentSnapshotPath := filepath.Join(dir, "environment-snapshot", "config.toml")
 	writeE2EConfig(t, environmentSnapshotPath, provenance.stdout)
 	environmentRoundTrip := runGSDWithEnv(t, environment, "config", "--config", environmentSnapshotPath)
-	wantEnvironmentReport := fmt.Sprintf("db_path = %q\n", environmentDatabase)
+	wantEnvironmentReport := configReport(
+		relativeEnvironmentDatabase,
+		filepath.Join(filepath.Dir(environmentSnapshotPath), relativeEnvironmentDatabase),
+	)
 	if environmentRoundTrip.exitCode != 0 || environmentRoundTrip.stdout != wantEnvironmentReport ||
 		environmentRoundTrip.stderr != "" {
-		t.Errorf("relative environment round-trip = %#v, want %q", environmentRoundTrip, wantEnvironmentReport)
-	}
-
-	snapshotPath := filepath.Join(dir, "snapshot", "config.toml")
-	writeE2EConfig(t, snapshotPath, first.stdout)
-	roundTrip := runGSDWithEnv(t, environment, "config", "--config", snapshotPath)
-	if roundTrip.exitCode != 0 || roundTrip.stdout != first.stdout || roundTrip.stderr != "" {
-		t.Errorf("round-trip report = %#v, want identical output %q", roundTrip, first.stdout)
+		t.Errorf("provenance round-trip = %#v, want comments ignored and %q", environmentRoundTrip, wantEnvironmentReport)
 	}
 
 	missingPath := filepath.Join(dir, "missing.toml")
@@ -369,6 +384,12 @@ func TestConfigReportRoundTripsWithoutOpeningDatabase(t *testing.T) {
 			t.Errorf("reported database %q stat error = %v, want not created", databasePath, err)
 		}
 	}
+}
+
+// configReport is the gsd config output for a loaded db_path value and the
+// absolute path it resolves to.
+func configReport(dbPath, effectiveDBPath string) string {
+	return fmt.Sprintf("db_path = %q\n\n# Effective\n# effective_db_path = %q\n", dbPath, effectiveDBPath)
 }
 
 func TestPipedColorModes(t *testing.T) {

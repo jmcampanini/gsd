@@ -3,10 +3,8 @@ package cli
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 
-	"github.com/jmcampanini/go-config-loader/configloader"
 	"github.com/jmcampanini/go-config-loader/configreporter"
 	"github.com/jmcampanini/gsd/internal/clierror"
 	"github.com/jmcampanini/gsd/internal/clihelp"
@@ -16,11 +14,7 @@ import (
 	"github.com/spf13/pflag"
 )
 
-type configurationLoader func(
-	string,
-	bool,
-	*pflag.FlagSet,
-) (config.Config, configloader.LoadReport, error)
+type configurationLoader func(string, bool, *pflag.FlagSet) (config.Loaded, error)
 
 func newConfigCommand(options *rootOptions, loadConfiguration configurationLoader) *cobra.Command {
 	var showProvenance bool
@@ -32,15 +26,20 @@ func newConfigCommand(options *rootOptions, loadConfiguration configurationLoade
 
 ` + clihelp.DatabaseDiscoveryHelp + `
 
-The only key is db_path. The report is one line, db_path = "PATH", with
-PATH made absolute, and it can be saved as a config file. Use
---provenance to add the source of each value as a TOML comment:
-'default', 'env: GSD_DB', 'flag: --db', or 'file: PATH'. There are no
-secret values to redact. An explicit --config file that is missing or
-unreadable, a file that cannot be parsed, or an empty db_path in a file
-is an invalid_argument error (exit 1) whose message starts with 'invalid
-configuration:'. This command loads the configuration but never opens
-the database, so it works before the database exists.
+The only key is db_path. The report body is one line, db_path = "PATH",
+with PATH exactly as the highest layer supplied it, so the output saved
+as a config file loads the same value; a relative value then resolves
+against the saved file's directory. A blank line and an '# Effective'
+comment block follow; its effective_db_path line names the absolute
+database path every other command opens, resolved as described above.
+Use --provenance to add the source of the value as a TOML comment on the
+db_path line: 'default', 'env: GSD_DB', 'flag: --db', or 'file: PATH'.
+There are no secret values to redact. An explicit --config file that is
+missing or unreadable, a file that cannot be parsed, or an empty db_path
+in the file that no GSD_DB or --db value replaces is an invalid_argument
+error (exit 1) whose message starts with 'invalid configuration:'. This
+command loads the configuration but never opens the database, so it
+works before the database exists.
 
 The global --json flag is not supported by this command because TOML is
 its machine-readable format; giving it is a usage error (exit 2) raised
@@ -53,11 +52,7 @@ stderr as 'Error: <message>', and nothing prompts.`,
 			}
 
 			flags := command.Root().PersistentFlags()
-			loaded, report, err := loadConfiguration(
-				options.configPath,
-				flags.Changed("config"),
-				flags,
-			)
+			loaded, err := loadConfiguration(options.configPath, flags.Changed("config"), flags)
 			if err != nil {
 				return clierror.NormalizeApplication(err)
 			}
@@ -65,7 +60,6 @@ stderr as 'Error: <message>', and nothing prompts.`,
 			return clierror.NormalizeApplication(writeConfigReport(
 				command.OutOrStdout(),
 				loaded,
-				report,
 				showProvenance,
 			))
 		},
@@ -74,37 +68,30 @@ stderr as 'Error: <message>', and nothing prompts.`,
 	return command
 }
 
-func writeConfigReport(
-	writer io.Writer,
-	loaded config.Config,
-	report configloader.LoadReport,
-	showProvenance bool,
-) error {
-	effectivePath, err := filepath.Abs(loaded.DBPath)
-	if err != nil {
-		return fmt.Errorf("resolve effective database path: %w", err)
-	}
-	loaded.DBPath = effectivePath
-
-	reporter := configreporter.New(loaded, report)
-	if !showProvenance {
-		return reporter.WriteTOML(writer)
-	}
-
+// writeConfigReport writes the loaded configuration as TOML, with the source
+// of db_path as a trailing comment when showProvenance is set, then the
+// '# Effective' comment block naming the derived database path.
+func writeConfigReport(writer io.Writer, loaded config.Loaded, showProvenance bool) error {
+	reporter := configreporter.New(loaded.Config, loaded.Report)
 	contents, err := reporter.TOML()
 	if err != nil {
 		return err
 	}
-	rows := reporter.ProvenanceRows()
-	if len(rows) != 1 || len(rows[0]) != 3 || rows[0][0] != config.DBPathKey {
-		return fmt.Errorf("config report has unexpected provenance shape")
+
+	body := string(contents)
+	if showProvenance {
+		rows := reporter.ProvenanceRows()
+		if len(rows) != 1 || len(rows[0]) != 3 || rows[0][0] != config.DBPathKey {
+			return fmt.Errorf("config report has unexpected provenance shape")
+		}
+		line := strings.TrimSuffix(body, "\n")
+		if line == "" || strings.Contains(line, "\n") {
+			return fmt.Errorf("config report has unexpected TOML shape")
+		}
+		body = fmt.Sprintf("%s # %s\n", line, configSourceDescription(rows[0][2]))
 	}
 
-	line := strings.TrimSuffix(string(contents), "\n")
-	if line == "" || strings.Contains(line, "\n") {
-		return fmt.Errorf("config report has unexpected TOML shape")
-	}
-	_, err = fmt.Fprintf(writer, "%s # %s\n", line, configSourceDescription(rows[0][2]))
+	_, err = fmt.Fprintf(writer, "%s\n# Effective\n# effective_db_path = %q\n", body, loaded.Effective.DBPath)
 	return err
 }
 

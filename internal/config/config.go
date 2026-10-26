@@ -1,5 +1,6 @@
-// Package config resolves the database path from flags, environment,
-// config files, and the XDG default, reporting which layer supplied it.
+// Package config loads the database path from the XDG default, the config
+// file, the GSD_DB variable, and the --db flag, reports which layer supplied
+// it, and derives the absolute path commands open.
 package config
 
 import (
@@ -42,10 +43,25 @@ func ClassifySource(source string) (SourceKind, string) {
 	}
 }
 
-// Config is the loaded configuration. DBPath is the SQLite database path,
-// bound to the db flag, the GSD_DB variable, and the db_path file key.
+// Config is the configuration as loaded, before derivation. DBPath is the
+// SQLite database path exactly as the highest layer supplied it, bound to the
+// db flag, the GSD_DB variable, and the db_path file key.
 type Config struct {
 	DBPath string `toml:"db_path" config:"db" help:"path to the SQLite database"`
+}
+
+// Effective holds the values derived from Config that commands consume.
+type Effective struct {
+	// DBPath is the absolute SQLite database path commands open.
+	DBPath string
+}
+
+// Loaded is the result of Load: the configuration as loaded, the values
+// derived from it, and the report naming the source of each loaded value.
+type Loaded struct {
+	Config    Config
+	Effective Effective
+	Report    configloader.LoadReport
 }
 
 // RegisterFlags adds the flags derived from Config, currently --db, to flags.
@@ -53,53 +69,51 @@ func RegisterFlags(flags *pflag.FlagSet) error {
 	return pflagloader.Register[Config](flags)
 }
 
-// Load merges the default, file, environment, and flag layers and returns
-// the result with a report naming each value's source. An explicit
-// configPath must exist; otherwise the XDG config file may be absent. Empty
-// --db and GSD_DB values are ignored, a relative db_path from a file resolves
-// against that file's directory, and an empty final path is an
-// invalid_argument error.
+// Load applies the file, environment, and flag layers to the defaults, then
+// validates and derives the effective values once from the result. An
+// explicit configPath must exist; otherwise the XDG config file may be
+// absent. Empty --db and GSD_DB values are ignored. A relative db_path from a
+// file resolves against that file's directory and a relative --db or GSD_DB
+// against the working directory. An empty path after every layer has been
+// applied is an invalid_argument error.
 func Load(
 	configPath string,
 	configPathExplicit bool,
 	flags *pflag.FlagSet,
-) (Config, configloader.LoadReport, error) {
+) (Loaded, error) {
 	defaults, defaultError := defaultConfig()
 
 	fileLoader, err := newFileLoader(configPath, configPathExplicit)
 	if err != nil {
 		if configPathExplicit {
-			return Config{}, configloader.LoadReport{}, invalidConfig(err)
+			return Loaded{}, invalidConfig(err)
 		}
-		return Config{}, configloader.LoadReport{}, err
+		return Loaded{}, err
 	}
 	environmentLoader, err := configloader.NewEnvironmentLoader[Config]("gsd", nonemptyEnvironment())
 	if err != nil {
-		return Config{}, configloader.LoadReport{}, err
+		return Loaded{}, err
 	}
 	flagLoader, err := pflagloader.NewLoader[Config](flags)
 	if err != nil {
-		return Config{}, configloader.LoadReport{}, err
+		return Loaded{}, err
 	}
 
 	loaded, report, err := configloader.Load(
 		defaults,
-		validatedFileLoader(fileLoader),
+		invalidConfigFileLoader(fileLoader),
 		environmentLoader,
 		ignoreEmptyDBFlag(flags, flagLoader),
 	)
 	if err != nil {
-		return Config{}, configloader.LoadReport{}, err
-	}
-	if loaded.DBPath == "" {
-		if report.Updates[DBPathKey] == configloader.SourceDefault && defaultError != nil {
-			return Config{}, configloader.LoadReport{}, defaultError
-		}
-		return Config{}, configloader.LoadReport{}, invalidEmptyDBPath()
+		return Loaded{}, err
 	}
 
-	loaded.DBPath = resolveFileRelativeDBPath(loaded.DBPath, report.Updates[DBPathKey])
-	return loaded, report, nil
+	effective, err := derive(loaded, report.Updates[DBPathKey], defaultError)
+	if err != nil {
+		return Loaded{}, err
+	}
+	return Loaded{Config: loaded, Effective: effective, Report: report}, nil
 }
 
 func defaultConfig() (Config, error) {
@@ -137,16 +151,13 @@ func nonemptyEnvironment() map[string]string {
 	return environment
 }
 
-func validatedFileLoader(
+func invalidConfigFileLoader(
 	loader configloader.ConfigLoader[Config],
 ) configloader.ConfigLoader[Config] {
 	return func(base Config) (Config, configloader.LoadReport, error) {
 		loaded, report, err := loader(base)
 		if err != nil {
 			return base, configloader.LoadReport{}, invalidConfig(err)
-		}
-		if _, updated := report.Updates[DBPathKey]; updated && loaded.DBPath == "" {
-			return base, configloader.LoadReport{}, invalidEmptyDBPath()
 		}
 		return loaded, report, nil
 	}
@@ -170,16 +181,27 @@ func ignoreEmptyDBFlag(
 	}
 }
 
-func resolveFileRelativeDBPath(path, source string) string {
+// derive validates loaded once every layer has been applied and resolves its
+// database path to an absolute path. source is the load-report source of
+// DBPath; defaultError is the failure, if any, that left the default empty.
+func derive(loaded Config, source string, defaultError error) (Effective, error) {
 	kind, filePath := ClassifySource(source)
-	if filepath.IsAbs(path) || kind != SourceKindFile {
-		return path
+	if loaded.DBPath == "" {
+		if kind == SourceKindDefault && defaultError != nil {
+			return Effective{}, defaultError
+		}
+		return Effective{}, invalidConfig(fmt.Errorf("database path is empty"))
 	}
-	return filepath.Join(filepath.Dir(filePath), path)
-}
 
-func invalidEmptyDBPath() error {
-	return invalidConfig(fmt.Errorf("database path is empty"))
+	path := loaded.DBPath
+	if kind == SourceKindFile && !filepath.IsAbs(path) {
+		path = filepath.Join(filepath.Dir(filePath), path)
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return Effective{}, fmt.Errorf("resolve database path %q: %w", path, err)
+	}
+	return Effective{DBPath: absolute}, nil
 }
 
 func invalidConfig(err error) error {
