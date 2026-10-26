@@ -10,10 +10,9 @@ import (
 )
 
 func newProjectCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	command := newCommandGroup("project", "Manage a project", `Act on one existing project by ID: show, edit, tag, untag, reorder, move
-(between the stages of its board), done, cancel, reopen, and delete. New
-projects come from 'gsd projects add' and lists from 'gsd projects list';
-'gsd projects --help' describes what a project is.
+	command := newCommandGroup("project", "Manage a project", `Act on one existing project by ID, including moving it between the stages
+of its board. New projects and lists of them come from 'gsd projects',
+whose --help describes what a project is.
 
 `+clihelp.GroupContractHelp)
 	command.AddCommand(

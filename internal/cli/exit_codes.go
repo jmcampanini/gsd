@@ -15,8 +15,9 @@ internal/cli/root.go picks from the error a command returns.
      exit 0: an empty list ([] with --json), a tag already attached or
      already absent, 'done' on a promoting task whose project is
      already at its last stage, a 'project move' to the project's
-     current stage, and a capture or tui session left with esc, q, or
-     ctrl+c.
+     current stage, a tui view that fails to load (the error shows in
+     place and the session continues), and a capture or tui session
+     left with esc, q, or ctrl+c.
   1  Application error. The categories are not_found (no row for an ID
      or name), invalid_argument (a bad ID, date, status, or search
      expression, an edit with no field flags, or an invalid

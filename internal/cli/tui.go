@@ -41,12 +41,14 @@ rejected as a usage error (exit 2).
 
 ` + clihelp.TerminalContractHelp + `
 
-The exit status is 0 when a key ends the session, and 1 with the error
-on stderr when loading data fails.`,
+A view that fails to load shows the error in place of its rows, marked
+'! ', and the session continues; going back and reopening the view
+retries. The exit status is 0 when a key ends the session, and 1 with the
+error on stderr only when the terminal program itself fails.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if options.json {
-				return clierror.Usage("--json is not supported by gsd tui; use the gsd CLI for noninteractive access")
+				return clierror.Usage("--json is not supported by tui; use the gsd CLI for noninteractive access")
 			}
 			if !options.presentation.IsTerminalInput(command.InOrStdin()) {
 				return clierror.Usage("tui requires terminal input; use the gsd CLI for noninteractive access")

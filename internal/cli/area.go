@@ -10,9 +10,8 @@ import (
 )
 
 func newAreaCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	command := newCommandGroup("area", "Manage an area", `Act on one existing area by ID: show, edit, tag, untag, reorder, archive,
-unarchive, and delete. New areas come from 'gsd areas add' and lists from
-'gsd areas list'; 'gsd areas --help' describes what an area is.
+	command := newCommandGroup("area", "Manage an area", `Act on one existing area by ID. New areas and lists of them come from
+'gsd areas', whose --help describes what an area is.
 
 `+clihelp.GroupContractHelp)
 	command.AddCommand(

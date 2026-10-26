@@ -35,7 +35,7 @@ prompt is written to stdout.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if options.json {
-				return clierror.Usage("--json is not supported by gsd capture; use gsd add TITLE for noninteractive capture")
+				return clierror.Usage("--json is not supported by capture; use gsd add TITLE for noninteractive capture")
 			}
 			if !options.presentation.IsTerminalInput(command.InOrStdin()) {
 				return clierror.Usage("capture requires terminal input; use gsd add TITLE for noninteractive capture")

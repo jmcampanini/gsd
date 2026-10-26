@@ -169,6 +169,7 @@ terminal background is queried once to choose a light or dark palette,
 falling back to dark. Errors on stderr are never colored, and control
 characters in stored text are escaped before display.
 
+Every noninteractive command shares one output contract:
 ` + clihelp.OutputStreamsHelp + `
 
 Only capture and tui are interactive: they require a terminal with cursor

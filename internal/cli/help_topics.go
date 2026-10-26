@@ -20,8 +20,3 @@ func newHelpTopic(use, short, long string) *cobra.Command {
 		},
 	}
 }
-
-// isHelpTopic reports whether command was built by newHelpTopic.
-func isHelpTopic(command *cobra.Command) bool {
-	return command.Annotations[helpTopicAnnotation] == "true"
-}

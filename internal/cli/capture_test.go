@@ -152,7 +152,7 @@ func TestCaptureCommandRejectsUnsupportedInvocationBeforeOpeningApplication(t *t
 		{
 			name:    "JSON",
 			args:    []string{"capture", "--json"},
-			message: "--json is not supported by gsd capture; use gsd add TITLE for noninteractive capture",
+			message: "--json is not supported by capture; use gsd add TITLE for noninteractive capture",
 		},
 		{
 			name:     "non-terminal input",

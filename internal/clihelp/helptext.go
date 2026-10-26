@@ -18,7 +18,8 @@ human-readable. The exit status is the same with and without --json.`
 // DatabaseUseHelp names the one path a data command creates and states that
 // it reads no other file.
 const DatabaseUseHelp = `The command opens the database chosen as 'gsd --help' describes, creating
-its directory and file when missing, and reads no other file.`
+its directory and file when missing, and reads no file beyond its
+configuration.`
 
 // OutputContractHelp is the contract every command that reads or changes
 // data composes: the output streams and the database it opens.
@@ -26,8 +27,10 @@ const OutputContractHelp = OutputStreamsHelp + "\n\n" + DatabaseUseHelp
 
 // GroupContractHelp explains that a command group runs nothing itself.
 const GroupContractHelp = `The group itself does nothing: running it without a subcommand, or with a
-name that is not a subcommand, is a usage error (exit 2). Each
-subcommand's --help states its own contract.`
+name that is not a subcommand, is a usage error (exit 2) reported as one
+'gsd: <message>' line on stderr, also with --json, with nothing on stdout.
+--help prints this text to stdout. Nothing prompts and no terminal is
+needed. Each subcommand's --help states its own contract.`
 
 // IDGrammarHelp defines the ID argument and its failure mode.
 const IDGrammarHelp = `ID is the positive decimal integer shown in list and show output. Any other
@@ -124,14 +127,14 @@ to run first, in the form 'gsd project reopen ID' or 'gsd area unarchive
 ID'.`
 
 // TerminalContractHelp states the terminal requirements shared by the tui
-// and capture commands.
+// and capture commands and names the database they open.
 const TerminalContractHelp = `Stdin and stdout must both be terminals, TERM must name a terminal with
 cursor control (an unset or dumb TERM is refused), and --json is not
 accepted; each violation is a usage error (exit 2) whose message names the
-noninteractive alternative, raised before the database is opened. Color is
-not required: the session renders in plain text when color is off. The
+noninteractive alternative, raised before the database is opened. The
 session runs in the terminal's alternate screen, which is restored on
-exit. Color follows the --color rules in 'gsd --help', and when color is on
+exit. Color is not required: it follows the --color rules in 'gsd --help',
+the session renders in plain text when color is off, and when color is on
 the terminal background is queried once to choose a light or dark palette.
 
 ` + DatabaseUseHelp
