@@ -155,7 +155,7 @@ func TestLoadResolvesRelativeExplicitFileAgainstWorkingDirectory(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	want := filepath.Join(dir, "settings", "nested", "gsd.db")
+	want := workingDirectoryPath(t, filepath.Join("settings", "nested", "gsd.db"))
 	if loaded.Effective.DBPath != want {
 		t.Errorf("Load() Effective.DBPath = %q, want absolute %q", loaded.Effective.DBPath, want)
 	}
