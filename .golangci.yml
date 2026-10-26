@@ -14,12 +14,6 @@ linters:
       locale: US
       ignore-rules:
         - cancelled
-    revive:
-      rules:
-        - name: exported
-          disabled: true
-        - name: package-comments
-          disabled: true
 
 formatters:
   enable:

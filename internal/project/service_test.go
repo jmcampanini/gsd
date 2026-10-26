@@ -375,7 +375,7 @@ func (r *recordingStore) DetachTags(
 }
 
 func (r *recordingStore) WithinTransaction(
-	ctx context.Context,
+	_ context.Context,
 	operation func(Transaction) error,
 ) error {
 	r.transactionCalls++
@@ -390,7 +390,7 @@ func (r *recordingStore) WithinTransaction(
 }
 
 func (r *recordingStore) WithinReadTransaction(
-	ctx context.Context,
+	_ context.Context,
 	operation func(Transaction) error,
 ) error {
 	r.readTransactionCalls++

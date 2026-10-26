@@ -1,3 +1,5 @@
+// Package dates parses the DATE grammar accepted by task flags into the
+// YYYY-MM-DD form stored in the database.
 package dates
 
 import (
@@ -7,6 +9,10 @@ import (
 	"time"
 )
 
+// Parse resolves value to a YYYY-MM-DD string. It accepts a canonical date,
+// today, tomorrow, a three-letter weekday meaning the next such day after
+// reference, or +Nd and +Nw offsets from reference. Any other value, or a
+// result past year 9999, returns an error.
 func Parse(value string, reference time.Time) (string, error) {
 	if date, ok := parseCanonical(value); ok {
 		return format(date), nil

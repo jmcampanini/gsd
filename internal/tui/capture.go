@@ -31,6 +31,9 @@ const (
 	captureQuitting
 )
 
+// CaptureModel is the one-line prompt behind gsd capture: it takes a title,
+// adds it to the inbox through the task application, and quits, or shows
+// the error and quits on the next key.
 type CaptureModel struct {
 	ctx          context.Context
 	application  task.Application
@@ -66,6 +69,7 @@ func newCaptureModel(
 	return model
 }
 
+// Init asks the terminal for its background color when color is on.
 func (m CaptureModel) Init() tea.Cmd {
 	if m.colorEnabled {
 		return tea.RequestBackgroundColor
@@ -73,6 +77,9 @@ func (m CaptureModel) Init() tea.Cmd {
 	return nil
 }
 
+// Update handles the phase machine: enter submits a non-blank title, esc or
+// ctrl+c cancels an in-flight add or quits, and the add result either quits
+// or switches to the error footer.
 func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.BackgroundColorMsg:
@@ -132,6 +139,7 @@ func (m CaptureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// View renders the input line and the status footer with the real cursor.
 func (m CaptureModel) View() tea.View {
 	view := tea.NewView(m.inputView() + "\n" + m.footerView())
 	view.Cursor = m.input.Cursor()
@@ -156,6 +164,7 @@ func (m CaptureModel) footerView() string {
 	}
 }
 
+// Err returns the add error shown to the user, or nil.
 func (m CaptureModel) Err() error {
 	return m.err
 }
@@ -302,6 +311,9 @@ func (s *captureSubmission) result() error {
 
 type captureProgramRunner func(CaptureModel) (CaptureModel, error)
 
+// RunCapture runs the capture prompt in the terminal described by options
+// and returns the add error, if any, once the program exits. An add still
+// in flight is cancelled and awaited before return.
 func RunCapture(
 	ctx context.Context,
 	application task.Application,

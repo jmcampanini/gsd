@@ -723,11 +723,11 @@ func TestStageAwareTaskFlagsAdaptExactIntent(t *testing.T) {
 		t.Errorf("non-containment edit JSON = %s, want bare task", setResult.stdout)
 	}
 
-	clear := &fakeApplication{editResult: task.Task{ID: 7, Title: "capstone"}}
-	clearResult := runCommand(t, clear, "edit", "7", "--no-defer-stage", "--no-promotes", "--json")
-	if clearResult.exitCode != 0 || clearResult.stderr != "" || !clear.editFields.DeferStage.Clear ||
-		clear.editFields.DeferStage.Set != nil || clear.editFields.Promotes == nil || *clear.editFields.Promotes {
-		t.Errorf("clear result/call = %#v/%#v, want stage clear and promotes false", clearResult, clear.editFields)
+	clearing := &fakeApplication{editResult: task.Task{ID: 7, Title: "capstone"}}
+	clearResult := runCommand(t, clearing, "edit", "7", "--no-defer-stage", "--no-promotes", "--json")
+	if clearResult.exitCode != 0 || clearResult.stderr != "" || !clearing.editFields.DeferStage.Clear ||
+		clearing.editFields.DeferStage.Set != nil || clearing.editFields.Promotes == nil || *clearing.editFields.Promotes {
+		t.Errorf("clear result/call = %#v/%#v, want stage clear and promotes false", clearResult, clearing.editFields)
 	}
 }
 

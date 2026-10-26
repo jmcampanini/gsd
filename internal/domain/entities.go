@@ -1,6 +1,3 @@
-// Entity row types live in domain so any package can reference them without
-// import cycles; requests, projections, envelopes, and services stay in the
-// entity packages, which re-export these rows under aliases.
 package domain
 
 // Status values stored on task and project rows.
@@ -10,6 +7,8 @@ const (
 	StatusCancelled = "cancelled"
 )
 
+// Area is one row of the areas table. ArchivedAt is nil while the area is
+// active.
 type Area struct {
 	ID         int64    `json:"id"`
 	Title      string   `json:"title"`
@@ -21,6 +20,7 @@ type Area struct {
 	Tags       TagNames `json:"tags"`
 }
 
+// Board is one row of the boards table.
 type Board struct {
 	ID        int64  `json:"id"`
 	Title     string `json:"title"`
@@ -30,6 +30,8 @@ type Board struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+// Stage is one row of the stages table; Position orders stages within
+// their board.
 type Stage struct {
 	ID        int64  `json:"id"`
 	BoardID   int64  `json:"board_id"`
@@ -39,6 +41,8 @@ type Stage struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+// Project is one row of the projects table joined with its tag names.
+// StageID and StagePosition are nil when the project is not on a board.
 type Project struct {
 	ID            int64    `json:"id"`
 	AreaID        *int64   `json:"area_id"`
@@ -55,6 +59,9 @@ type Project struct {
 	Tags          TagNames `json:"tags"`
 }
 
+// Task is one row of the tasks table joined with its tag names.
+// DeferStageTitle is populated only by queries that join the defer stage
+// and is omitted from JSON.
 type Task struct {
 	ID              int64    `json:"id"`
 	ProjectID       *int64   `json:"project_id"`

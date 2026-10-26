@@ -53,6 +53,8 @@ type MutationVerb struct {
 	accent glyphAccent
 }
 
+// The mutation verbs commands pass to the writers. Deleted, Cancelled,
+// Archived, and Untagged render red; Done and Tagged render green.
 var (
 	VerbDeleted    = MutationVerb{label: "Deleted", glyph: glyphDeleted, accent: accentRed}
 	VerbDone       = MutationVerb{label: "Done", glyph: glyphDone, accent: accentGreen}
@@ -137,42 +139,56 @@ func SamePayload[T any](value T) any {
 	return value
 }
 
+// TaskMutationWriter returns a writer that prints one task mutation line
+// with verb.
 func TaskMutationWriter(verb MutationVerb) func(HumanOutput, task.Task) error {
 	return func(output HumanOutput, current task.Task) error {
 		return output.writeTaskMutation(verb, current)
 	}
 }
 
+// ProjectMutationWriter returns a writer that prints one project mutation
+// line with verb.
 func ProjectMutationWriter(verb MutationVerb) func(HumanOutput, project.Project) error {
 	return func(output HumanOutput, current project.Project) error {
 		return output.WriteProjectMutation(verb, current)
 	}
 }
 
+// ProjectResolutionWriter returns a writer that prints the project mutation
+// line followed by the open tasks the resolution cancelled.
 func ProjectResolutionWriter(verb MutationVerb) func(HumanOutput, project.Resolution) error {
 	return func(output HumanOutput, resolution project.Resolution) error {
 		return output.writeProjectResolution(verb, resolution)
 	}
 }
 
+// AreaMutationWriter returns a writer that prints one area mutation line
+// with verb.
 func AreaMutationWriter(verb MutationVerb) func(HumanOutput, area.Area) error {
 	return func(output HumanOutput, current area.Area) error {
 		return output.writeAreaMutation(verb, current)
 	}
 }
 
+// BoardMutationWriter returns a writer that prints one board mutation line
+// with verb.
 func BoardMutationWriter(verb MutationVerb) func(HumanOutput, board.Board) error {
 	return func(output HumanOutput, current board.Board) error {
 		return output.writeBoardMutation(verb, current)
 	}
 }
 
+// StageMutationWriter returns a writer that prints one board/stage mutation
+// line with verb.
 func StageMutationWriter(verb MutationVerb) func(HumanOutput, board.StageResult) error {
 	return func(output HumanOutput, result board.StageResult) error {
 		return output.writeStageMutation(verb, result)
 	}
 }
 
+// LogbookWriter returns a writer that prints logbook entries with their
+// resolution times shown in location.
 func LogbookWriter(location *time.Location) func(HumanOutput, []logbook.Entry) error {
 	return func(output HumanOutput, entries []logbook.Entry) error {
 		return output.writeLogbook(entries, location)
@@ -188,14 +204,17 @@ func WriteCommandError(writer io.Writer, jsonMode bool, err error) error {
 	return writeErr
 }
 
+// WriteAddedTask prints the added line for a task with its tags.
 func (o HumanOutput) WriteAddedTask(created task.Task) error {
 	return o.writeAddedEntity("task", created.ID, created.Title, created.Tags)
 }
 
+// WriteAddedProject prints the added line for a project with its tags.
 func (o HumanOutput) WriteAddedProject(created project.Project) error {
 	return o.writeAddedEntity("project", created.ID, created.Title, created.Tags)
 }
 
+// WriteAddedArea prints the added line for an area with its tags.
 func (o HumanOutput) WriteAddedArea(created area.Area) error {
 	return o.writeAddedEntity("area", created.ID, created.Title, created.Tags)
 }
@@ -220,6 +239,7 @@ func (o HumanOutput) addedTagSuffix(titles []string) string {
 	return "  " + o.humanTagTitles(titles)
 }
 
+// WriteAddedBoard prints the board title and its stages joined by arrows.
 func (o HumanOutput) WriteAddedBoard(addition board.Addition) error {
 	stages := make([]string, len(addition.Stages))
 	for index, stage := range addition.Stages {
@@ -235,6 +255,7 @@ func (o HumanOutput) WriteAddedBoard(addition board.Addition) error {
 	return err
 }
 
+// WriteAddedStage prints the added line for a stage as board/stage.
 func (o HumanOutput) WriteAddedStage(result board.StageResult) error {
 	_, err := fmt.Fprintf(
 		o.writer,
@@ -246,6 +267,7 @@ func (o HumanOutput) WriteAddedStage(result board.StageResult) error {
 	return err
 }
 
+// WriteRenamedStage prints the old and new board/stage names.
 func (o HumanOutput) WriteRenamedStage(result board.StageRenameResult) error {
 	_, err := fmt.Fprintf(
 		o.writer,
@@ -263,6 +285,8 @@ func (o HumanOutput) writeStageMutation(verb MutationVerb, result board.StageRes
 	return o.writeStageMutationValues(verb, result.Board, result.Stage)
 }
 
+// WriteStageDeletion prints the deleted stage and then the tasks whose
+// defer stage it cleared.
 func (o HumanOutput) WriteStageDeletion(deletion board.StageDeletion) error {
 	if err := o.writeStageMutationValues(VerbDeleted, deletion.Board, deletion.Stage); err != nil {
 		return err
@@ -282,6 +306,7 @@ func (o HumanOutput) writeStageMutationValues(verb MutationVerb, currentBoard bo
 	return err
 }
 
+// WriteAddedTag prints the added line for a tag.
 func (o HumanOutput) WriteAddedTag(created tag.Tag) error {
 	_, err := fmt.Fprintf(
 		o.writer,
@@ -292,6 +317,7 @@ func (o HumanOutput) WriteAddedTag(created tag.Tag) error {
 	return err
 }
 
+// WriteRenamedTag prints the old and new tag titles.
 func (o HumanOutput) WriteRenamedTag(oldName, newName string) error {
 	_, err := fmt.Fprintf(
 		o.writer,
@@ -303,6 +329,8 @@ func (o HumanOutput) WriteRenamedTag(oldName, newName string) error {
 	return err
 }
 
+// WriteTagDeletion prints the deleted tag and how many items it was
+// detached from.
 func (o HumanOutput) WriteTagDeletion(deletion tag.Deletion) error {
 	plural := ""
 	if deletion.Detached != 1 {
@@ -319,14 +347,18 @@ func (o HumanOutput) WriteTagDeletion(deletion tag.Deletion) error {
 	return err
 }
 
+// WriteTaskTagging prints the task ID and the tags named in the request.
 func (o HumanOutput) WriteTaskTagging(verb MutationVerb, tagging task.Tagging) error {
 	return o.writeEntityTagging(verb, "task", tagging.Task.ID, tagging.TagTitles)
 }
 
+// WriteProjectTagging prints the project ID and the tags named in the
+// request.
 func (o HumanOutput) WriteProjectTagging(verb MutationVerb, tagging project.Tagging) error {
 	return o.writeEntityTagging(verb, "project", tagging.Project.ID, tagging.TagTitles)
 }
 
+// WriteAreaTagging prints the area ID and the tags named in the request.
 func (o HumanOutput) WriteAreaTagging(verb MutationVerb, tagging area.Tagging) error {
 	return o.writeEntityTagging(verb, "area", tagging.Area.ID, tagging.TagTitles)
 }
@@ -368,10 +400,13 @@ func (o HumanOutput) writeBoardMutation(verb MutationVerb, current board.Board) 
 	return err
 }
 
+// WriteBoardDeletion prints the deleted line for a board.
 func (o HumanOutput) WriteBoardDeletion(deletion board.Deletion) error {
 	return o.writeBoardMutation(VerbDeleted, deletion.Board)
 }
 
+// WriteAreaDeletion prints the deleted area followed by the projects and
+// tasks a recursive delete removed.
 func (o HumanOutput) WriteAreaDeletion(deletion area.Deletion) error {
 	if err := o.writeAreaMutation(VerbDeleted, deletion.Area); err != nil {
 		return err
@@ -390,6 +425,8 @@ func (o HumanOutput) writeNarratedProjects(projects []project.Project) error {
 	return o.writeNarration("Deleted", "project", rows)
 }
 
+// WriteOpenTaskList prints an id, title, dates table for the inbox and
+// available views, which hold only open tasks.
 func (o HumanOutput) WriteOpenTaskList(tasks []task.ViewTask) error {
 	rows := make([][]string, 0, len(tasks))
 	for _, current := range tasks {
@@ -407,6 +444,7 @@ func (o HumanOutput) WriteOpenTaskList(tasks []task.ViewTask) error {
 	)
 }
 
+// WriteTaskList prints an id, title, status, dates table.
 func (o HumanOutput) WriteTaskList(tasks []task.Task) error {
 	rows := make([][]string, 0, len(tasks))
 	for _, current := range tasks {
@@ -438,6 +476,7 @@ func (o HumanOutput) writeTaskMutation(verb MutationVerb, current task.Task) err
 	return err
 }
 
+// WriteTaskEdition prints the edited line and then any cleared defer stage.
 func (o HumanOutput) WriteTaskEdition(edition task.Edition) error {
 	if err := o.writeTaskMutation(VerbEdited, edition.Task); err != nil {
 		return err
@@ -445,6 +484,8 @@ func (o HumanOutput) WriteTaskEdition(edition task.Edition) error {
 	return o.writeClearedStageDefers(edition.ClearedDefers)
 }
 
+// WriteTaskCompletion prints the done line and, when the task promoted its
+// project, the stage it moved to or that it was already last.
 func (o HumanOutput) WriteTaskCompletion(completion task.Completion) error {
 	if err := o.writeTaskMutation(VerbDone, completion.Task); err != nil {
 		return err
@@ -494,6 +535,7 @@ func (o HumanOutput) writeClearedStageDefers(tasks []task.Task) error {
 	return nil
 }
 
+// WriteProjectMutation prints one project mutation line with verb.
 func (o HumanOutput) WriteProjectMutation(verb MutationVerb, current project.Project) error {
 	_, err := fmt.Fprintf(
 		o.writer,
@@ -506,6 +548,8 @@ func (o HumanOutput) WriteProjectMutation(verb MutationVerb, current project.Pro
 	return err
 }
 
+// WriteProjectBoardEdit prints the project's new board/stage, or no board,
+// and then any cleared task defers.
 func (o HumanOutput) WriteProjectBoardEdit(edition project.Edition) error {
 	destination := "(no board)"
 	if edition.Location != nil {
@@ -518,6 +562,7 @@ func (o HumanOutput) WriteProjectBoardEdit(edition project.Edition) error {
 	return o.writeClearedStageDefers(edition.ClearedDefers)
 }
 
+// WriteProjectMovement prints the moved line with the destination stage.
 func (o HumanOutput) WriteProjectMovement(movement project.Movement) error {
 	return o.writeProjectBoardMutation(
 		verbMoved,
@@ -551,6 +596,8 @@ func (o HumanOutput) writeProjectResolution(verb MutationVerb, resolution projec
 	return o.writeNarratedTasks("Cancelled", "open task", resolution.CancelledTasks)
 }
 
+// WriteProjectDeletion prints the deleted project followed by the tasks a
+// recursive delete removed.
 func (o HumanOutput) WriteProjectDeletion(deletion project.Deletion) error {
 	if err := o.WriteProjectMutation(VerbDeleted, deletion.Project); err != nil {
 		return err
@@ -605,6 +652,7 @@ func (o HumanOutput) writeNarration(action, noun string, rows []narratedRow) err
 	return nil
 }
 
+// WriteProjectList prints an id, title, status table.
 func (o HumanOutput) WriteProjectList(projects []project.Project) error {
 	rows := make([][]string, 0, len(projects))
 	for _, current := range projects {
@@ -622,6 +670,7 @@ func (o HumanOutput) WriteProjectList(projects []project.Project) error {
 	)
 }
 
+// WriteBoardList prints each board with its stages joined by arrows.
 func (o HumanOutput) WriteBoardList(boards []board.ListedBoard) error {
 	rows := make([][]string, 0, len(boards))
 	for _, current := range boards {
@@ -637,6 +686,8 @@ func (o HumanOutput) WriteBoardList(boards []board.ListedBoard) error {
 	return o.writeCollection([]string{"board", "stages"}, rows, -1, 1)
 }
 
+// WriteBoard prints the board's stages with the open projects on each and
+// their task progress.
 func (o HumanOutput) WriteBoard(shown board.Show) error {
 	stageTitles := make([]string, len(shown.Stages))
 	stageWidth := 0
@@ -690,6 +741,7 @@ func (o HumanOutput) WriteBoard(shown board.Show) error {
 	return nil
 }
 
+// WriteTagList prints each tag with its usage count.
 func (o HumanOutput) WriteTagList(tags []tag.ListedTag) error {
 	nameWidth := 0
 	visible := make([]string, len(tags))
@@ -711,6 +763,8 @@ func (o HumanOutput) WriteTagList(tags []tag.ListedTag) error {
 	return nil
 }
 
+// WriteAreaList prints an id, title, state table; state is archived or
+// blank.
 func (o HumanOutput) WriteAreaList(areas []area.Area) error {
 	rows := make([][]string, 0, len(areas))
 	for _, current := range areas {
@@ -732,6 +786,9 @@ func (o HumanOutput) WriteAreaList(areas []area.Area) error {
 	)
 }
 
+// WriteSearchHits prints a kind, id, title, status, context table in rank
+// order, where context is the hit's project and area titles; a hit missing
+// its entity row is an error.
 func (o HumanOutput) WriteSearchHits(hits []search.Hit) error {
 	rows := make([][]string, 0, len(hits))
 	for _, hit := range hits {
@@ -814,6 +871,7 @@ func (o HumanOutput) writeLogbook(entries []logbook.Entry, location *time.Locati
 	)
 }
 
+// WriteTask prints the task detail view with a glyph for its status.
 func (o HumanOutput) WriteTask(current task.Task) error {
 	glyph := glyphTaskOpen
 	switch current.Status {
@@ -841,6 +899,7 @@ func (o HumanOutput) WriteTask(current task.Task) error {
 	return o.writeDetail(glyph, current.ID, o.taskTitle(current), fields)
 }
 
+// WriteProject prints the project detail view including its board location.
 func (o HumanOutput) WriteProject(detail project.Detail) error {
 	current := detail.Project
 	boardLocation := ""
@@ -874,6 +933,7 @@ func (o HumanOutput) projectGlyph(status string) string {
 	}
 }
 
+// WriteArea prints the area detail view with a glyph for its archive state.
 func (o HumanOutput) WriteArea(current area.Area) error {
 	glyph := glyphAreaActive
 	if current.ArchivedAt != nil {

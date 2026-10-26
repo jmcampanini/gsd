@@ -17,6 +17,7 @@ const (
        (SELECT COUNT(*) FROM area_tags WHERE tag_id = tags.id)`
 )
 
+// Tags implements tag.Store on SQLite. Titles compare with COLLATE NOCASE.
 type Tags struct {
 	database *DB
 }
@@ -30,10 +31,13 @@ type tagExecutor interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
+// NewTags returns the tag store for database.
 func NewTags(database *DB) *Tags {
 	return &Tags{database: database}
 }
 
+// Add inserts a tag; a title already present in any casing is a conflict
+// error naming the stored spelling.
 func (s *Tags) Add(ctx context.Context, name, timestamp string) (tag.Tag, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction tag.Transaction) (tag.Tag, error) {
 		return transaction.Add(ctx, name, timestamp)
@@ -64,6 +68,7 @@ RETURNING `+tagColumns, name, timestamp, timestamp, name))
 	)
 }
 
+// Find returns the tag whose title matches name case-insensitively.
 func (s *Tags) Find(ctx context.Context, name string) (tag.Tag, error) {
 	return s.poolCore().Find(ctx, name)
 }
@@ -72,6 +77,7 @@ func (s *tagsCore) Find(ctx context.Context, name string) (tag.Tag, error) {
 	return findStoredTag(ctx, s.executor, name)
 }
 
+// List returns every tag with its usage count, ordered by title.
 func (s *Tags) List(ctx context.Context) ([]tag.ListedTag, error) {
 	return s.poolCore().List(ctx)
 }
@@ -89,6 +95,8 @@ ORDER BY title COLLATE NOCASE, id
 	return collectRows(rows, scanListedTag, "scan listed tag", "iterate listed tags")
 }
 
+// Rename retitles the tag matching oldName; a newName held by a different
+// tag is a conflict error.
 func (s *Tags) Rename(
 	ctx context.Context,
 	oldName, newName, timestamp string,
@@ -134,6 +142,7 @@ RETURNING `+tagColumns, newName, timestamp, oldName, newName))
 	)
 }
 
+// CountUsage counts the tasks, projects, and areas the tag is attached to.
 func (s *Tags) CountUsage(ctx context.Context, name string) (int64, error) {
 	return s.poolCore().CountUsage(ctx, name)
 }
@@ -156,6 +165,7 @@ WHERE title = ? COLLATE NOCASE
 	return count, nil
 }
 
+// Delete removes the tag; the schema detaches it from every row.
 func (s *Tags) Delete(ctx context.Context, name string) (tag.Tag, error) {
 	return s.poolCore().Delete(ctx, name)
 }
@@ -176,6 +186,8 @@ func (s *tagsCore) Delete(ctx context.Context, name string) (tag.Tag, error) {
 	return deleted, nil
 }
 
+// WithinTransaction runs apply inside one BEGIN IMMEDIATE transaction and
+// rolls back when it returns an error.
 func (s *Tags) WithinTransaction(
 	ctx context.Context,
 	apply func(tag.Transaction) error,

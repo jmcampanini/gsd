@@ -9,15 +9,19 @@ import (
 	"github.com/jmcampanini/gsd/internal/domain"
 )
 
+// Service validates board requests and orchestrates them against a Store.
 type Service struct {
 	store Store
 	now   func() time.Time
 }
 
+// NewService returns a Service that stamps rows with the wall clock.
 func NewService(store Store) *Service {
 	return &Service{store: store, now: time.Now}
 }
 
+// Add creates a board and its stages in one transaction. A board with no
+// stages is an invalid_argument error.
 func (s *Service) Add(ctx context.Context, fields AddFields) (Addition, error) {
 	if err := domain.ValidateTitle(fields.Title); err != nil {
 		return Addition{}, err
@@ -62,6 +66,8 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Addition, error) {
 	return result, nil
 }
 
+// List returns every board with its stages, read in one snapshot, never a
+// nil slice on success.
 func (s *Service) List(ctx context.Context) ([]ListedBoard, error) {
 	listed := []ListedBoard{}
 	err := s.store.WithinReadTransaction(ctx, func(store Transaction) error {
@@ -85,6 +91,7 @@ func (s *Service) List(ctx context.Context) ([]ListedBoard, error) {
 	return listed, nil
 }
 
+// Show returns the board named title with its stages and their projects.
 func (s *Service) Show(ctx context.Context, title string) (Show, error) {
 	if err := domain.ValidateTitle(title); err != nil {
 		return Show{}, err
@@ -95,6 +102,7 @@ func (s *Service) Show(ctx context.Context, title string) (Show, error) {
 	})
 }
 
+// ShowByID is Show for a board ID; the TUI uses it.
 func (s *Service) ShowByID(ctx context.Context, id int64) (Show, error) {
 	if err := domain.ValidateID("board", id); err != nil {
 		return Show{}, err
@@ -159,6 +167,8 @@ func (s *Service) show(
 	return result, nil
 }
 
+// Edit changes the title, the note, or both of the board named title; a
+// request that sets neither is an invalid_argument error.
 func (s *Service) Edit(ctx context.Context, title string, fields EditFields) (Board, error) {
 	if err := domain.ValidateTitle(title); err != nil {
 		return Board{}, err
@@ -197,6 +207,8 @@ func (s *Service) Edit(ctx context.Context, title string, fields EditFields) (Bo
 	return edited, nil
 }
 
+// Reorder moves the board among its siblings; a reference naming the board
+// itself is an invalid_argument error.
 func (s *Service) Reorder(ctx context.Context, title string, placement Placement) (Board, error) {
 	if err := domain.ValidateTitle(title); err != nil {
 		return Board{}, err
@@ -225,6 +237,8 @@ func (s *Service) Reorder(ctx context.Context, title string, placement Placement
 	return reordered, nil
 }
 
+// Delete removes a board and its stages; a board that still holds projects
+// is a conflict error.
 func (s *Service) Delete(ctx context.Context, title string) (Deletion, error) {
 	if err := domain.ValidateTitle(title); err != nil {
 		return Deletion{}, err
@@ -268,6 +282,8 @@ func (s *Service) Delete(ctx context.Context, title string) (Deletion, error) {
 	return result, nil
 }
 
+// AddStage appends a stage to the named board, or places it per placement
+// when one is given.
 func (s *Service) AddStage(
 	ctx context.Context,
 	boardTitle string,
@@ -316,6 +332,7 @@ func (s *Service) AddStage(
 	return result, nil
 }
 
+// RenameStage retitles a stage on the named board.
 func (s *Service) RenameStage(
 	ctx context.Context,
 	boardTitle string,
@@ -363,6 +380,8 @@ func (s *Service) RenameStage(
 	return result, nil
 }
 
+// ReorderStage moves a stage among the stages of its board; a reference
+// naming the stage itself is an invalid_argument error.
 func (s *Service) ReorderStage(
 	ctx context.Context,
 	boardTitle string,
@@ -418,6 +437,8 @@ func (s *Service) ReorderStage(
 	return result, nil
 }
 
+// DeleteStage removes a stage that holds no projects, clearing any task
+// defer that pointed at it. An occupied stage is a conflict error.
 func (s *Service) DeleteStage(
 	ctx context.Context,
 	boardTitle string,
