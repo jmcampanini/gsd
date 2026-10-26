@@ -30,8 +30,9 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           number='(0|[1-9][0-9]*)'
-          identifier="($number|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
-          if ! printf '%s\n' "$TAG" | grep -Eq "^v${number}\.${number}\.${number}(-${identifier}(\.${identifier})*)?$"; then
+          identifier="(${number}|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+          version_pattern="^v${number}\.${number}\.${number}(-${identifier}(\.${identifier})*)?$"
+          if ! printf '%s\n' "$TAG" | grep -Eq "$version_pattern"; then
             echo "$TAG is not a version tag"
             exit 1
           fi
@@ -61,16 +62,6 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Verify stable release credentials
-        if: ${{ !contains(github.ref_name, '-') }}
-        env:
-          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
-        run: |
-          if [ -z "$HOMEBREW_TAP_DEPLOY_KEY" ]; then
-            echo "Stable releases require HOMEBREW_TAP_DEPLOY_KEY with write access to jmcampanini/homebrew-tap."
-            exit 1
-          fi
 
       - name: Set up mise
         uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
