@@ -341,17 +341,13 @@ func TestConfigReportRoundTripsWithoutOpeningDatabase(t *testing.T) {
 		configPath,
 		"--provenance",
 	)
-	wantProvenancePrefix := configReport(relativeEnvironmentDatabase, environmentDatabase) + "\n# Provenance\n# Field"
-	wantProvenanceRow := fmt.Sprintf("%q  env: GSD_DB\n", relativeEnvironmentDatabase)
-	if provenance.exitCode != 0 || provenance.stderr != "" ||
-		!strings.HasPrefix(provenance.stdout, wantProvenancePrefix) ||
-		!strings.HasSuffix(provenance.stdout, wantProvenanceRow) {
-		t.Errorf(
-			"provenance report = %#v, want report %q followed by a provenance row ending %q",
-			provenance,
-			wantProvenancePrefix,
-			wantProvenanceRow,
-		)
+	wantProvenance := fmt.Sprintf(
+		"db_path = %q # env: GSD_DB\n\n# Effective\n# effective_db_path = %q\n",
+		relativeEnvironmentDatabase,
+		environmentDatabase,
+	)
+	if provenance.exitCode != 0 || provenance.stdout != wantProvenance || provenance.stderr != "" {
+		t.Errorf("provenance report = %#v, want %q", provenance, wantProvenance)
 	}
 	environmentSnapshotPath := filepath.Join(dir, "environment-snapshot", "config.toml")
 	writeE2EConfig(t, environmentSnapshotPath, provenance.stdout)

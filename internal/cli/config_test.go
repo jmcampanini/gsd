@@ -37,7 +37,7 @@ func TestWriteConfigReportRendersLoadedValueThenEffectiveBlock(t *testing.T) {
 	}
 }
 
-func TestWriteConfigReportAppendsProvenanceTableWithActionableSources(t *testing.T) {
+func TestWriteConfigReportCommentsProvenanceWithActionableSources(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -65,12 +65,9 @@ func TestWriteConfigReportAppendsProvenanceTableWithActionableSources(t *testing
 				t.Fatalf("writeConfigReport(provenance) error = %v", err)
 			}
 
-			want := "db_path = \"relative/gsd.db\"\n" +
+			want := fmt.Sprintf("db_path = \"relative/gsd.db\" # %s\n", test.want) +
 				"\n# Effective\n" +
-				"# effective_db_path = \"/work/relative/gsd.db\"\n" +
-				"\n# Provenance\n" +
-				"# Field    Value              Source\n" +
-				fmt.Sprintf("# db_path  \"relative/gsd.db\"  %s\n", test.want)
+				"# effective_db_path = \"/work/relative/gsd.db\"\n"
 			if output.String() != want {
 				t.Errorf("provenance report = %q, want %q", output.String(), want)
 			}
@@ -111,12 +108,9 @@ func TestConfigCommandLoadsConfigurationWithoutOpeningDatabase(t *testing.T) {
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("result = %#v, want success", result)
 	}
-	want := "db_path = \"chosen.db\"\n" +
+	want := "db_path = \"chosen.db\" # flag: --db\n" +
 		"\n# Effective\n" +
-		"# effective_db_path = \"/work/chosen.db\"\n" +
-		"\n# Provenance\n" +
-		"# Field    Value        Source\n" +
-		"# db_path  \"chosen.db\"  flag: --db\n"
+		"# effective_db_path = \"/work/chosen.db\"\n"
 	if result.stdout != want {
 		t.Errorf("stdout = %q, want effective config %q with flag provenance", result.stdout, want)
 	}

@@ -44,7 +44,7 @@ func ClassifySource(source string) (SourceKind, string) {
 }
 
 // Config is the configuration as loaded, before derivation. DBPath is the
-// SQLite database path exactly as the winning layer supplied it, bound to the
+// SQLite database path exactly as the highest layer supplied it, bound to the
 // db flag, the GSD_DB variable, and the db_path file key.
 type Config struct {
 	DBPath string `toml:"db_path" config:"db" help:"path to the SQLite database"`
