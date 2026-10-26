@@ -69,7 +69,7 @@ func (s *Areas) Edit(
 	return s.poolCore().Edit(ctx, id, fields, timestamp)
 }
 
-// Reorder renumbers the areas with id at its new placement, in one
+// Reorder renumbers the area's siblings with id at its new placement, in one
 // transaction.
 func (s *Areas) Reorder(
 	ctx context.Context,

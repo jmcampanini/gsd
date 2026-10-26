@@ -29,7 +29,8 @@ const (
 // Exit names how a project is resolved.
 type Exit string
 
-// The project exits.
+// The project exits: ExitDone completes the project and ExitCancelled
+// abandons it.
 const (
 	ExitDone      Exit = "done"
 	ExitCancelled Exit = "cancelled"

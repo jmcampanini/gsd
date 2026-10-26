@@ -120,7 +120,7 @@ func (s *Boards) ListStages(ctx context.Context, boardID int64) ([]board.Stage, 
 	return s.poolCore().ListStages(ctx, boardID)
 }
 
-// ListShownProjects returns the projects on the board with their task
+// ListShownProjects returns the open projects on the board with their task
 // progress, ordered by stage position.
 func (s *Boards) ListShownProjects(
 	ctx context.Context,
@@ -149,8 +149,8 @@ func (s *Boards) ClearTaskStageDefers(
 	return s.poolCore().ClearTaskStageDefers(ctx, stageID, timestamp)
 }
 
-// RenameStage retitles the stage; a title already on the board is a
-// conflict error.
+// RenameStage retitles the stage; a title another stage on the board holds
+// is a conflict error.
 func (s *Boards) RenameStage(
 	ctx context.Context,
 	boardID, id int64,

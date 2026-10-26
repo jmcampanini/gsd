@@ -19,7 +19,7 @@ const DBPathKey = "dbpath"
 // SourceKind classifies a load-report source value.
 type SourceKind int
 
-// The source kinds, in ascending precedence order.
+// The source kinds a load report can name.
 const (
 	SourceKindDefault SourceKind = iota
 	SourceKindEnv

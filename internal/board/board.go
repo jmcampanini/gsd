@@ -49,25 +49,27 @@ type ListedBoard struct {
 	Stages []Stage `json:"stages"`
 }
 
-// ProjectProgress counts a project's done tasks against its total.
+// ProjectProgress counts a project's done tasks against its tasks that are
+// not cancelled.
 type ProjectProgress struct {
 	Done  int64 `json:"done"`
 	Total int64 `json:"total"`
 }
 
-// ShownProject is a project on a board with its task progress.
+// ShownProject is an open project on a board with its task progress.
 type ShownProject struct {
 	project.Project
 	Progress ProjectProgress `json:"progress"`
 }
 
-// ShownStage is a stage with the projects placed on it in stage order.
+// ShownStage is a stage with the open projects placed on it in stage order.
 type ShownStage struct {
 	Stage
 	Projects []ShownProject `json:"projects"`
 }
 
-// Show is the full board view: the row and every stage with its projects.
+// Show is the full board view: the row and every stage with its open
+// projects.
 type Show struct {
 	Board  Board        `json:"board"`
 	Stages []ShownStage `json:"stages"`

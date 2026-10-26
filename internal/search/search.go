@@ -19,8 +19,7 @@ const (
 
 // Hit is one search result: a task, project, or area row tagged with its
 // Kind. Exactly one entity pointer is populated and must match Kind;
-// MarshalJSON enforces this. Constructors and accessors are deferred until
-// the first new Hit consumer or producer (expected at the TUI milestones).
+// MarshalJSON enforces this.
 type Hit struct {
 	Kind               string           `json:"kind"`
 	Task               *task.Task       `json:"-"`

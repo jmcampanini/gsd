@@ -137,7 +137,7 @@ func (s *Projects) Reorder(
 }
 
 // Resolve sets the project's status and resolution timestamp; a project
-// already resolved is a conflict error.
+// already resolved, or one in an archived area, is a conflict error.
 func (s *Projects) Resolve(
 	ctx context.Context,
 	id int64,
@@ -168,8 +168,8 @@ func (s *Projects) ClearTaskStageDefers(
 	return s.poolCore().ClearTaskStageDefers(ctx, projectID, timestamp)
 }
 
-// Reopen returns a resolved project to open; an archived area blocks it with
-// a conflict error.
+// Reopen returns a resolved project to open; a project already open, or one
+// in an archived area, is a conflict error.
 func (s *Projects) Reopen(
 	ctx context.Context,
 	id int64,

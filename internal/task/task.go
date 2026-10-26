@@ -29,7 +29,8 @@ const (
 type DateSelector string
 
 // The date selectors. DateSelectorNone applies no date filter; the others
-// keep tasks with a due date, an overdue due date, or a defer date.
+// keep tasks with a due date, open tasks due before today, or tasks whose
+// deferral is still in effect by date or stage.
 const (
 	DateSelectorNone     DateSelector = ""
 	DateSelectorDue      DateSelector = "due"
@@ -173,7 +174,7 @@ type StageReference struct {
 }
 
 // Edition is the result of editing a task. ClearedDefers holds the task
-// itself when moving it between projects cleared its defer stage.
+// itself when leaving its project cleared its defer stage.
 type Edition struct {
 	Task          Task   `json:"task"`
 	ClearedDefers []Task `json:"cleared_defers"`

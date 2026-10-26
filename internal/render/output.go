@@ -686,8 +686,8 @@ func (o HumanOutput) WriteBoardList(boards []board.ListedBoard) error {
 	return o.writeCollection([]string{"board", "stages"}, rows, -1, 1)
 }
 
-// WriteBoard prints the board's stages with the projects on each and their
-// task progress.
+// WriteBoard prints the board's stages with the open projects on each and
+// their task progress.
 func (o HumanOutput) WriteBoard(shown board.Show) error {
 	stageTitles := make([]string, len(shown.Stages))
 	stageWidth := 0

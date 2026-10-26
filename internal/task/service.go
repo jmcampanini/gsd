@@ -203,8 +203,9 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Task, error)
 
 // Edit changes any subset of a task's fields. Setting and clearing the same
 // field, moving to both a project and an area, or changing nothing is an
-// invalid_argument error. Moving the task to a different project clears a
-// defer stage unless the request sets a new one.
+// invalid_argument error. Moving the task out of its project, to another
+// project, an area, or the inbox, clears a defer stage unless the request
+// sets a new one.
 func (s *Service) Edit(ctx context.Context, id int64, request EditRequest) (Edition, error) {
 	if err := validateID(id); err != nil {
 		return Edition{}, err
@@ -343,7 +344,8 @@ func (s *Service) Reorder(ctx context.Context, id int64, placement domain.Placem
 }
 
 // Done marks the task done. When the task promotes and its project is on a
-// board, the project advances one stage in the same transaction.
+// board, the project advances one stage in the same transaction, or the
+// result reports that it was already on the last stage.
 func (s *Service) Done(ctx context.Context, id int64) (Completion, error) {
 	if err := validateID(id); err != nil {
 		return Completion{}, err

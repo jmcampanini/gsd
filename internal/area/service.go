@@ -133,7 +133,8 @@ func (s *Service) Reorder(ctx context.Context, id int64, placement domain.Placem
 	return s.store.Reorder(ctx, id, placement, domain.FormatTimestamp(s.now()))
 }
 
-// Archive marks the area archived, which blocks changes to its contents.
+// Archive marks the area archived, which blocks adding, moving, and
+// resolving the tasks and projects it holds.
 func (s *Service) Archive(ctx context.Context, id int64) (Area, error) {
 	if err := validateID(id); err != nil {
 		return Area{}, err

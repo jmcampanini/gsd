@@ -89,9 +89,8 @@ type Transaction interface {
 	DetachTags(context.Context, int64, []tag.Tag) error
 }
 
-// Store is the persistence boundary the service depends on: every
-// Transaction operation on the connection pool plus a way to run several
-// operations in one write transaction.
+// Store is the persistence boundary the service depends on: the Transaction
+// operations plus a way to run several of them in one write transaction.
 type Store interface {
 	Transaction
 	WithinTransaction(context.Context, func(Transaction) error) error
