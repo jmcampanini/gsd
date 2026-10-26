@@ -7,6 +7,7 @@ lockfile_platforms = ["linux-x64", "macos-arm64"]
 [tools]
 go = "1.27.3"
 golangci-lint = "2.14.0"
+goreleaser = "2.19.0"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
 # tmux drives the end-to-end tests. Pinning it here gives local and CI runs the same tmux; users of the built binary do not need it.
 tmux = "3.7c"
@@ -83,11 +84,28 @@ run = "govulncheck ./..."
 # check is read-only: it must leave the tracked tree unchanged and create nothing outside ignored paths. CI asserts a clean checkout before and after it runs. Add report-only tasks here; fixers (fmt, lint-fix, tidy) stay out.
 [tasks.check]
 description = "Run the complete local verification contract."
-depends = ["fmt-check", "tidy-check", "lint", "lint-markdown", "test", "version-check", "vuln"]
+depends = ["fmt-check", "tidy-check", "lint", "lint-markdown", "test", "version-check", "vuln", "release-snapshot"]
+
+[tasks.release-snapshot]
+description = "Validate and build release archives into dist/ without publishing."
+run = [
+  "goreleaser check",
+  "goreleaser release --snapshot --clean",
+]
+
+[tasks.release]
+description = "Build and publish the checked-out tag (release workflow only)."
+run = """
+if [ "${GITHUB_ACTIONS:-}" != "true" ] || [ "${GITHUB_WORKFLOW:-}" != "release" ] || [ "${GITHUB_REF_TYPE:-}" != "tag" ]; then
+  echo "release publishes artifacts and runs only from the release workflow on a tag; use 'mise run release-snapshot' locally"
+  exit 1
+fi
+goreleaser release --clean
+"""
 
 [tasks.clean]
 description = "Remove build artifacts and the Go test cache."
 run = [
-  "rm -rf build",
+  "rm -rf build dist",
   "go clean -testcache",
 ]
