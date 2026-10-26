@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 )
 
-// json.Marshal always HTML-escapes; an encoder is the only way to opt out.
+// MarshalCompactJSON encodes value as compact JSON without HTML escaping and
+// without a trailing newline. json.Marshal always HTML-escapes; an encoder is
+// the only way to opt out.
 func MarshalCompactJSON(value any) ([]byte, error) {
 	var encoded bytes.Buffer
 	encoder := json.NewEncoder(&encoded)

@@ -38,13 +38,13 @@ INSERT INTO task_tags (task_id, tag_id) VALUES (3, 3);
 	}
 
 	store := NewSearch(storage)
-	assertSearchIdentitySet(t, store, ctx, "plumb*", false, []searchIdentity{
+	assertSearchIdentitySet(ctx, t, store, "plumb*", false, []searchIdentity{
 		{kind: search.KindProject, id: 1},
 		{kind: search.KindTask, id: 3},
 	})
-	assertSearchIdentitySet(t, store, ctx, `"project memo"`, false, []searchIdentity{{kind: search.KindProject, id: 1}})
-	assertSearchIdentitySet(t, store, ctx, "errand*", false, []searchIdentity{{kind: search.KindTask, id: 3}})
-	assertSearchIdentitySet(t, store, ctx, "retreat OR supply", false, []searchIdentity{
+	assertSearchIdentitySet(ctx, t, store, `"project memo"`, false, []searchIdentity{{kind: search.KindProject, id: 1}})
+	assertSearchIdentitySet(ctx, t, store, "errand*", false, []searchIdentity{{kind: search.KindTask, id: 3}})
+	assertSearchIdentitySet(ctx, t, store, "retreat OR supply", false, []searchIdentity{
 		{kind: search.KindTask, id: 2},
 		{kind: search.KindArea, id: 2},
 	})
@@ -87,7 +87,7 @@ INSERT INTO task_tags (task_id, tag_id) VALUES (3, 3);
 		t.Errorf("hydrated task hit = %#v, want complete row and both context titles", taskHits)
 	}
 
-	assertSearchIdentitySet(t, store, ctx, "house", false, []searchIdentity{{kind: search.KindArea, id: 1}})
+	assertSearchIdentitySet(ctx, t, store, "house", false, []searchIdentity{{kind: search.KindArea, id: 1}})
 }
 
 func TestSearchDocumentAssemblyIncludesInheritedTitlesAndTags(t *testing.T) {
@@ -161,7 +161,7 @@ INSERT INTO project_tags (project_id, tag_id) VALUES (1, 2), (1, 3);
 		}
 	}
 
-	assertSearchIdentities(t, NewSearch(storage), ctx, `"alpha reno"`, false, []searchIdentity{
+	assertSearchIdentities(ctx, t, NewSearch(storage), `"alpha reno"`, false, []searchIdentity{
 		{kind: search.KindProject, id: 1},
 	})
 }
@@ -209,8 +209,8 @@ INSERT INTO project_tags (project_id, tag_id) VALUES (1, 2);
 		},
 	} {
 		t.Run(test.expression, func(t *testing.T) {
-			assertSearchIdentitySet(t, store, ctx, test.expression, false, test.directWant)
-			assertSearchIdentitySet(t, store, ctx, test.expression, true, test.relatedWant)
+			assertSearchIdentitySet(ctx, t, store, test.expression, false, test.directWant)
+			assertSearchIdentitySet(ctx, t, store, test.expression, true, test.relatedWant)
 		})
 	}
 }
@@ -275,20 +275,20 @@ INSERT INTO area_tags (area_id, tag_id) VALUES (1, 1);
 	}
 
 	store := NewSearch(storage)
-	assertSearchIdentitySet(t, store, ctx, "legacy", true, []searchIdentity{
+	assertSearchIdentitySet(ctx, t, store, "legacy", true, []searchIdentity{
 		{kind: search.KindProject, id: 1},
 		{kind: search.KindTask, id: 1},
 	})
 	if _, err := storage.database.ExecContext(ctx, "UPDATE projects SET title = 'Current remodel' WHERE id = 1"); err != nil {
 		t.Fatalf("rename project: %v", err)
 	}
-	assertSearchIdentities(t, store, ctx, "legacy", true, []searchIdentity{})
-	assertSearchIdentitySet(t, store, ctx, "remodel", true, []searchIdentity{
+	assertSearchIdentities(ctx, t, store, "legacy", true, []searchIdentity{})
+	assertSearchIdentitySet(ctx, t, store, "remodel", true, []searchIdentity{
 		{kind: search.KindProject, id: 1},
 		{kind: search.KindTask, id: 1},
 	})
 
-	assertSearchIdentitySet(t, store, ctx, "legacytopic", true, []searchIdentity{
+	assertSearchIdentitySet(ctx, t, store, "legacytopic", true, []searchIdentity{
 		{kind: search.KindArea, id: 1},
 		{kind: search.KindProject, id: 1},
 		{kind: search.KindTask, id: 1},
@@ -296,8 +296,8 @@ INSERT INTO area_tags (area_id, tag_id) VALUES (1, 1);
 	if _, err := storage.database.ExecContext(ctx, "UPDATE tags SET title = 'currenttopic' WHERE id = 1"); err != nil {
 		t.Fatalf("rename tag: %v", err)
 	}
-	assertSearchIdentities(t, store, ctx, "legacytopic", true, []searchIdentity{})
-	assertSearchIdentitySet(t, store, ctx, "currenttopic", true, []searchIdentity{
+	assertSearchIdentities(ctx, t, store, "legacytopic", true, []searchIdentity{})
+	assertSearchIdentitySet(ctx, t, store, "currenttopic", true, []searchIdentity{
 		{kind: search.KindArea, id: 1},
 		{kind: search.KindProject, id: 1},
 		{kind: search.KindTask, id: 1},
@@ -324,12 +324,12 @@ INSERT INTO task_tags (task_id, tag_id) VALUES (2, 1);
 	}
 
 	store := NewSearch(storage)
-	assertSearchIdentities(t, store, ctx, "signal", false, []searchIdentity{
+	assertSearchIdentities(ctx, t, store, "signal", false, []searchIdentity{
 		{kind: search.KindTask, id: 1},
 		{kind: search.KindTask, id: 2},
 		{kind: search.KindTask, id: 3},
 	})
-	assertSearchIdentities(t, store, ctx, "equal", false, []searchIdentity{
+	assertSearchIdentities(ctx, t, store, "equal", false, []searchIdentity{
 		{kind: search.KindTask, id: 4},
 		{kind: search.KindTask, id: 10},
 		{kind: search.KindProject, id: 8},
@@ -440,9 +440,9 @@ func TestSearchEmptyResultIsNonNilAndLeavesNoPersistentSchema(t *testing.T) {
 }
 
 func assertSearchIdentitySet(
+	ctx context.Context,
 	t *testing.T,
 	store *Search,
-	ctx context.Context,
 	expression string,
 	related bool,
 	want []searchIdentity,
@@ -471,9 +471,9 @@ func assertSearchIdentitySet(
 }
 
 func assertSearchIdentities(
+	ctx context.Context,
 	t *testing.T,
 	store *Search,
-	ctx context.Context,
 	expression string,
 	related bool,
 	want []searchIdentity,

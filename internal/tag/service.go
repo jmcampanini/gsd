@@ -7,15 +7,19 @@ import (
 	"github.com/jmcampanini/gsd/internal/domain"
 )
 
+// Service validates tag requests and orchestrates them against a Store.
 type Service struct {
 	store Store
 	now   func() time.Time
 }
 
+// NewService returns a Service that stamps rows with the wall clock.
 func NewService(store Store) *Service {
 	return &Service{store: store, now: time.Now}
 }
 
+// Add creates a tag; a name that already exists in any casing is a conflict
+// error.
 func (s *Service) Add(ctx context.Context, name string) (Tag, error) {
 	if err := domain.ValidateTitle(name); err != nil {
 		return Tag{}, err
@@ -24,10 +28,14 @@ func (s *Service) Add(ctx context.Context, name string) (Tag, error) {
 	return s.store.Add(ctx, name, domain.FormatTimestamp(s.now()))
 }
 
+// List returns every tag with its usage count, never a nil slice on
+// success.
 func (s *Service) List(ctx context.Context) ([]ListedTag, error) {
 	return domain.NormalizeSliceResult(s.store.List(ctx))
 }
 
+// Rename changes a tag's title. An unknown oldName is not_found and a
+// newName held by another tag is a conflict error.
 func (s *Service) Rename(ctx context.Context, oldName, newName string) (Renaming, error) {
 	if err := domain.ValidateTitle(oldName); err != nil {
 		return Renaming{}, err
@@ -58,6 +66,7 @@ func (s *Service) Rename(ctx context.Context, oldName, newName string) (Renaming
 	return renaming, nil
 }
 
+// Delete removes a tag and detaches it from every row, reporting how many.
 func (s *Service) Delete(ctx context.Context, name string) (Deletion, error) {
 	if err := domain.ValidateTitle(name); err != nil {
 		return Deletion{}, err

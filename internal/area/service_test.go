@@ -213,7 +213,7 @@ func (r *recordingStore) DetachTags(_ context.Context, areaID int64, tags []tag.
 }
 
 func (r *recordingStore) WithinTransaction(
-	ctx context.Context,
+	_ context.Context,
 	operation func(Transaction) error,
 ) error {
 	r.transactionCalls++

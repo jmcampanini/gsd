@@ -25,7 +25,8 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// Version is injected by the build task.
+// Version is the version identity the build task injects through -ldflags; a
+// plain go build reports "dev".
 var Version = "dev"
 
 type rootOptions struct {

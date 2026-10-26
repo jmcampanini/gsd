@@ -8,15 +8,20 @@ import (
 	"os"
 	"path/filepath"
 
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // registers the pure-Go "sqlite" database/sql driver
 )
 
 const busyTimeoutMS = 5000
 
+// DB is an open SQLite database with the schema migrated to the current
+// version. It owns the single connection the stores share.
 type DB struct {
 	database *sql.DB
 }
 
+// Open creates the database directory and file when missing, enables foreign
+// keys and a busy timeout, limits the pool to one connection, and applies
+// pending migrations.
 func Open(ctx context.Context, path string) (*DB, error) {
 	migrations, err := loadMigrations(migrationFiles)
 	if err != nil {
@@ -50,6 +55,7 @@ func Open(ctx context.Context, path string) (*DB, error) {
 	return &DB{database: database}, nil
 }
 
+// Close releases the underlying connection.
 func (d *DB) Close() error {
 	return d.database.Close()
 }

@@ -12,15 +12,20 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
+// Service validates area requests and orchestrates them against a Store.
 type Service struct {
 	store Store
 	now   func() time.Time
 }
 
+// NewService returns a Service that stamps rows with the wall clock.
 func NewService(store Store) *Service {
 	return &Service{store: store, now: time.Now}
 }
 
+// Add validates the fields, normalizes the tag names, and creates the area;
+// when tags are given the insert and attach run in one transaction so an
+// unknown tag creates nothing.
 func (s *Service) Add(ctx context.Context, fields AddFields) (Area, error) {
 	if err := domain.ValidateTitle(fields.Title); err != nil {
 		return Area{}, err
@@ -63,6 +68,8 @@ func (s *Service) Add(ctx context.Context, fields AddFields) (Area, error) {
 	return added, nil
 }
 
+// List returns areas in the requested slice, defaulting to active ones, and
+// never returns a nil slice on success.
 func (s *Service) List(ctx context.Context, options ListOptions) ([]Area, error) {
 	if options.Slice == "" {
 		options.Slice = ListSliceActive
@@ -78,6 +85,7 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Area, error)
 	return domain.NormalizeSliceResult(s.store.List(ctx, options))
 }
 
+// Show returns one area by ID.
 func (s *Service) Show(ctx context.Context, id int64) (Area, error) {
 	if err := validateID(id); err != nil {
 		return Area{}, err
@@ -86,6 +94,8 @@ func (s *Service) Show(ctx context.Context, id int64) (Area, error) {
 	return s.store.Find(ctx, id)
 }
 
+// Edit changes the title, the note, or both; a request that sets neither is
+// an invalid_argument error.
 func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Area, error) {
 	if err := validateID(id); err != nil {
 		return Area{}, err
@@ -111,6 +121,7 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditFields) (Area, 
 	return s.store.Edit(ctx, id, fields, domain.FormatTimestamp(s.now()))
 }
 
+// Reorder moves the area among its siblings.
 func (s *Service) Reorder(ctx context.Context, id int64, placement domain.Placement) (Area, error) {
 	if err := validateID(id); err != nil {
 		return Area{}, err
@@ -122,6 +133,7 @@ func (s *Service) Reorder(ctx context.Context, id int64, placement domain.Placem
 	return s.store.Reorder(ctx, id, placement, domain.FormatTimestamp(s.now()))
 }
 
+// Archive marks the area archived, which blocks changes to its contents.
 func (s *Service) Archive(ctx context.Context, id int64) (Area, error) {
 	if err := validateID(id); err != nil {
 		return Area{}, err
@@ -130,6 +142,7 @@ func (s *Service) Archive(ctx context.Context, id int64) (Area, error) {
 	return s.store.Archive(ctx, id, domain.FormatTimestamp(s.now()))
 }
 
+// Unarchive clears the archived mark.
 func (s *Service) Unarchive(ctx context.Context, id int64) (Area, error) {
 	if err := validateID(id); err != nil {
 		return Area{}, err
@@ -138,10 +151,13 @@ func (s *Service) Unarchive(ctx context.Context, id int64) (Area, error) {
 	return s.store.Unarchive(ctx, id, domain.FormatTimestamp(s.now()))
 }
 
+// Tag attaches existing tags to the area. Names already attached are left as
+// they are, so repeating the call changes nothing.
 func (s *Service) Tag(ctx context.Context, id int64, names []string) (Tagging, error) {
 	return s.changeTags(ctx, id, names, true)
 }
 
+// Untag detaches tags from the area. Names not attached are left alone.
 func (s *Service) Untag(ctx context.Context, id int64, names []string) (Tagging, error) {
 	return s.changeTags(ctx, id, names, false)
 }
@@ -200,6 +216,9 @@ func (s *Service) changeTags(
 	return result, nil
 }
 
+// Delete removes the area. Without recursive an area that still holds
+// projects or tasks is a conflict error; with it, the projects, their tasks,
+// and the loose tasks are deleted in the same transaction and reported.
 func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletion, error) {
 	if err := validateID(id); err != nil {
 		return Deletion{}, err
@@ -284,6 +303,7 @@ func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletio
 	}, nil
 }
 
+// ParseID parses an area ID argument with domain.ParseID semantics.
 func ParseID(value string) (int64, error) {
 	return domain.ParseID("area", value)
 }

@@ -73,6 +73,7 @@ FROM areas AS a
 LEFT JOIN area_tag_text AS at ON at.entity_id = a.id
 `
 
+// Search implements search.Store with a temporary FTS5 index built per query.
 type Search struct {
 	database *DB
 }
@@ -93,10 +94,16 @@ type projectSearchRow struct {
 	governingAreaTitle *string
 }
 
+// NewSearch returns the search store for database.
 func NewSearch(database *DB) *Search {
 	return &Search{database: database}
 }
 
+// Search builds an FTS5 index over titles, tags, notes, and container context
+// in a temp table, matches expression, and returns hydrated hits ranked by
+// bm25. Direct matches on title, tags, or note come first; related also
+// returns rows matched only through their project or area context. A
+// malformed expression is an invalid_argument error.
 func (s *Search) Search(ctx context.Context, expression string, related bool) ([]search.Hit, error) {
 	var hits []search.Hit
 	err := withinDeferredTransaction(ctx, s.database, "search", func(connection *sql.Conn) (operationErr error) {

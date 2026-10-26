@@ -17,6 +17,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/tui"
 )
 
+// TaskReader is the subset of task.Application the navigator reads.
 type TaskReader interface {
 	Inbox(context.Context) ([]task.ViewTask, error)
 	Available(context.Context) ([]task.ViewTask, error)
@@ -24,25 +25,30 @@ type TaskReader interface {
 	Show(context.Context, int64) (task.Task, error)
 }
 
+// ProjectReader is the subset of project.Application the navigator reads.
 type ProjectReader interface {
 	List(context.Context, project.ListOptions) ([]project.Project, error)
 	Show(context.Context, int64) (project.Detail, error)
 }
 
+// AreaReader is the subset of area.Application the navigator reads.
 type AreaReader interface {
 	List(context.Context, area.ListOptions) ([]area.Area, error)
 	Show(context.Context, int64) (area.Area, error)
 }
 
+// BoardReader is the subset of board.Application the navigator reads.
 type BoardReader interface {
 	List(context.Context) ([]board.ListedBoard, error)
 	ShowByID(context.Context, int64) (board.Show, error)
 }
 
+// LogbookReader is the subset of logbook.Application the navigator reads.
 type LogbookReader interface {
 	List(context.Context) ([]logbook.Entry, error)
 }
 
+// Dependencies supplies the readers the navigator loads each view from.
 type Dependencies struct {
 	Tasks    TaskReader
 	Projects ProjectReader
@@ -51,6 +57,8 @@ type Dependencies struct {
 	Logbook  LogbookReader
 }
 
+// Run drives the navigator until the user quits. Dates render in location,
+// which defaults to the local zone when nil.
 func Run(
 	ctx context.Context,
 	dependencies Dependencies,

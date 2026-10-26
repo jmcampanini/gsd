@@ -1,3 +1,5 @@
+// Package config resolves the database path from flags, environment,
+// config files, and the XDG default, reporting which layer supplied it.
 package config
 
 import (
@@ -17,6 +19,7 @@ const DBPathKey = "dbpath"
 // SourceKind classifies a load-report source value.
 type SourceKind int
 
+// The source kinds, in ascending precedence order.
 const (
 	SourceKindDefault SourceKind = iota
 	SourceKindEnv
@@ -39,14 +42,23 @@ func ClassifySource(source string) (SourceKind, string) {
 	}
 }
 
+// Config is the loaded configuration. DBPath is the SQLite database path,
+// bound to the db flag, the GSD_DB variable, and the db_path file key.
 type Config struct {
 	DBPath string `toml:"db_path" config:"db" help:"path to the SQLite database"`
 }
 
+// RegisterFlags adds the flags derived from Config, currently --db, to flags.
 func RegisterFlags(flags *pflag.FlagSet) error {
 	return pflagloader.Register[Config](flags)
 }
 
+// Load merges the default, file, environment, and flag layers and returns
+// the result with a report naming each value's source. An explicit
+// configPath must exist; otherwise the XDG config file may be absent. Empty
+// --db and GSD_DB values are ignored, a relative db_path from a file resolves
+// against that file's directory, and an empty final path is an
+// invalid_argument error.
 func Load(
 	configPath string,
 	configPathExplicit bool,

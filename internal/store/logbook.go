@@ -8,6 +8,7 @@ import (
 	"github.com/jmcampanini/gsd/internal/logbook"
 )
 
+// Logbook implements logbook.Store by reading the logbook view.
 type Logbook struct {
 	database *DB
 }
@@ -20,10 +21,13 @@ type logbookExecutor interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }
 
+// NewLogbook returns the logbook store for database.
 func NewLogbook(database *DB) *Logbook {
 	return &Logbook{database: database}
 }
 
+// List returns resolved tasks and projects newest first, projects before
+// tasks resolved at the same instant.
 func (s *Logbook) List(ctx context.Context) ([]logbook.Entry, error) {
 	return (&logbookCore{executor: s.database.database}).List(ctx)
 }

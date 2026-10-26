@@ -10,15 +10,17 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
+// The entity kinds a Hit can carry.
 const (
 	KindTask    = "task"
 	KindProject = "project"
 	KindArea    = "area"
 )
 
-// Exactly one entity pointer is populated and must match Kind; MarshalJSON
-// enforces this. Constructors and accessors are deferred until the first new
-// Hit consumer or producer (expected at the TUI milestones).
+// Hit is one search result: a task, project, or area row tagged with its
+// Kind. Exactly one entity pointer is populated and must match Kind;
+// MarshalJSON enforces this. Constructors and accessors are deferred until
+// the first new Hit consumer or producer (expected at the TUI milestones).
 type Hit struct {
 	Kind               string           `json:"kind"`
 	Task               *task.Task       `json:"-"`
@@ -28,6 +30,8 @@ type Hit struct {
 	GoverningAreaTitle *string          `json:"-"`
 }
 
+// MarshalJSON flattens the populated entity row and prepends its kind, so a
+// hit serializes as the row plus a "kind" field.
 func (h Hit) MarshalJSON() ([]byte, error) {
 	populated := 0
 	if h.Task != nil {
@@ -73,10 +77,13 @@ func (h Hit) MarshalJSON() ([]byte, error) {
 	}
 }
 
+// Store runs a full-text query. The bool asks for related matches as well:
+// rows whose project or area context matches, ranked after direct matches.
 type Store interface {
 	Search(context.Context, string, bool) ([]Hit, error)
 }
 
+// Application is the search use-case surface the CLI consumes.
 type Application interface {
 	Search(context.Context, string, bool) ([]Hit, error)
 }

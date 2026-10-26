@@ -6,6 +6,7 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// Theme is the palette the terminal screens and human output draw with.
 type Theme struct {
 	Accent     color.Color
 	AccentText color.Color
@@ -18,6 +19,8 @@ type Theme struct {
 	Yellow     color.Color
 }
 
+// ThemeForBackground returns the Catppuccin Latte palette for light
+// backgrounds and Frappe for dark ones.
 func ThemeForBackground(isDark bool) Theme {
 	lightDark := lipgloss.LightDark(isDark)
 	return Theme{

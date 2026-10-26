@@ -19,6 +19,7 @@ const taskColumns = `id, project_id, area_id, title, note, defer_until, due_on, 
 
 const taskViewColumns = taskColumns + `, defer_stage_title, project_title, governing_area_id, governing_area_title, tags`
 
+// Tasks implements task.Store on SQLite.
 type Tasks struct {
 	database *DB
 }
@@ -51,56 +52,75 @@ type taskContainerState struct {
 	area    *area.Area
 }
 
+// NewTasks returns the task store for database.
 func NewTasks(database *DB) *Tasks {
 	return &Tasks{database: database}
 }
 
+// Add inserts a task last in its container; a resolved project or archived
+// area is a conflict error.
 func (s *Tasks) Add(ctx context.Context, fields task.AddFields, timestamp string) (task.Task, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction task.Transaction) (task.Task, error) {
 		return transaction.Add(ctx, fields, timestamp)
 	})
 }
 
+// Inbox reads the inbox view: open tasks in no project and no area.
 func (s *Tasks) Inbox(ctx context.Context) ([]task.ViewTask, error) {
 	return s.poolCore().Inbox(ctx)
 }
 
+// Available reads the available view: open tasks that are not deferred and
+// whose project and area do not block them.
 func (s *Tasks) Available(ctx context.Context) ([]task.ViewTask, error) {
 	return s.poolCore().Available(ctx)
 }
 
+// Find returns the task with id or a not_found error.
 func (s *Tasks) Find(ctx context.Context, id int64) (task.Task, error) {
 	return s.poolCore().Find(ctx, id)
 }
 
+// List returns tasks matching filter ordered by position.
 func (s *Tasks) List(ctx context.Context, filter task.ListFilter) ([]task.Task, error) {
 	return s.poolCore().List(ctx, filter)
 }
 
+// ProjectExists returns a not_found error when no project has id.
 func (s *Tasks) ProjectExists(ctx context.Context, id int64) error {
 	return s.poolCore().ProjectExists(ctx, id)
 }
 
+// FindProject returns the project with id or a not_found error.
 func (s *Tasks) FindProject(ctx context.Context, id int64) (domain.Project, error) {
 	return s.poolCore().FindProject(ctx, id)
 }
 
+// FindStage returns the stage on boardID whose title matches
+// case-insensitively.
 func (s *Tasks) FindStage(ctx context.Context, boardID int64, title string) (task.StageReference, error) {
 	return s.poolCore().FindStage(ctx, boardID, title)
 }
 
+// FindStageByID returns the stage with id or a not_found error.
 func (s *Tasks) FindStageByID(ctx context.Context, id int64) (task.StageReference, error) {
 	return s.poolCore().FindStageByID(ctx, id)
 }
 
+// StageExists reports whether any board has a stage with title, so the
+// service can tell a wrong-board stage from an unknown one.
 func (s *Tasks) StageExists(ctx context.Context, title string) (bool, error) {
 	return s.poolCore().StageExists(ctx, title)
 }
 
+// FindNextStage returns the board's stage after currentPosition, or nil at
+// the last stage.
 func (s *Tasks) FindNextStage(ctx context.Context, boardID, currentPosition int64) (*task.StageReference, error) {
 	return s.poolCore().FindNextStage(ctx, boardID, currentPosition)
 }
 
+// MoveProjectStage places the project last on stageID; task completion uses
+// it to promote a project.
 func (s *Tasks) MoveProjectStage(
 	ctx context.Context,
 	projectID, stageID int64,
@@ -111,16 +131,20 @@ func (s *Tasks) MoveProjectStage(
 	})
 }
 
+// AreaExists returns a not_found error when no area has id.
 func (s *Tasks) AreaExists(ctx context.Context, id int64) error {
 	return s.poolCore().AreaExists(ctx, id)
 }
 
+// Edit updates the set fields, re-filing the task when its container
+// changes; a blocked source or destination container is a conflict error.
 func (s *Tasks) Edit(ctx context.Context, id int64, fields task.EditFields, timestamp string) (task.Task, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction task.Transaction) (task.Task, error) {
 		return transaction.Edit(ctx, id, fields, timestamp)
 	})
 }
 
+// Reorder renumbers the task's siblings with id at its new placement.
 func (s *Tasks) Reorder(
 	ctx context.Context,
 	id int64,
@@ -132,30 +156,39 @@ func (s *Tasks) Reorder(
 	})
 }
 
+// Done marks an open task done; a task already resolved, or one in a
+// resolved project or archived area, is a conflict error.
 func (s *Tasks) Done(ctx context.Context, id int64, timestamp string) (task.Task, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction task.Transaction) (task.Task, error) {
 		return transaction.Done(ctx, id, timestamp)
 	})
 }
 
+// Cancel marks an open task cancelled; a task already resolved, or one in a
+// resolved project or archived area, is a conflict error.
 func (s *Tasks) Cancel(ctx context.Context, id int64, timestamp string) (task.Task, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction task.Transaction) (task.Task, error) {
 		return transaction.Cancel(ctx, id, timestamp)
 	})
 }
 
+// Reopen returns a resolved task to open; an open task or a blocked
+// container is a conflict error.
 func (s *Tasks) Reopen(ctx context.Context, id int64, timestamp string) (task.Task, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction task.Transaction) (task.Task, error) {
 		return transaction.Reopen(ctx, id, timestamp)
 	})
 }
 
+// Delete removes the task and returns it as it was.
 func (s *Tasks) Delete(ctx context.Context, id int64) (task.Task, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction task.Transaction) (task.Task, error) {
 		return transaction.Delete(ctx, id)
 	})
 }
 
+// ResolveTags looks names up case-insensitively in request order; an unknown
+// name is a not_found error.
 func (s *Tasks) ResolveTags(ctx context.Context, names []string) ([]tag.Tag, error) {
 	if len(names) <= 1 {
 		return s.poolCore().ResolveTags(ctx, names)
@@ -165,6 +198,7 @@ func (s *Tasks) ResolveTags(ctx context.Context, names []string) ([]tag.Tag, err
 	})
 }
 
+// AttachTags links tags to the task, skipping ones already attached.
 func (s *Tasks) AttachTags(ctx context.Context, taskID int64, tags []tag.Tag) error {
 	if len(tags) <= 1 {
 		return s.poolCore().AttachTags(ctx, taskID, tags)
@@ -174,6 +208,7 @@ func (s *Tasks) AttachTags(ctx context.Context, taskID int64, tags []tag.Tag) er
 	})
 }
 
+// DetachTags unlinks tags from the task, ignoring ones not attached.
 func (s *Tasks) DetachTags(ctx context.Context, taskID int64, tags []tag.Tag) error {
 	if len(tags) <= 1 {
 		return s.poolCore().DetachTags(ctx, taskID, tags)
@@ -183,12 +218,16 @@ func (s *Tasks) DetachTags(ctx context.Context, taskID int64, tags []tag.Tag) er
 	})
 }
 
+// WithinTransaction runs apply inside one BEGIN IMMEDIATE transaction and
+// rolls back when it returns an error.
 func (s *Tasks) WithinTransaction(ctx context.Context, apply func(task.Transaction) error) error {
 	return withinImmediateTransaction(ctx, s.database, "task", func(connection *sql.Conn) error {
 		return apply(&tasksCore{executor: connection})
 	})
 }
 
+// WithinReadTransaction runs apply inside one deferred transaction so its
+// reads see a single snapshot.
 func (s *Tasks) WithinReadTransaction(ctx context.Context, apply func(task.Transaction) error) error {
 	return withinDeferredTransaction(ctx, s.database, "task", func(connection *sql.Conn) error {
 		return apply(&tasksCore{executor: connection})

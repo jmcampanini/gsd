@@ -19,6 +19,7 @@ const (
 	stageWithBoardColumns = `s.id, s.board_id, s.title, s.position, s.created_at, s.updated_at, b.title`
 )
 
+// Boards implements board.Store on SQLite for boards and their stages.
 type Boards struct {
 	database *DB
 }
@@ -33,10 +34,13 @@ type boardExecutor interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }
 
+// NewBoards returns the board store for database.
 func NewBoards(database *DB) *Boards {
 	return &Boards{database: database}
 }
 
+// AddBoard inserts a board at the last position; a title already in use is
+// a conflict error.
 func (s *Boards) AddBoard(
 	ctx context.Context,
 	fields board.AddFields,
@@ -47,18 +51,22 @@ func (s *Boards) AddBoard(
 	})
 }
 
+// FindBoard returns the board whose title matches name case-insensitively.
 func (s *Boards) FindBoard(ctx context.Context, name string) (board.Board, error) {
 	return s.poolCore().FindBoard(ctx, name)
 }
 
+// FindBoardByID returns the board with id or a not_found error.
 func (s *Boards) FindBoardByID(ctx context.Context, id int64) (board.Board, error) {
 	return s.poolCore().FindBoardByID(ctx, id)
 }
 
+// ListBoards returns every board ordered by position.
 func (s *Boards) ListBoards(ctx context.Context) ([]board.Board, error) {
 	return s.poolCore().ListBoards(ctx)
 }
 
+// EditBoard updates the set fields and the timestamp.
 func (s *Boards) EditBoard(
 	ctx context.Context,
 	id int64,
@@ -70,6 +78,7 @@ func (s *Boards) EditBoard(
 	})
 }
 
+// ReorderBoard renumbers the boards with id at its new placement.
 func (s *Boards) ReorderBoard(
 	ctx context.Context,
 	id int64,
@@ -81,12 +90,15 @@ func (s *Boards) ReorderBoard(
 	})
 }
 
+// DeleteBoard removes the board and, through the schema, its stages.
 func (s *Boards) DeleteBoard(ctx context.Context, id int64) (board.Board, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction board.Transaction) (board.Board, error) {
 		return transaction.DeleteBoard(ctx, id)
 	})
 }
 
+// AddStage appends a stage to the board; a title already on that board is a
+// conflict error.
 func (s *Boards) AddStage(
 	ctx context.Context,
 	boardID int64,
@@ -97,14 +109,19 @@ func (s *Boards) AddStage(
 	})
 }
 
+// FindStage returns the stage on boardID whose title matches name
+// case-insensitively.
 func (s *Boards) FindStage(ctx context.Context, boardID int64, name string) (board.Stage, error) {
 	return s.poolCore().FindStage(ctx, boardID, name)
 }
 
+// ListStages returns the board's stages ordered by position.
 func (s *Boards) ListStages(ctx context.Context, boardID int64) ([]board.Stage, error) {
 	return s.poolCore().ListStages(ctx, boardID)
 }
 
+// ListShownProjects returns the projects on the board with their task
+// progress, ordered by stage position.
 func (s *Boards) ListShownProjects(
 	ctx context.Context,
 	boardID int64,
@@ -112,14 +129,18 @@ func (s *Boards) ListShownProjects(
 	return s.poolCore().ListShownProjects(ctx, boardID)
 }
 
+// BoardOccupancy counts open and resolved projects across the board.
 func (s *Boards) BoardOccupancy(ctx context.Context, boardID int64) (board.Occupancy, error) {
 	return s.poolCore().BoardOccupancy(ctx, boardID)
 }
 
+// StageOccupancy counts open and resolved projects on one stage.
 func (s *Boards) StageOccupancy(ctx context.Context, stageID int64) (board.Occupancy, error) {
 	return s.poolCore().StageOccupancy(ctx, stageID)
 }
 
+// ClearTaskStageDefers nulls defer_stage_id on tasks deferred to the stage
+// and returns the updated tasks.
 func (s *Boards) ClearTaskStageDefers(
 	ctx context.Context,
 	stageID int64,
@@ -128,6 +149,8 @@ func (s *Boards) ClearTaskStageDefers(
 	return s.poolCore().ClearTaskStageDefers(ctx, stageID, timestamp)
 }
 
+// RenameStage retitles the stage; a title already on the board is a
+// conflict error.
 func (s *Boards) RenameStage(
 	ctx context.Context,
 	boardID, id int64,
@@ -138,6 +161,7 @@ func (s *Boards) RenameStage(
 	})
 }
 
+// ReorderStage renumbers the board's stages with id at its new placement.
 func (s *Boards) ReorderStage(
 	ctx context.Context,
 	boardID, id int64,
@@ -149,6 +173,7 @@ func (s *Boards) ReorderStage(
 	})
 }
 
+// DeleteStage removes the stage from the board and returns it as it was.
 func (s *Boards) DeleteStage(
 	ctx context.Context,
 	boardID, id int64,
@@ -158,6 +183,8 @@ func (s *Boards) DeleteStage(
 	})
 }
 
+// WithinTransaction runs apply inside one BEGIN IMMEDIATE transaction and
+// rolls back when it returns an error.
 func (s *Boards) WithinTransaction(
 	ctx context.Context,
 	apply func(board.Transaction) error,
@@ -167,6 +194,8 @@ func (s *Boards) WithinTransaction(
 	})
 }
 
+// WithinReadTransaction runs apply inside one deferred transaction so its
+// reads see a single snapshot.
 func (s *Boards) WithinReadTransaction(
 	ctx context.Context,
 	apply func(board.Transaction) error,

@@ -18,6 +18,9 @@ import (
 
 const areaColumns = `id, title, note, archived_at, position, created_at, updated_at`
 
+// Areas implements area.Store on SQLite. Single operations run on the
+// connection pool or in their own transaction; WithinTransaction groups
+// several into one.
 type Areas struct {
 	database *DB
 }
@@ -32,10 +35,12 @@ type areaExecutor interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }
 
+// NewAreas returns the area store for database.
 func NewAreas(database *DB) *Areas {
 	return &Areas{database: database}
 }
 
+// Add inserts an area at the last position.
 func (s *Areas) Add(
 	ctx context.Context,
 	fields area.AddFields,
@@ -44,14 +49,17 @@ func (s *Areas) Add(
 	return s.poolCore().Add(ctx, fields, timestamp)
 }
 
+// Find returns the area with id or a not_found error.
 func (s *Areas) Find(ctx context.Context, id int64) (area.Area, error) {
 	return s.poolCore().Find(ctx, id)
 }
 
+// List returns areas in the requested slice ordered by position.
 func (s *Areas) List(ctx context.Context, options area.ListOptions) ([]area.Area, error) {
 	return s.poolCore().List(ctx, options)
 }
 
+// Edit updates the set fields and the timestamp.
 func (s *Areas) Edit(
 	ctx context.Context,
 	id int64,
@@ -61,6 +69,8 @@ func (s *Areas) Edit(
 	return s.poolCore().Edit(ctx, id, fields, timestamp)
 }
 
+// Reorder renumbers the areas with id at its new placement, in one
+// transaction.
 func (s *Areas) Reorder(
 	ctx context.Context,
 	id int64,
@@ -72,6 +82,7 @@ func (s *Areas) Reorder(
 	})
 }
 
+// Archive sets archived_at; an area already archived is a conflict error.
 func (s *Areas) Archive(
 	ctx context.Context,
 	id int64,
@@ -82,6 +93,7 @@ func (s *Areas) Archive(
 	})
 }
 
+// Unarchive clears archived_at; an area not archived is a conflict error.
 func (s *Areas) Unarchive(
 	ctx context.Context,
 	id int64,
@@ -92,16 +104,19 @@ func (s *Areas) Unarchive(
 	})
 }
 
+// Occupied reports whether any project or task is filed in the area.
 func (s *Areas) Occupied(ctx context.Context, id int64) (bool, error) {
 	return s.poolCore().Occupied(ctx, id)
 }
 
+// Delete removes the area row and returns it as it was.
 func (s *Areas) Delete(ctx context.Context, id int64) (area.Area, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction area.Transaction) (area.Area, error) {
 		return transaction.Delete(ctx, id)
 	})
 }
 
+// DeleteProjects removes every project in the area and returns them.
 func (s *Areas) DeleteProjects(
 	ctx context.Context,
 	areaID int64,
@@ -111,6 +126,7 @@ func (s *Areas) DeleteProjects(
 	})
 }
 
+// DeleteTasks removes the area's tasks in the given scope and returns them.
 func (s *Areas) DeleteTasks(
 	ctx context.Context,
 	areaID int64,
@@ -121,6 +137,8 @@ func (s *Areas) DeleteTasks(
 	})
 }
 
+// ResolveTags looks names up case-insensitively in request order; an unknown
+// name is a not_found error.
 func (s *Areas) ResolveTags(ctx context.Context, names []string) ([]tag.Tag, error) {
 	if len(names) <= 1 {
 		return s.poolCore().ResolveTags(ctx, names)
@@ -131,6 +149,7 @@ func (s *Areas) ResolveTags(ctx context.Context, names []string) ([]tag.Tag, err
 	})
 }
 
+// AttachTags links tags to the area, skipping ones already attached.
 func (s *Areas) AttachTags(ctx context.Context, areaID int64, tags []tag.Tag) error {
 	if len(tags) <= 1 {
 		return s.poolCore().AttachTags(ctx, areaID, tags)
@@ -140,6 +159,7 @@ func (s *Areas) AttachTags(ctx context.Context, areaID int64, tags []tag.Tag) er
 	})
 }
 
+// DetachTags unlinks tags from the area, ignoring ones not attached.
 func (s *Areas) DetachTags(ctx context.Context, areaID int64, tags []tag.Tag) error {
 	if len(tags) <= 1 {
 		return s.poolCore().DetachTags(ctx, areaID, tags)
@@ -149,6 +169,8 @@ func (s *Areas) DetachTags(ctx context.Context, areaID int64, tags []tag.Tag) er
 	})
 }
 
+// WithinTransaction runs apply inside one BEGIN IMMEDIATE transaction and
+// rolls back when it returns an error.
 func (s *Areas) WithinTransaction(
 	ctx context.Context,
 	apply func(area.Transaction) error,

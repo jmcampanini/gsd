@@ -13,15 +13,20 @@ import (
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
+// Service validates project requests and orchestrates them against a Store.
 type Service struct {
 	store Store
 	now   func() time.Time
 }
 
+// NewService returns a Service that stamps rows with the wall clock.
 func NewService(store Store) *Service {
 	return &Service{store: store, now: time.Now}
 }
 
+// Add creates a project. An archived area is a conflict error, a named board
+// must have a first stage, and tags are attached in the same transaction so
+// an unknown tag creates nothing.
 func (s *Service) Add(ctx context.Context, fields AddRequest) (Project, error) {
 	if err := domain.ValidateTitle(fields.Title); err != nil {
 		return Project{}, err
@@ -102,6 +107,8 @@ func (s *Service) Add(ctx context.Context, fields AddRequest) (Project, error) {
 	return created, nil
 }
 
+// List returns projects matching the status filter and, when set, the area,
+// which must exist. The result is never nil on success.
 func (s *Service) List(ctx context.Context, options ListOptions) ([]Project, error) {
 	if !validListStatus(options.Status) {
 		return nil, apperr.New(
@@ -134,6 +141,7 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Project, err
 	return domain.NormalizeSliceResult(listed, nil)
 }
 
+// Show returns one project with its board location when it has one.
 func (s *Service) Show(ctx context.Context, id int64) (Detail, error) {
 	if err := validateID(id); err != nil {
 		return Detail{}, err
@@ -162,6 +170,11 @@ func (s *Service) Show(ctx context.Context, id int64) (Detail, error) {
 	return detail, nil
 }
 
+// Edit changes title, note, area, or board. Setting and clearing the same
+// field, or changing nothing, is an invalid_argument error. Area and board
+// moves are blocked by archived areas, board moves also by a resolved
+// project, and a board move clears task defers that pointed at the old
+// board's stages.
 func (s *Service) Edit(ctx context.Context, id int64, fields EditRequest) (Edition, error) {
 	if err := validateID(id); err != nil {
 		return Edition{}, err
@@ -297,6 +310,10 @@ func (s *Service) Edit(ctx context.Context, id int64, fields EditRequest) (Editi
 	return result, nil
 }
 
+// Move puts the project on the named stage of its current board, optionally
+// at a placement among that stage's projects. A project not on a board is a
+// conflict error, and a placement reference must be a different project in
+// the destination stage.
 func (s *Service) Move(
 	ctx context.Context,
 	id int64,
@@ -398,6 +415,7 @@ func (s *Service) Move(
 	return result, nil
 }
 
+// Reorder moves the project among its siblings in its container.
 func (s *Service) Reorder(ctx context.Context, id int64, placement domain.Placement) (Project, error) {
 	if err := validateID(id); err != nil {
 		return Project{}, err
@@ -409,6 +427,8 @@ func (s *Service) Reorder(ctx context.Context, id int64, placement domain.Placem
 	return s.store.Reorder(ctx, id, placement, domain.FormatTimestamp(s.now()))
 }
 
+// Resolve marks the project done or cancelled and cancels its open tasks in
+// the same transaction.
 func (s *Service) Resolve(ctx context.Context, id int64, exit Exit) (Resolution, error) {
 	if err := validateID(id); err != nil {
 		return Resolution{}, err
@@ -445,6 +465,7 @@ func (s *Service) Resolve(ctx context.Context, id int64, exit Exit) (Resolution,
 	return resolution, nil
 }
 
+// Reopen returns a resolved project to open; its tasks stay as they are.
 func (s *Service) Reopen(ctx context.Context, id int64) (Project, error) {
 	if err := validateID(id); err != nil {
 		return Project{}, err
@@ -453,10 +474,13 @@ func (s *Service) Reopen(ctx context.Context, id int64) (Project, error) {
 	return s.store.Reopen(ctx, id, domain.FormatTimestamp(s.now()))
 }
 
+// Tag attaches existing tags to the project. Names already attached are
+// left as they are, so repeating the call changes nothing.
 func (s *Service) Tag(ctx context.Context, id int64, names []string) (Tagging, error) {
 	return s.changeTags(ctx, id, names, true)
 }
 
+// Untag detaches tags from the project. Names not attached are left alone.
 func (s *Service) Untag(ctx context.Context, id int64, names []string) (Tagging, error) {
 	return s.changeTags(ctx, id, names, false)
 }
@@ -515,6 +539,9 @@ func (s *Service) changeTags(
 	return result, nil
 }
 
+// Delete removes the project. Without recursive the store refuses a project
+// that still has tasks; with it the tasks are deleted in the same
+// transaction and reported.
 func (s *Service) Delete(ctx context.Context, id int64, recursive bool) (Deletion, error) {
 	if err := validateID(id); err != nil {
 		return Deletion{}, err
@@ -657,10 +684,13 @@ func hasEditFields(fields EditFields) bool {
 		fields.Stage.Set != nil || fields.Stage.Clear
 }
 
+// ParseID parses a project ID argument with domain.ParseID semantics.
 func ParseID(value string) (int64, error) {
 	return domain.ParseID("project", value)
 }
 
+// ParseListStatus accepts open, done, cancelled, or all; anything else is an
+// invalid_argument error.
 func ParseListStatus(value string) (ListStatus, error) {
 	status := ListStatus(value)
 	if !validListStatus(status) {

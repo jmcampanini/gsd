@@ -95,7 +95,7 @@ func (r *recordingStore) Delete(_ context.Context, name string) (Tag, error) {
 }
 
 func (r *recordingStore) WithinTransaction(
-	ctx context.Context,
+	_ context.Context,
 	operation func(Transaction) error,
 ) error {
 	r.transactionCalls++

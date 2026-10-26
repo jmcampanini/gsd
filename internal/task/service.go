@@ -11,15 +11,21 @@ import (
 	"github.com/jmcampanini/gsd/internal/tag"
 )
 
+// Service validates task requests and orchestrates them against a Store.
 type Service struct {
 	store Store
 	now   func() time.Time
 }
 
+// NewService returns a Service that stamps rows and resolves relative dates
+// with the wall clock.
 func NewService(store Store) *Service {
 	return &Service{store: store, now: time.Now}
 }
 
+// Add creates a task in the inbox, a project, or an area. Dates are
+// canonicalized against now, a defer stage must be on the project's board,
+// and tags attach in the same transaction so an unknown tag creates nothing.
 func (s *Service) Add(ctx context.Context, request AddRequest) (Task, error) {
 	if err := domain.ValidateTitle(request.Title); err != nil {
 		return Task{}, err
@@ -109,14 +115,18 @@ func (s *Service) Add(ctx context.Context, request AddRequest) (Task, error) {
 	return added, nil
 }
 
+// Inbox returns the open tasks that are in neither a project nor an area.
 func (s *Service) Inbox(ctx context.Context) ([]ViewTask, error) {
 	return domain.NormalizeSliceResult(s.store.Inbox(ctx))
 }
 
+// Available returns the open tasks that can be worked on now: not deferred
+// by date or stage, and not under a resolved project or an archived area.
 func (s *Service) Available(ctx context.Context) ([]ViewTask, error) {
 	return domain.NormalizeSliceResult(s.store.Available(ctx))
 }
 
+// Show returns one task by ID.
 func (s *Service) Show(ctx context.Context, id int64) (Task, error) {
 	if err := validateID(id); err != nil {
 		return Task{}, err
@@ -125,6 +135,9 @@ func (s *Service) Show(ctx context.Context, id int64) (Task, error) {
 	return s.store.Find(ctx, id)
 }
 
+// List returns tasks matching the status, date, container, and tag filters.
+// A named project, area, or tag must exist, and the result is never nil on
+// success.
 func (s *Service) List(ctx context.Context, options ListOptions) ([]Task, error) {
 	if !validListStatus(options.Status) {
 		return nil, apperr.New(apperr.InvalidArgument, fmt.Sprintf("invalid list status %q", options.Status), nil)
@@ -188,6 +201,10 @@ func (s *Service) List(ctx context.Context, options ListOptions) ([]Task, error)
 	return domain.NormalizeSliceResult(listed, nil)
 }
 
+// Edit changes any subset of a task's fields. Setting and clearing the same
+// field, moving to both a project and an area, or changing nothing is an
+// invalid_argument error. Moving the task to a different project clears a
+// defer stage unless the request sets a new one.
 func (s *Service) Edit(ctx context.Context, id int64, request EditRequest) (Edition, error) {
 	if err := validateID(id); err != nil {
 		return Edition{}, err
@@ -313,6 +330,7 @@ func (s *Service) Edit(ctx context.Context, id int64, request EditRequest) (Edit
 	return result, nil
 }
 
+// Reorder moves the task among its siblings in its container.
 func (s *Service) Reorder(ctx context.Context, id int64, placement domain.Placement) (Task, error) {
 	if err := validateID(id); err != nil {
 		return Task{}, err
@@ -324,6 +342,8 @@ func (s *Service) Reorder(ctx context.Context, id int64, placement domain.Placem
 	return s.store.Reorder(ctx, id, placement, domain.FormatTimestamp(s.now()))
 }
 
+// Done marks the task done. When the task promotes and its project is on a
+// board, the project advances one stage in the same transaction.
 func (s *Service) Done(ctx context.Context, id int64) (Completion, error) {
 	if err := validateID(id); err != nil {
 		return Completion{}, err
@@ -377,6 +397,7 @@ func (s *Service) Done(ctx context.Context, id int64) (Completion, error) {
 	return result, nil
 }
 
+// Cancel marks the task cancelled.
 func (s *Service) Cancel(ctx context.Context, id int64) (Task, error) {
 	if err := validateID(id); err != nil {
 		return Task{}, err
@@ -385,6 +406,7 @@ func (s *Service) Cancel(ctx context.Context, id int64) (Task, error) {
 	return s.store.Cancel(ctx, id, domain.FormatTimestamp(s.now()))
 }
 
+// Reopen returns a done or cancelled task to open.
 func (s *Service) Reopen(ctx context.Context, id int64) (Task, error) {
 	if err := validateID(id); err != nil {
 		return Task{}, err
@@ -393,10 +415,13 @@ func (s *Service) Reopen(ctx context.Context, id int64) (Task, error) {
 	return s.store.Reopen(ctx, id, domain.FormatTimestamp(s.now()))
 }
 
+// Tag attaches existing tags to the task. Names already attached are left as
+// they are, so repeating the call changes nothing.
 func (s *Service) Tag(ctx context.Context, id int64, names []string) (Tagging, error) {
 	return s.changeTags(ctx, id, names, true)
 }
 
+// Untag detaches tags from the task. Names not attached are left alone.
 func (s *Service) Untag(ctx context.Context, id int64, names []string) (Tagging, error) {
 	return s.changeTags(ctx, id, names, false)
 }
@@ -455,6 +480,7 @@ func (s *Service) changeTags(
 	return result, nil
 }
 
+// Delete removes the task and returns the row as it was.
 func (s *Service) Delete(ctx context.Context, id int64) (Task, error) {
 	if err := validateID(id); err != nil {
 		return Task{}, err
@@ -527,6 +553,8 @@ func projectAfterEdit(currentProjectID, currentAreaID *int64, request EditReques
 	}
 }
 
+// ParseListStatus accepts open, done, cancelled, or all; anything else is an
+// invalid_argument error.
 func ParseListStatus(value string) (ListStatus, error) {
 	status := ListStatus(value)
 	if !validListStatus(status) {
@@ -536,6 +564,7 @@ func ParseListStatus(value string) (ListStatus, error) {
 	return status, nil
 }
 
+// ParseID parses a task ID argument with domain.ParseID semantics.
 func ParseID(value string) (int64, error) {
 	return domain.ParseID("task", value)
 }

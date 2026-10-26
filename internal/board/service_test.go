@@ -240,7 +240,7 @@ func (f *fakeStore) DeleteStage(_ context.Context, boardID, id int64) (Stage, er
 	return f.deleteStageResult, f.deleteStageError
 }
 
-func (f *fakeStore) WithinTransaction(ctx context.Context, operation func(Transaction) error) error {
+func (f *fakeStore) WithinTransaction(_ context.Context, operation func(Transaction) error) error {
 	f.transactionCalls++
 	if f.transactionError != nil {
 		return f.transactionError
@@ -252,7 +252,7 @@ func (f *fakeStore) WithinTransaction(ctx context.Context, operation func(Transa
 	return operation(transaction)
 }
 
-func (f *fakeStore) WithinReadTransaction(ctx context.Context, operation func(Transaction) error) error {
+func (f *fakeStore) WithinReadTransaction(_ context.Context, operation func(Transaction) error) error {
 	f.readTransactionCalls++
 	if f.readTransactionError != nil {
 		return f.readTransactionError

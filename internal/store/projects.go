@@ -19,6 +19,7 @@ import (
 
 const projectColumns = `id, area_id, title, note, done_at, cancelled_at, status, position, created_at, updated_at, stage_id, stage_position`
 
+// Projects implements project.Store on SQLite.
 type Projects struct {
 	database *DB
 }
@@ -33,10 +34,13 @@ type projectExecutor interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }
 
+// NewProjects returns the project store for database.
 func NewProjects(database *DB) *Projects {
 	return &Projects{database: database}
 }
 
+// Add inserts a project last in its area or the no-area list and, when
+// StageID is set, last on that stage.
 func (s *Projects) Add(
 	ctx context.Context,
 	fields project.AddFields,
@@ -47,30 +51,40 @@ func (s *Projects) Add(
 	})
 }
 
+// Find returns the project with id or a not_found error.
 func (s *Projects) Find(ctx context.Context, id int64) (project.Project, error) {
 	return s.poolCore().Find(ctx, id)
 }
 
+// List returns projects matching the status and area filter ordered by
+// position.
 func (s *Projects) List(ctx context.Context, options project.ListOptions) ([]project.Project, error) {
 	return s.poolCore().List(ctx, options)
 }
 
+// AreaExists returns a not_found error when no area has id.
 func (s *Projects) AreaExists(ctx context.Context, id int64) error {
 	return s.poolCore().AreaExists(ctx, id)
 }
 
+// FindArea returns the area's ID and archive state or a not_found error.
 func (s *Projects) FindArea(ctx context.Context, id int64) (project.AreaReference, error) {
 	return s.poolCore().FindArea(ctx, id)
 }
 
+// FindBoard returns the board whose title matches case-insensitively.
 func (s *Projects) FindBoard(ctx context.Context, title string) (project.BoardReference, error) {
 	return s.poolCore().FindBoard(ctx, title)
 }
 
+// FindFirstStage returns the board's lowest-positioned stage, or nil when
+// the board has no stages.
 func (s *Projects) FindFirstStage(ctx context.Context, boardID int64) (*project.StageReference, error) {
 	return s.poolCore().FindFirstStage(ctx, boardID)
 }
 
+// FindStage returns the stage on boardID whose title matches
+// case-insensitively.
 func (s *Projects) FindStage(
 	ctx context.Context,
 	boardID int64,
@@ -79,10 +93,13 @@ func (s *Projects) FindStage(
 	return s.poolCore().FindStage(ctx, boardID, title)
 }
 
+// FindStageByID returns the stage with id and its board title.
 func (s *Projects) FindStageByID(ctx context.Context, id int64) (project.StageReference, error) {
 	return s.poolCore().FindStageByID(ctx, id)
 }
 
+// Edit updates the set fields, re-filing the project when its area or stage
+// changes.
 func (s *Projects) Edit(
 	ctx context.Context,
 	id int64,
@@ -94,6 +111,8 @@ func (s *Projects) Edit(
 	})
 }
 
+// MoveStage places the project on stageID at the given placement among that
+// stage's projects.
 func (s *Projects) MoveStage(
 	ctx context.Context,
 	id, stageID int64,
@@ -105,6 +124,7 @@ func (s *Projects) MoveStage(
 	})
 }
 
+// Reorder renumbers the project's siblings with id at its new placement.
 func (s *Projects) Reorder(
 	ctx context.Context,
 	id int64,
@@ -116,6 +136,8 @@ func (s *Projects) Reorder(
 	})
 }
 
+// Resolve sets the project's status and resolution timestamp; a project
+// already resolved is a conflict error.
 func (s *Projects) Resolve(
 	ctx context.Context,
 	id int64,
@@ -127,6 +149,7 @@ func (s *Projects) Resolve(
 	})
 }
 
+// CancelOpenTasks cancels the project's open tasks and returns them.
 func (s *Projects) CancelOpenTasks(
 	ctx context.Context,
 	projectID int64,
@@ -135,6 +158,8 @@ func (s *Projects) CancelOpenTasks(
 	return s.poolCore().CancelOpenTasks(ctx, projectID, timestamp)
 }
 
+// ClearTaskStageDefers nulls defer_stage_id on the project's tasks and
+// returns the updated tasks.
 func (s *Projects) ClearTaskStageDefers(
 	ctx context.Context,
 	projectID int64,
@@ -143,6 +168,8 @@ func (s *Projects) ClearTaskStageDefers(
 	return s.poolCore().ClearTaskStageDefers(ctx, projectID, timestamp)
 }
 
+// Reopen returns a resolved project to open; an archived area blocks it with
+// a conflict error.
 func (s *Projects) Reopen(
 	ctx context.Context,
 	id int64,
@@ -153,18 +180,23 @@ func (s *Projects) Reopen(
 	})
 }
 
+// Delete removes a project that has no tasks; one that still has tasks is a
+// conflict error.
 func (s *Projects) Delete(ctx context.Context, id int64) (project.Project, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Transaction) (project.Project, error) {
 		return transaction.Delete(ctx, id)
 	})
 }
 
+// DeleteTasks removes every task in the project and returns them.
 func (s *Projects) DeleteTasks(ctx context.Context, projectID int64) ([]task.Task, error) {
 	return runInTransaction(ctx, s.WithinTransaction, func(transaction project.Transaction) ([]task.Task, error) {
 		return transaction.DeleteTasks(ctx, projectID)
 	})
 }
 
+// ResolveTags looks names up case-insensitively in request order; an unknown
+// name is a not_found error.
 func (s *Projects) ResolveTags(ctx context.Context, names []string) ([]tag.Tag, error) {
 	if len(names) <= 1 {
 		return s.poolCore().ResolveTags(ctx, names)
@@ -175,6 +207,7 @@ func (s *Projects) ResolveTags(ctx context.Context, names []string) ([]tag.Tag, 
 	})
 }
 
+// AttachTags links tags to the project, skipping ones already attached.
 func (s *Projects) AttachTags(ctx context.Context, projectID int64, tags []tag.Tag) error {
 	if len(tags) <= 1 {
 		return s.poolCore().AttachTags(ctx, projectID, tags)
@@ -184,6 +217,7 @@ func (s *Projects) AttachTags(ctx context.Context, projectID int64, tags []tag.T
 	})
 }
 
+// DetachTags unlinks tags from the project, ignoring ones not attached.
 func (s *Projects) DetachTags(ctx context.Context, projectID int64, tags []tag.Tag) error {
 	if len(tags) <= 1 {
 		return s.poolCore().DetachTags(ctx, projectID, tags)
@@ -193,6 +227,8 @@ func (s *Projects) DetachTags(ctx context.Context, projectID int64, tags []tag.T
 	})
 }
 
+// WithinTransaction runs apply inside one BEGIN IMMEDIATE transaction and
+// rolls back when it returns an error.
 func (s *Projects) WithinTransaction(
 	ctx context.Context,
 	apply func(project.Transaction) error,
@@ -202,6 +238,8 @@ func (s *Projects) WithinTransaction(
 	})
 }
 
+// WithinReadTransaction runs apply inside one deferred transaction so its
+// reads see a single snapshot.
 func (s *Projects) WithinReadTransaction(
 	ctx context.Context,
 	apply func(project.Transaction) error,

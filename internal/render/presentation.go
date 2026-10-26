@@ -15,6 +15,7 @@ import (
 // ColorMode selects automatic, forced, or disabled color.
 type ColorMode string
 
+// The --color values. ColorAuto follows NO_COLOR and terminal detection.
 const (
 	ColorAuto   ColorMode = "auto"
 	ColorAlways ColorMode = "always"
