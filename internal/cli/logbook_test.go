@@ -255,7 +255,7 @@ func TestLogbookInvalidTimestampBecomesInternalErrorOnStderr(t *testing.T) {
 	if result.exitCode != 1 || result.stdout != "" {
 		t.Errorf("result = %#v, want stderr-only normalized application error", result)
 	}
-	if !strings.Contains(result.stderr, "Error: parse logbook resolved_at for task 7:") {
+	if !strings.Contains(result.stderr, "gsd: parse logbook resolved_at for task 7:") {
 		t.Errorf("stderr = %q, want invalid stored timestamp diagnostic", result.stderr)
 	}
 	if application.calls != 1 || result.opens != 1 || result.closes != 1 {

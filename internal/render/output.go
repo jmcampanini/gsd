@@ -195,12 +195,17 @@ func LogbookWriter(location *time.Location) func(HumanOutput, []logbook.Entry) e
 	}
 }
 
-// WriteCommandError writes application errors as JSON when requested and usage errors as text.
+// diagnosticPrefix starts every human failure line so a reader can tell
+// which program on a pipeline failed.
+const diagnosticPrefix = "gsd: "
+
+// WriteCommandError writes application errors as JSON when requested and every
+// other failure as one 'gsd: <message>' line.
 func WriteCommandError(writer io.Writer, jsonMode bool, err error) error {
 	if code, ok := apperr.CodeOf(err); ok && jsonMode {
 		return WriteJSON(writer, ErrorEnvelope{Error: ErrorPayload{Code: code, Message: err.Error()}})
 	}
-	_, writeErr := fmt.Fprintf(writer, "Error: %s\n", text.Human(err.Error(), false))
+	_, writeErr := fmt.Fprintf(writer, "%s%s\n", diagnosticPrefix, text.Human(err.Error(), false))
 	return writeErr
 }
 

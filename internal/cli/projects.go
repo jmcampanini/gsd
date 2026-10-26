@@ -6,9 +6,8 @@ import (
 )
 
 func newProjectsCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	command := newCommandGroup("projects", "Manage projects", `Manage projects as a set: 'projects add TITLE' creates one and 'projects
-list' lists them. 'gsd project' holds the commands that act on one
-existing project.
+	command := newCommandGroup("projects", "Manage projects", `Manage projects as a set: create them and list them. 'gsd project' holds
+the commands that act on one existing project.
 
 A project groups tasks. It has a title, a note, tags, a status of open,
 done, or cancelled, and a position among the projects filed under the

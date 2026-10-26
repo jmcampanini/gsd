@@ -6,8 +6,8 @@ import (
 )
 
 func newAreasCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	command := newCommandGroup("areas", "Manage areas", `Manage areas as a set: 'areas add TITLE' creates one and 'areas list'
-lists them. 'gsd area' holds the commands that act on one existing area.
+	command := newCommandGroup("areas", "Manage areas", `Manage areas as a set: create them and list them. 'gsd area' holds the
+commands that act on one existing area.
 
 An area groups projects and loose tasks. It has a title, a note, tags, a
 position among all areas, and an archived state: an archived area is

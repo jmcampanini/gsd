@@ -142,34 +142,59 @@ func TestCaptureCommandRejectsUnsupportedInvocationBeforeOpeningApplication(t *t
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		args     []string
-		inputOK  bool
-		outputOK bool
-		message  string
+		name        string
+		args        []string
+		environment []string
+		inputOK     bool
+		outputOK    bool
+		message     string
 	}{
 		{
 			name:    "JSON",
 			args:    []string{"capture", "--json"},
-			message: "--json is not supported by gsd capture; use gsd add TITLE for noninteractive capture",
+			message: "--json is not supported by capture; use gsd add TITLE for noninteractive capture",
 		},
 		{
 			name:     "non-terminal input",
 			args:     []string{"capture"},
 			outputOK: true,
-			message:  "gsd capture requires terminal input; use gsd add TITLE for noninteractive capture",
+			message:  "capture requires terminal input; use gsd add TITLE for noninteractive capture",
 		},
 		{
 			name:    "non-terminal output",
 			args:    []string{"capture"},
 			inputOK: true,
-			message: "gsd capture requires terminal output; use gsd add TITLE for noninteractive capture",
+			message: "capture requires terminal output; use gsd add TITLE for noninteractive capture",
 		},
 		{
 			name:    "forced color with non-terminal output",
 			args:    []string{"capture", "--color=always"},
 			inputOK: true,
-			message: "gsd capture requires terminal output; use gsd add TITLE for noninteractive capture",
+			message: "capture requires terminal output; use gsd add TITLE for noninteractive capture",
+		},
+		{
+			name:        "dumb terminal",
+			args:        []string{"capture"},
+			environment: []string{"TERM=dumb"},
+			inputOK:     true,
+			outputOK:    true,
+			message:     "capture requires a terminal with cursor control (TERM is dumb or unset); use gsd add TITLE for noninteractive capture",
+		},
+		{
+			name:        "forced color on a dumb terminal",
+			args:        []string{"capture", "--color=always"},
+			environment: []string{"TERM=dumb"},
+			inputOK:     true,
+			outputOK:    true,
+			message:     "capture requires a terminal with cursor control (TERM is dumb or unset); use gsd add TITLE for noninteractive capture",
+		},
+		{
+			name:        "unset TERM",
+			args:        []string{"capture"},
+			environment: []string{"KEEP=value"},
+			inputOK:     true,
+			outputOK:    true,
+			message:     "capture requires a terminal with cursor control (TERM is dumb or unset); use gsd add TITLE for noninteractive capture",
 		},
 	}
 	for _, test := range tests {
@@ -190,7 +215,12 @@ func TestCaptureCommandRejectsUnsupportedInvocationBeforeOpeningApplication(t *t
 				opens++
 				return applications{tasks: &fakeApplication{}}, closeRecorder{close: func() {}}, nil
 			}
+			environment := test.environment
+			if environment == nil {
+				environment = []string{"TERM=xterm"}
+			}
 			dependencies := render.DefaultPresentationDependencies()
+			dependencies.Environment = func() []string { return environment }
 			dependencies.IsTerminalReader = func(io.Reader) bool { return test.inputOK }
 			dependencies.IsTerminalWriter = func(io.Writer) bool { return test.outputOK }
 			root := newRootCommandWithRunners(
@@ -215,7 +245,7 @@ func TestCaptureCommandRejectsUnsupportedInvocationBeforeOpeningApplication(t *t
 			if stdout.String() != "" {
 				t.Errorf("stdout = %q, want empty", stdout.String())
 			}
-			if stderr.String() != "Error: "+test.message+"\n" {
+			if stderr.String() != "gsd: "+test.message+"\n" {
 				t.Errorf("stderr = %q, want exact usage message %q", stderr.String(), test.message)
 			}
 			if opens != 0 || runs != 0 {
@@ -287,7 +317,7 @@ func TestCaptureCommandMapsRunnerErrorsToExitOne(t *testing.T) {
 			if stdout.String() != "" {
 				t.Errorf("stdout = %q, want empty", stdout.String())
 			}
-			if stderr.String() != "Error: "+test.message+"\n" {
+			if stderr.String() != "gsd: "+test.message+"\n" {
 				t.Errorf("stderr = %q, want standard error line %q", stderr.String(), test.message)
 			}
 			if opens != 1 || closes != 1 {

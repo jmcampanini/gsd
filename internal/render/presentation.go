@@ -31,28 +31,33 @@ const (
 	colorForced
 )
 
-// resolveColor applies explicit color settings, NO_COLOR, and terminal detection.
+// resolveColor applies the --color mode, then for auto NO_COLOR and terminal
+// detection. Only always and never override those inputs; an explicit auto
+// is the same as the default.
 func resolveColor(
 	mode ColorMode,
-	explicit bool,
 	noColor string,
 	isTerminal bool,
 	terminalName string,
 ) colorDecision {
-	if explicit {
-		switch mode {
-		case ColorAlways:
-			return colorForced
-		case ColorNever:
-			return colorDisabled
-		case ColorAuto:
-			noColor = ""
-		}
+	switch mode {
+	case ColorAlways:
+		return colorForced
+	case ColorNever:
+		return colorDisabled
 	}
 	if noColor != "" || !isTerminal || terminalName == "dumb" {
 		return colorDisabled
 	}
 	return colorDetected
+}
+
+// hasCursorControl reports whether TERM names a terminal that accepts cursor
+// movement and the alternate screen. An empty or dumb TERM reports neither.
+// It is a capability of its own: a terminal stream may still lack it, and a
+// color profile never implies it.
+func hasCursorControl(terminalName string) bool {
+	return terminalName != "" && terminalName != "dumb"
 }
 
 // PresentationDependencies supplies terminal, environment, and clock observations.
@@ -96,11 +101,15 @@ type Presentation struct {
 	Location     *time.Location
 }
 
-// ColorResolution contains the selected profile and scrubbed terminal environment.
+// ColorResolution contains the selected profile, the capabilities of the
+// destination stream, and the scrubbed terminal environment. Terminal,
+// Profile, and CursorControl are observed separately and never derived from
+// one another.
 type ColorResolution struct {
-	Profile     colorprofile.Profile
-	Terminal    bool
-	Environment []string
+	Profile       colorprofile.Profile
+	Terminal      bool
+	CursorControl bool
+	Environment   []string
 }
 
 // IsTerminalInput reports whether the input stream is a terminal.
@@ -108,18 +117,19 @@ func (p Presentation) IsTerminalInput(reader io.Reader) bool {
 	return p.Dependencies.IsTerminalReader(reader)
 }
 
-// Resolve selects a color profile and removes conflicting color environment variables.
-func (p Presentation) Resolve(writer io.Writer, explicit bool) ColorResolution {
+// Resolve selects a color profile for writer, observes the stream's terminal
+// capabilities, and removes conflicting color environment variables.
+func (p Presentation) Resolve(writer io.Writer) ColorResolution {
 	environment := p.Dependencies.Environment()
 	terminal := p.Dependencies.IsTerminalWriter(writer)
+	terminalName := environmentValue(environment, "TERM")
 	scrubbed := scrubColorEnvironment(environment)
 	profile := colorprofile.NoTTY
 	switch resolveColor(
 		*p.Mode,
-		explicit,
 		environmentValue(environment, "NO_COLOR"),
 		terminal,
-		environmentValue(environment, "TERM"),
+		terminalName,
 	) {
 	case colorForced:
 		profile = colorprofile.TrueColor
@@ -127,15 +137,16 @@ func (p Presentation) Resolve(writer io.Writer, explicit bool) ColorResolution {
 		profile = p.Dependencies.DetectProfile(writer, scrubbed)
 	}
 	return ColorResolution{
-		Profile:     profile,
-		Terminal:    terminal,
-		Environment: scrubbed,
+		Profile:       profile,
+		Terminal:      terminal,
+		CursorControl: hasCursorControl(terminalName),
+		Environment:   scrubbed,
 	}
 }
 
 // Output creates a writer and queries the background only for a styled terminal.
-func (p Presentation) Output(input io.Reader, writer io.Writer, explicit bool) HumanOutput {
-	resolution := p.Resolve(writer, explicit)
+func (p Presentation) Output(input io.Reader, writer io.Writer) HumanOutput {
+	resolution := p.Resolve(writer)
 	dark := true
 	if tui.CanRenderColor(resolution.Profile, resolution.Terminal) {
 		dark = p.Dependencies.HasDarkBackground(input, writer)

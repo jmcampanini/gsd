@@ -44,7 +44,7 @@ works before the database exists.
 The global --json flag is not supported by this command because TOML is
 its machine-readable format; giving it is a usage error (exit 2) raised
 before the configuration is loaded. Output goes to stdout, errors go to
-stderr as 'Error: <message>', and nothing prompts.`,
+stderr as 'gsd: <message>', and nothing prompts.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if options.json {

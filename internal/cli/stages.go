@@ -6,9 +6,9 @@ import (
 )
 
 func newStagesCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	command := newCommandGroup("stages", "Manage stages", `Add stages to a board with 'stages add BOARD NAME'. 'gsd stage' holds the
-commands that act on one existing stage, and 'gsd boards --help'
-describes boards and stages.
+	command := newCommandGroup("stages", "Manage stages", `Add stages to an existing board. 'gsd stage' holds the commands that act
+on one existing stage, and 'gsd boards --help' describes boards and
+stages.
 
 `+clihelp.GroupContractHelp)
 	command.AddCommand(newStagesAddCommand(options, factory))

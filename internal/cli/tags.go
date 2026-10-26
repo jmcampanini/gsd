@@ -7,10 +7,9 @@ import (
 )
 
 func newTagsCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	command := newCommandGroup("tags", "Manage tags", `Manage tags: 'tags add NAME' creates one, 'tags list' lists them with
-usage counts, 'tags rename OLD NEW' renames one, and 'tags delete NAME'
-removes one. Attach and detach tags with 'gsd tag', 'gsd untag', 'gsd
-project tag', 'gsd project untag', 'gsd area tag', and 'gsd area untag'.
+	command := newCommandGroup("tags", "Manage tags", `Manage tags as a set, apart from the rows that carry them. Attaching and
+detaching happen on the entity: 'gsd tag' and 'gsd untag' for tasks, and
+the tag and untag subcommands of 'gsd project' and 'gsd area'.
 
 A tag is a label with a title that is unique case-insensitively. It can
 be attached to any number of tasks, projects, and areas, and it must

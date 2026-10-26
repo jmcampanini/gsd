@@ -6,9 +6,9 @@ import (
 )
 
 func newBoardsCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	command := newCommandGroup("boards", "Manage boards", `Manage boards as a set: 'boards add NAME' creates one and 'boards list'
-lists them. 'gsd board' holds the commands that act on one existing
-board, and 'gsd stages' and 'gsd stage' manage the stages on a board.
+	command := newCommandGroup("boards", "Manage boards", `Manage boards as a set: create them and list them. 'gsd board' holds the
+commands that act on one existing board, and 'gsd stages' and 'gsd stage'
+manage the stages on a board.
 
 A board is an ordered list of stages, addressed by name. A project can
 sit in one stage of one board and moves through the stages with 'gsd

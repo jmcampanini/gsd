@@ -22,7 +22,7 @@ func renderResult[T any](
 	if options.json {
 		return render.WriteJSON(command.OutOrStdout(), jsonPayload(value))
 	}
-	return writeHuman(options.presentation.Output(command.InOrStdin(), command.OutOrStdout(), command.Root().PersistentFlags().Changed("color")), value)
+	return writeHuman(options.presentation.Output(command.InOrStdin(), command.OutOrStdout()), value)
 }
 
 func writeCommandOutput[T any](

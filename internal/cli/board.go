@@ -6,10 +6,9 @@ import (
 )
 
 func newBoardCommand(options *rootOptions, factory applicationFactory) *cobra.Command {
-	command := newCommandGroup("board", "Manage a board", `Act on one existing board by NAME: show, edit, reorder, and delete. New
-boards come from 'gsd boards add' and lists from 'gsd boards list';
-'gsd boards --help' describes what a board is, and 'gsd stages' and 'gsd
-stage' manage a board's stages.
+	command := newCommandGroup("board", "Manage a board", `Act on one existing board by NAME. New boards and lists of them come from
+'gsd boards', whose --help describes what a board is; 'gsd stages' and
+'gsd stage' manage a board's stages.
 
 `+clihelp.NameGrammarHelp+`
 
