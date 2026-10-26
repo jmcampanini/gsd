@@ -5,10 +5,58 @@ Get shit done: a personal task manager kept in one SQLite database. A task lives
 
 ## Install
 
-gsd distributes from HEAD only; there is no release channel or tagged binary.
+gsd is configured for versioned releases with prebuilt binaries for Linux and macOS on amd64 and arm64. The first release version has not been selected or published; until then, use the HEAD formula or build from source. The archive, mise, and shared-tap commands below apply once a stable release is available. The binary needs no external programs, including tmux; tmux is only a test dependency.
+
+
+### Release archives
+
+Download `gsd_<version>_<os>_<arch>.tar.gz` and `gsd_<version>_checksums.txt` from [GitHub Releases](https://github.com/jmcampanini/gsd/releases). Use `linux` or `darwin` for the OS and `amd64` or `arm64` for the architecture. Verify the archive against its SHA-256 checksum, extract it, and copy `gsd` to a directory on your `PATH`. Each archive also contains the README and license. GitHub build provenance can be verified with `gh attestation verify <archive> --repo jmcampanini/gsd`.
+
+On macOS, after verifying the download, remove quarantine from the extracted binary before running it:
+
+```sh
+xattr -dr com.apple.quarantine ./gsd
+```
+
+To upgrade, repeat these steps with the archive for the new version and replace the installed binary.
+
+
+### mise
+
+With [mise](https://mise.jdx.dev) installed and activated in your shell:
+
+```sh
+mise use --global github:jmcampanini/gsd@latest
+```
+
+Upgrade to the latest stable release:
+
+```sh
+mise upgrade github:jmcampanini/gsd
+```
 
 
 ### Homebrew
+
+Install the released binary and bash, zsh, and fish completions from the shared tap:
+
+```sh
+brew install --cask jmcampanini/tap/gsd
+```
+
+Upgrade to the latest stable release:
+
+```sh
+brew update
+brew upgrade --cask jmcampanini/tap/gsd
+```
+
+If switching from the HEAD formula, first run `brew uninstall --formula jmcampanini/gsd/gsd` to free the `gsd` binary path. Existing HEAD users can keep using the alternative below.
+
+
+### Homebrew HEAD alternative
+
+Build the latest commit from source with the existing repository tap:
 
 ```sh
 brew tap jmcampanini/gsd https://github.com/jmcampanini/gsd
@@ -34,6 +82,8 @@ mise install
 mise run build
 # then copy ./build/gsd to a directory on your PATH
 ```
+
+To upgrade a source installation, run `git pull --ff-only`, `mise install`, and `mise run build`, then replace the binary on your `PATH`.
 
 
 ## Representative commands
