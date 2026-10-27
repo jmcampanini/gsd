@@ -17,8 +17,8 @@ func newProjectsListCommand(options *rootOptions, factory applicationFactory) *c
 
 ` + clihelp.StatusFilterHelp + `
 
---area ID keeps projects filed under that area; an unknown area is
-not_found (exit 1).
+--area ID keeps projects filed under that area; an unknown area is an
+error (exit 1).
 
 The human table has id, title, and status columns; an empty result
 prints nothing. With --json an array of project rows is written (fields

@@ -15,7 +15,7 @@ func newBoardsAddCommand(options *rootOptions, factory applicationFactory) *cobr
 		Short: "Add a board",
 		Long: `Create a board titled NAME with the stages given by --stage, in that
 order, and print it. NAME and every stage name must not be blank, and at
-least one --stage is required (invalid_argument, exit 1). A board whose
+least one --stage is required (an error otherwise, exit 1). A board whose
 title matches NAME case-insensitively is a conflict (exit 1), as is a
 --stage name repeated within the command; then nothing is created. The
 board is placed last among all boards.

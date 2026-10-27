@@ -70,8 +70,6 @@ mise run build
 
 The canonical reference is `gsd --help`, each command's `--help`, and the help topic `gsd help exit-codes`.
 
-Command payloads go to stdout. Failures print one `gsd: <message>` line on stderr without usage text and leave stdout empty, including with `--json`. Usage errors exit 2; every other failure exits 1.
-
 
 ## Configuration
 

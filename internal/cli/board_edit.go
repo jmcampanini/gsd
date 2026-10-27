@@ -15,9 +15,9 @@ func newBoardEditCommand(options *rootOptions, factory applicationFactory) *cobr
 		Use:   "edit NAME",
 		Short: "Edit a board",
 		Long: `Change the title or note of a board. At least one of --title and --note
-is required; without one the command fails with invalid_argument (exit
-1) before the database is opened. A new title already used by another
-board, compared case-insensitively, is a conflict (exit 1).
+is required; without one the command fails (exit 1) before the database
+is opened. A new title already used by another board, compared
+case-insensitively, is a conflict (exit 1).
 
 ` + clihelp.NameGrammarHelp + `
 

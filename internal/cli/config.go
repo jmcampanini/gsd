@@ -36,10 +36,10 @@ Use --provenance to add the source of the value as a TOML comment on the
 db_path line: 'default', 'env: GSD_DB', 'flag: --db', or 'file: PATH'.
 There are no secret values to redact. An explicit --config file that is
 missing or unreadable, a file that cannot be parsed, or an empty db_path
-in the file that no GSD_DB or --db value replaces is an invalid_argument
-error (exit 1) whose message starts with 'invalid configuration:'. This
-command loads the configuration but never opens the database, so it
-works before the database exists.
+in the file that no GSD_DB or --db value replaces is an error (exit 1)
+whose message starts with 'invalid configuration:'. This command loads
+the configuration but never opens the database, so it works before the
+database exists.
 
 The global --json flag is not supported by this command because TOML is
 its machine-readable format; giving it is a usage error (exit 2) raised

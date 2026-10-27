@@ -32,13 +32,11 @@ needed. Each subcommand's --help states its own contract.`
 
 // IDGrammarHelp defines the ID argument and its failure mode.
 const IDGrammarHelp = `ID is the positive decimal integer shown in list and show output. Any other
-value is an invalid_argument error (exit 1) raised before the database is
-opened.`
+value is an error (exit 1) raised before the database is opened.`
 
 // NameGrammarHelp defines how NAME arguments match stored titles.
 const NameGrammarHelp = `Names are matched case-insensitively against stored titles and must not be
-blank: a blank name is invalid_argument and an unknown name is not_found
-(both exit 1).`
+blank: a blank name and an unknown name are both errors (exit 1).`
 
 // DatabaseDiscoveryHelp describes how the database path is chosen and when
 // the database is opened.
@@ -60,28 +58,27 @@ const DateGrammarHelp = `DATE is YYYY-MM-DD, today, tomorrow, a weekday abbrevia
 wed, thu, fri, or sat) meaning the next such day after today, or +Nd or
 +Nw for N days or weeks from today. Relative forms use the local calendar
 date at invocation, and every date is stored and printed as YYYY-MM-DD.
-Any other value is an invalid_argument error (exit 1).`
+Any other value is an error (exit 1).`
 
 // PlacementHelp describes the ID-addressed placement flags for reorder
 // commands.
 const PlacementHelp = `--first, --last, --after ID, and --before ID choose the new position and
 are mutually exclusive; --first=false and --last=false are usage errors
 (exit 2). Siblings are renumbered from zero in the new order. A reference
-that is the row itself or is not a sibling is invalid_argument and an
-unknown reference is not_found (both exit 1).`
+that is the row itself, is not a sibling, or is unknown is an error (exit
+1).`
 
 // NamedPlacementHelp describes the name-addressed placement flags used by
 // board and stage reorder commands.
 const NamedPlacementHelp = `--first, --last, --after NAME, and --before NAME choose the new position
 and are mutually exclusive; --first=false and --last=false are usage
 errors (exit 2). Siblings are renumbered from zero in the new order. A
-reference that is the row itself is invalid_argument and an unknown
-reference is not_found (both exit 1).`
+reference that is the row itself or is unknown is an error (exit 1).`
 
 // StatusFilterHelp describes the --status filter for list commands.
 const StatusFilterHelp = `status is open, done, or cancelled. --status STATUS keeps one status, or
-every status with all; the default is open. Any other value is
-invalid_argument (exit 1) raised before the database is opened.`
+every status with all; the default is open. Any other value is an error
+(exit 1) raised before the database is opened.`
 
 // NoteFlagHelp describes --note, including reading the note from stdin.
 const NoteFlagHelp = `--note TEXT sets the note, and --note - reads the whole of stdin as the
@@ -91,7 +88,7 @@ failure is an internal error (exit 1).`
 // TagFlagHelp describes the repeatable --tag flag on add commands.
 const TagFlagHelp = `--tag NAME attaches an existing tag and may repeat; each value is one whole
 name, so commas are not separators. Names match case-insensitively and
-duplicates collapse to the first spelling. An unknown tag is not_found
+duplicates collapse to the first spelling. An unknown tag is an error
 (exit 1), and then nothing is created.`
 
 // TaggingContractHelp is the full long description shared by the tag and
@@ -99,9 +96,9 @@ duplicates collapse to the first spelling. An unknown tag is not_found
 const TaggingContractHelp = `A name already attached stays attached and a name not attached is left
 alone, so repeating either command changes nothing. Names match
 case-insensitively, duplicates in one command collapse to the first
-spelling, a blank name is invalid_argument, and an unknown tag is
-not_found; either error exits 1 and changes nothing. Tags are never
-created here; use 'gsd tags add NAME' first.
+spelling, and a blank name or an unknown tag is an error that exits 1 and
+changes nothing. Tags are never created here; use 'gsd tags add NAME'
+first.
 
 ` + IDGrammarHelp + `
 
@@ -113,9 +110,9 @@ with --json the updated row, including its full tags list, is written.
 // TaskContainerHelp explains that a task lives in one project, one area, or
 // the inbox.
 const TaskContainerHelp = `A task lives in one container: one project, one area, or neither, which is
-the inbox. --project ID and --area ID cannot be combined (invalid_argument,
-exit 1), an unknown container is not_found (exit 1), and a task is placed
-last in the container it enters.`
+the inbox. --project ID and --area ID cannot be combined (exit 1), an
+unknown container is an error (exit 1), and a task is placed last in the
+container it enters.`
 
 // BlockerGuidanceHelp explains how resolved projects and archived areas
 // block changes and how the conflict message guides recovery.

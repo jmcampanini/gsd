@@ -18,8 +18,8 @@ SQLite FTS5 query and list the matches by relevance.
 EXPR is one operand in FTS5 syntax: words match whole tokens
 case-insensitively and all of them must match, "quoted words" match a
 phrase, word* matches a prefix, and AND, OR, NOT, and NEAR(...) combine
-terms. A blank EXPR is invalid_argument, and an expression FTS5 cannot
-parse is invalid_argument carrying the parser's message (both exit 1).
+terms. A blank EXPR is an error, and an expression FTS5 cannot parse is an
+error carrying the parser's message (both exit 1).
 
 By default only a row's own title, tags, and note are searched.
 --related also searches the context a row inherits, the title and tags

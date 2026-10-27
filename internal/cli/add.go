@@ -35,12 +35,12 @@ func newAddCommand(options *rootOptions, factory applicationFactory) *cobra.Comm
 --defer-stage NAME keeps the task out of 'gsd available' until its
 project reaches stage NAME on the project's board: it needs --project,
 that project must be on a board, and NAME must be a stage of that board
-(invalid_argument otherwise, or not_found when no board has such a
-stage). --promotes marks the task to advance its project to the next
-stage of its board when the task is completed. --no-defer-stage and
---no-promotes name the defaults and are mutually exclusive with their
-opposites; --promotes=false, --no-promotes=false, and
---no-defer-stage=false are usage errors (exit 2).
+(otherwise the command fails, exit 1). --promotes marks the task to
+advance its project to the next stage of its board when the task is
+completed. --no-defer-stage and --no-promotes name the defaults and are
+mutually exclusive with their opposites; --promotes=false,
+--no-promotes=false, and --no-defer-stage=false are usage errors (exit
+2).
 
 ` + clihelp.TagFlagHelp + `
 
