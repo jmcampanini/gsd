@@ -27,8 +27,7 @@ func newEditCommand(options *rootOptions, factory applicationFactory) *cobra.Com
 		Use:   "edit ID",
 		Short: "Edit a task",
 		Long: `Change one or more fields of a task. At least one field flag is required;
-without one the command fails with invalid_argument (exit 1) before the
-database is opened.
+without one the command fails (exit 1) before the database is opened.
 
 ` + clihelp.IDGrammarHelp + `
 

@@ -15,8 +15,8 @@ func newAreaEditCommand(options *rootOptions, factory applicationFactory) *cobra
 		Use:   "edit ID",
 		Short: "Edit an area",
 		Long: `Change the title or note of an area. At least one of --title and --note
-is required; without one the command fails with invalid_argument (exit
-1) before the database is opened. An archived area can be edited.
+is required; without one the command fails (exit 1) before the database
+is opened. An archived area can be edited.
 
 ` + clihelp.IDGrammarHelp + `
 

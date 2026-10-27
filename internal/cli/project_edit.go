@@ -20,8 +20,7 @@ func newProjectEditCommand(options *rootOptions, factory applicationFactory) *co
 		Short: "Edit a project",
 		Long: `Change one or more fields of a project. At least one of --title, --note,
 --area, --no-area, --board, and --no-board is required; without one the
-command fails with invalid_argument (exit 1) before the database is
-opened.
+command fails (exit 1) before the database is opened.
 
 ` + clihelp.IDGrammarHelp + `
 

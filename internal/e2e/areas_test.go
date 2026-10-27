@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
-
-	"github.com/jmcampanini/gsd/internal/apperr"
 )
 
 type areaRow struct {
@@ -64,8 +62,8 @@ func TestAreaCRUDWorkflow(t *testing.T) {
 		t.Errorf("edited/shown Home = %#v/%#v, want persisted note", editedHome, persistedHome)
 	}
 
-	assertJSONError(t, runJSON("areas", "add", ""), apperr.InvalidArgument)
-	assertJSONError(t, runJSON("area", "show", "99"), apperr.NotFound)
+	assertCommandError(t, runJSON("areas", "add", ""), "title must not be blank")
+	assertCommandError(t, runJSON("area", "show", "99"), "no area 99")
 }
 
 func decodeAreaRow(t *testing.T, result processResult) areaRow {

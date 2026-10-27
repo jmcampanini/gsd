@@ -12,8 +12,8 @@ func newTagsAddCommand(options *rootOptions, factory applicationFactory) *cobra.
 		Use:   "add NAME",
 		Short: "Add a tag",
 		Long: `Create a tag titled NAME and print it. NAME must not be blank
-(invalid_argument, exit 1), and a tag whose title matches NAME
-case-insensitively is a conflict (exit 1).
+(exit 1), and a tag whose title matches NAME case-insensitively is a
+conflict (exit 1).
 
 On success one line reads '+ Added tag NAME'; with --json the new tag
 row is written: id, title, created_at, and updated_at, the timestamps in

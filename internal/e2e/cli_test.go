@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -274,10 +273,10 @@ func TestDatabaseConfigPrecedenceAndFailures(t *testing.T) {
 		t.Errorf("explicit config report = %#v, want %q naming the opened database", explicitReport, wantExplicitReport)
 	}
 
-	assertJSONError(
+	assertCommandError(
 		t,
 		runGSDWithEnv(t, baseEnvironment, "inbox", "--config", filepath.Join(dir, "missing.toml"), "--json"),
-		apperr.InvalidArgument,
+		"required config file",
 	)
 
 	absentConfigHome := filepath.Join(dir, "absent-config")
@@ -553,7 +552,7 @@ func TestTaskWorkflow(t *testing.T) {
 		t.Errorf("completed reopened task = %#v, want done task", redone)
 	}
 	repeatedDone := runGSD(t, "done", "1", "--db", databasePath, "--json")
-	assertJSONError(t, repeatedDone, apperr.Conflict)
+	assertCommandError(t, repeatedDone, "cannot complete task 1 in its current state")
 
 	editedNote := "line one\nline two\n"
 	edited := decodeTask(t, runGSDWithInput(
@@ -576,26 +575,26 @@ func TestTaskWorkflow(t *testing.T) {
 	if !reflect.DeepEqual(shownEdited, edited) {
 		t.Errorf("shown edited task = %#v, want %#v", shownEdited, edited)
 	}
-	assertJSONError(
+	assertCommandError(
 		t,
 		runGSD(t, "edit", "3", "--db", databasePath, "--json"),
-		apperr.InvalidArgument,
+		"edit requires --title",
 	)
 
 	deleted := decodeTask(t, runGSD(t, "delete", "2", "--db", databasePath, "--json"))
 	if !reflect.DeepEqual(deleted, cancelled) {
 		t.Errorf("deleted task = %#v, want snapshot %#v", deleted, cancelled)
 	}
-	assertJSONError(
+	assertCommandError(
 		t,
 		runGSD(t, "show", "2", "--db", databasePath, "--json"),
-		apperr.NotFound,
+		"no task 2",
 	)
 
-	assertJSONError(
+	assertCommandError(
 		t,
 		runGSD(t, "show", "99", "--db", databasePath, "--json"),
-		apperr.NotFound,
+		"no task 99",
 	)
 
 	emptyResult := runGSD(t, "inbox", "--db", filepath.Join(workflowDir, "empty.db"))
@@ -794,10 +793,10 @@ func TestTaskTimeWorkflow(t *testing.T) {
 
 		for _, value := range []string{"2026-02-30", "2026-8-3", "next tuesday", "+3x"} {
 			for _, flag := range []string{"--due", "--defer"} {
-				assertJSONError(
+				assertCommandError(
 					t,
 					runGSD(t, "add", "invalid", flag, value, "--db", databasePath, "--json"),
-					apperr.InvalidArgument,
+					"invalid date",
 				)
 			}
 		}
@@ -957,24 +956,16 @@ func decodeJSON[T any](t *testing.T, result processResult, description string) T
 	return decoded
 }
 
-func assertJSONError(t *testing.T, result processResult, wantCode apperr.Code) {
+func assertCommandError(t *testing.T, result processResult, wantMessage string) {
 	t.Helper()
 	if result.exitCode != 1 || result.stdout != "" {
 		t.Fatalf("command result = %#v, want stderr-only exit 1", result)
 	}
-	if !strings.HasSuffix(result.stderr, "\n") || strings.Count(result.stderr, "\n") != 1 {
-		t.Fatalf("stderr = %q, want one newline-terminated JSON value", result.stderr)
+	if !strings.HasPrefix(result.stderr, "gsd: ") || !strings.HasSuffix(result.stderr, "\n") ||
+		strings.Count(result.stderr, "\n") != 1 {
+		t.Fatalf("stderr = %q, want one newline-terminated 'gsd: <message>' line", result.stderr)
 	}
-
-	var envelope struct {
-		Error struct {
-			Code apperr.Code `json:"code"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if envelope.Error.Code != wantCode {
-		t.Errorf("error code = %q, want %q", envelope.Error.Code, wantCode)
+	if !strings.Contains(result.stderr, wantMessage) {
+		t.Errorf("stderr = %q, want diagnostic containing %q", result.stderr, wantMessage)
 	}
 }

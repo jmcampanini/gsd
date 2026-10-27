@@ -14,10 +14,10 @@ func newProjectMoveCommand(options *rootOptions, factory applicationFactory) *co
 		Short: "Move a project on its board",
 		Long: `Move a project to stage STAGE of the board it is on, placing it last in
 that stage unless a placement flag says otherwise. STAGE matches
-case-insensitively; a stage that is not on the project's board is
-not_found (exit 1). A project that is not on a board is a conflict (exit
-1), and a move to the current stage without a placement flag changes
-nothing. Stage defers on the project's tasks are kept.
+case-insensitively; a stage that is not on the project's board is an
+error (exit 1). A project that is not on a board is a conflict
+(exit 1), and a move to the current stage without a placement flag
+changes nothing. Stage defers on the project's tasks are kept.
 
 ` + clihelp.IDGrammarHelp + `
 

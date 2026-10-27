@@ -8,8 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/jmcampanini/gsd/internal/apperr"
 )
 
 func TestDirectAndRelatedSearchAcrossBinaryInvocations(t *testing.T) {
@@ -190,12 +188,15 @@ func TestDirectAndRelatedSearchAcrossBinaryInvocations(t *testing.T) {
 		t.Errorf("empty JSON search = %#v, want []", emptyJSON)
 	}
 
-	for description, result := range map[string]processResult{
-		"blank expression":     runJSON("search", "   "),
-		"malformed expression": runJSON("search", "plumb* AND"),
+	for description, test := range map[string]struct {
+		result      processResult
+		wantMessage string
+	}{
+		"blank expression":     {runJSON("search", "   "), "expression must not be blank"},
+		"malformed expression": {runJSON("search", "plumb* AND"), "invalid search expression"},
 	} {
-		assertJSONError(t, result, apperr.InvalidArgument)
-		assertSearchDidNotPanic(t, description, result)
+		assertCommandError(t, test.result, test.wantMessage)
+		assertSearchDidNotPanic(t, description, test.result)
 	}
 }
 

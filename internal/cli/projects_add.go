@@ -18,10 +18,10 @@ func newProjectsAddCommand(options *rootOptions, factory applicationFactory) *co
 		Long: `Create an open project titled TITLE and print it. TITLE must not be
 blank.
 
---area ID files the project under an area; an unknown area is not_found
+--area ID files the project under an area; an unknown area is an error
 and an archived one is a conflict (both exit 1). --board NAME puts the
 project on a board, in its first stage and last among the projects
-there; an unknown board is not_found and a board without stages is a
+there; an unknown board is an error and a board without stages is a
 conflict (both exit 1). The project is placed last among the projects
 filed under its area, or among those with no area.
 

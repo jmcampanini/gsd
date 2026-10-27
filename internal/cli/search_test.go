@@ -10,7 +10,6 @@ import (
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/project"
-	"github.com/jmcampanini/gsd/internal/render"
 	"github.com/jmcampanini/gsd/internal/search"
 	"github.com/jmcampanini/gsd/internal/task"
 )
@@ -203,13 +202,7 @@ func TestSearchApplicationErrorsUseStderrStableExitAndCloseFactory(t *testing.T)
 	if coded.exitCode != 1 || coded.stdout != "" || coded.opens != 1 || coded.closes != 1 {
 		t.Fatalf("coded result = %#v, want stderr-only application failure and one lifecycle", coded)
 	}
-	var envelope render.ErrorEnvelope
-	if err := json.Unmarshal([]byte(coded.stderr), &envelope); err != nil {
-		t.Fatalf("decode JSON error: %v", err)
-	}
-	if envelope.Error.Code != apperr.InvalidArgument || envelope.Error.Message != "invalid search expression: syntax error" {
-		t.Errorf("error = %#v, want stable invalid_argument", envelope.Error)
-	}
+	requireCommandError(t, coded, "invalid search expression: syntax error")
 
 	uncoded := runSearchCommand(t, &fakeSearchApplication{err: errors.New("search failed")}, "search", "term")
 	if uncoded.exitCode != 1 || uncoded.stdout != "" || uncoded.stderr != "gsd: search failed\n" ||

@@ -60,8 +60,7 @@ func Execute() int {
 func execute(root *cobra.Command, args []string) int {
 	root.SetArgs(args)
 	if err := root.Execute(); err != nil {
-		jsonMode, _ := root.PersistentFlags().GetBool("json")
-		_ = render.WriteCommandError(root.ErrOrStderr(), jsonMode, err)
+		_ = render.WriteCommandError(root.ErrOrStderr(), err)
 		return exitCodeForError(err)
 	}
 

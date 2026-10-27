@@ -11,7 +11,6 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
-	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/board"
 	"github.com/jmcampanini/gsd/internal/logbook"
@@ -78,17 +77,6 @@ func (o HumanOutput) verbGlyph(verb MutationVerb) string {
 	default:
 		return verb.glyph
 	}
-}
-
-// ErrorEnvelope is the JSON envelope for application errors.
-type ErrorEnvelope struct {
-	Error ErrorPayload `json:"error"`
-}
-
-// ErrorPayload contains the stable code and diagnostic message.
-type ErrorPayload struct {
-	Code    apperr.Code `json:"code"`
-	Message string      `json:"message"`
 }
 
 type humanStyles struct {
@@ -195,16 +183,12 @@ func LogbookWriter(location *time.Location) func(HumanOutput, []logbook.Entry) e
 	}
 }
 
-// diagnosticPrefix starts every human failure line so a reader can tell
+// diagnosticPrefix starts every failure line so a reader can tell
 // which program on a pipeline failed.
 const diagnosticPrefix = "gsd: "
 
-// WriteCommandError writes application errors as JSON when requested and every
-// other failure as one 'gsd: <message>' line.
-func WriteCommandError(writer io.Writer, jsonMode bool, err error) error {
-	if code, ok := apperr.CodeOf(err); ok && jsonMode {
-		return WriteJSON(writer, ErrorEnvelope{Error: ErrorPayload{Code: code, Message: err.Error()}})
-	}
+// WriteCommandError writes every failure as one 'gsd: <message>' line.
+func WriteCommandError(writer io.Writer, err error) error {
 	_, writeErr := fmt.Fprintf(writer, "%s%s\n", diagnosticPrefix, text.Human(err.Error(), false))
 	return writeErr
 }

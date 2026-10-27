@@ -13,7 +13,6 @@ import (
 	"github.com/jmcampanini/gsd/internal/board"
 	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
-	"github.com/jmcampanini/gsd/internal/render"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -564,12 +563,9 @@ func TestBoardEditWithoutFieldsAndApplicationErrorsMapToOwnedExits(t *testing.T)
 
 	noFields := runBoardCommand(t, &fakeBoardApplication{}, "board", "edit", "software", "--json")
 	if noFields.exitCode != 1 || noFields.opens != 0 || noFields.closes != 0 || noFields.stdout != "" {
-		t.Fatalf("no-fields result = %#v, want invalid_argument before open", noFields)
+		t.Fatalf("no-fields result = %#v, want exit 1 before open", noFields)
 	}
-	noFieldsError := decodeBoardJSON[render.ErrorEnvelope](t, noFields.stderr).Error
-	if noFieldsError.Code != apperr.InvalidArgument || !strings.Contains(noFieldsError.Message, "--title") {
-		t.Errorf("error = %#v, want edit flag guidance", noFieldsError)
-	}
+	requireCommandError(t, noFields, "board edit requires --title or --note")
 
 	missing := runBoardCommand(t, &fakeBoardApplication{showError: apperr.New(
 		apperr.NotFound,
@@ -579,20 +575,14 @@ func TestBoardEditWithoutFieldsAndApplicationErrorsMapToOwnedExits(t *testing.T)
 	if missing.exitCode != 1 || missing.opens != 1 || missing.closes != 1 || missing.stdout != "" {
 		t.Fatalf("missing result = %#v, want application failure and one open/close", missing)
 	}
-	missingError := decodeBoardJSON[render.ErrorEnvelope](t, missing.stderr).Error
-	if missingError.Code != apperr.NotFound || missingError.Message != "board Missing not found" {
-		t.Errorf("error = %#v, want stable not_found", missingError)
-	}
+	requireCommandError(t, missing, "board Missing not found")
 
 	internal := runBoardCommand(t, &fakeBoardApplication{listError: errors.New("read boards failed")},
 		"boards", "list", "--json")
 	if internal.exitCode != 1 || internal.opens != 1 || internal.closes != 1 || internal.stdout != "" {
 		t.Fatalf("internal result = %#v, want internal application failure", internal)
 	}
-	internalError := decodeBoardJSON[render.ErrorEnvelope](t, internal.stderr).Error
-	if internalError.Code != apperr.Internal || internalError.Message != "read boards failed" {
-		t.Errorf("error = %#v, want normalized internal", internalError)
-	}
+	requireCommandError(t, internal, "read boards failed")
 }
 
 func TestBoardNamesRemainServiceValidatedAfterFactoryOpen(t *testing.T) {

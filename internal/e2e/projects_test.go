@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/project"
 	"github.com/jmcampanini/gsd/internal/task"
@@ -92,8 +91,8 @@ func TestProjectContainmentWorkflow(t *testing.T) {
 		t.Errorf("edited/shown project = %#v/%#v, want persisted note", editedProject, shownProject)
 	}
 
-	assertJSONError(t, runJSON("add", "missing", "--project", "99"), apperr.NotFound)
-	assertJSONError(t, runJSON("list", "--project", "99"), apperr.NotFound)
+	assertCommandError(t, runJSON("add", "missing", "--project", "99"), "no project 99")
+	assertCommandError(t, runJSON("list", "--project", "99"), "no project 99")
 	conflict := runJSON(
 		"edit",
 		fmt.Sprint(tiles.ID),
@@ -197,16 +196,16 @@ func TestProjectLifecycleWorkflow(t *testing.T) {
 		t.Errorf("logbook completed entry = %#v, want independently completed task", entries[3])
 	}
 
-	assertJSONError(
+	assertCommandError(
 		t,
 		runJSON("project", "done", fmt.Sprint(launch.ID)),
-		apperr.Conflict,
+		fmt.Sprintf("cannot complete project %d in its current state", launch.ID),
 	)
-	assertJSONError(t, runJSON("reopen", fmt.Sprint(firstOpen.ID)), apperr.Conflict)
-	assertJSONError(
+	assertCommandError(t, runJSON("reopen", fmt.Sprint(firstOpen.ID)), "reopen first")
+	assertCommandError(
 		t,
 		runJSON("add", "Late idea", "--project", fmt.Sprint(launch.ID)),
-		apperr.Conflict,
+		"reopen first",
 	)
 
 	edited := decodeTask(t, runJSON(
@@ -275,10 +274,10 @@ func TestProjectLifecycleWorkflow(t *testing.T) {
 	if !reflect.DeepEqual(deletedEmpty, empty) {
 		t.Errorf("deleted empty project = %#v, want snapshot %#v", deletedEmpty, empty)
 	}
-	assertJSONError(
+	assertCommandError(
 		t,
 		runJSON("project", "show", fmt.Sprint(empty.ID)),
-		apperr.NotFound,
+		fmt.Sprintf("no project %d", empty.ID),
 	)
 
 	abandoned := decodeProject(t, runJSON("projects", "add", "Abandoned"))
@@ -300,10 +299,10 @@ func TestProjectLifecycleWorkflow(t *testing.T) {
 		*cancelled.CancelledTasks[0].CancelledAt != *cancelled.Project.CancelledAt {
 		t.Fatalf("cancelled resolution = %#v, want project and task cancelled together", cancelled)
 	}
-	assertJSONError(
+	assertCommandError(
 		t,
 		runJSON("project", "delete", fmt.Sprint(abandoned.ID)),
-		apperr.Conflict,
+		"use --recursive",
 	)
 
 	deleted := decodeProjectDeletion(t, runJSON(
@@ -316,12 +315,12 @@ func TestProjectLifecycleWorkflow(t *testing.T) {
 		!reflect.DeepEqual(deleted.DeletedTasks, cancelled.CancelledTasks) {
 		t.Errorf("recursive deletion = %#v, want cancelled project and its task", deleted)
 	}
-	assertJSONError(
+	assertCommandError(
 		t,
 		runJSON("project", "show", fmt.Sprint(abandoned.ID)),
-		apperr.NotFound,
+		fmt.Sprintf("no project %d", abandoned.ID),
 	)
-	assertJSONError(t, runJSON("show", fmt.Sprint(abandonedTask.ID)), apperr.NotFound)
+	assertCommandError(t, runJSON("show", fmt.Sprint(abandonedTask.ID)), fmt.Sprintf("no task %d", abandonedTask.ID))
 }
 
 func decodeLogbook(t *testing.T, result processResult) []logbook.Entry {

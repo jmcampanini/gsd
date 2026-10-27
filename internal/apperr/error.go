@@ -1,12 +1,10 @@
 // Package apperr defines the stable error codes that service and store
-// boundaries return and that the CLI maps to exit statuses and JSON error
-// envelopes.
+// boundaries return and that the CLI maps to exit statuses.
 package apperr
 
 import "errors"
 
-// Code is the stable machine-readable classification carried by an
-// application error; the CLI prints it in JSON error envelopes.
+// Code is the stable classification carried by an application error.
 type Code string
 
 // The codes an application error can carry. NotFound and InvalidArgument

@@ -25,8 +25,8 @@ all containers.
 
 --project ID keeps tasks in that project, and --area ID keeps loose tasks
 whose own area is ID, not tasks in the area's projects; the two cannot be
-combined (invalid_argument, exit 1), and an unknown project, area, or tag
-is not_found (exit 1). --tag NAME keeps tasks carrying that tag, matched
+combined (exit 1), and an unknown project, area, or tag is an error
+(exit 1). --tag NAME keeps tasks carrying that tag, matched
 case-insensitively. --due keeps tasks with a due date, --overdue keeps
 open tasks due before today, and --deferred keeps tasks whose defer date
 is after today or whose stage defer has not been reached; those three

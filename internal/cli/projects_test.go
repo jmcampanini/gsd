@@ -10,7 +10,6 @@ import (
 	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
-	"github.com/jmcampanini/gsd/internal/render"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -185,14 +184,6 @@ func requireProjectCommandJSON[T any](t *testing.T, result commandResult, want T
 	}
 }
 
-func decodeProjectCommandError(t *testing.T, result commandResult) render.ErrorPayload {
-	t.Helper()
-	if result.exitCode != 1 || result.stdout != "" {
-		t.Fatalf("result = %#v, want stderr-only application error", result)
-	}
-	return decodeProjectJSON[render.ErrorEnvelope](t, result.stderr).Error
-}
-
 func requireProjectCommandHumanOutput(t *testing.T, result commandResult, fragments ...string) {
 	t.Helper()
 	if result.exitCode != 0 || result.stderr != "" {
@@ -300,7 +291,7 @@ func TestTaskAreaGrammarAndValidationHappenBeforeApplicationOpen(t *testing.T) {
 	} {
 		result := runCommand(t, &fakeApplication{}, args...)
 		if result.exitCode != 1 || result.opens != 0 || result.stdout != "" {
-			t.Errorf("result = %#v, want invalid_argument without open", result)
+			t.Errorf("result = %#v, want exit 1 without open", result)
 		}
 	}
 
@@ -333,15 +324,9 @@ func TestTaskProjectFlagRejectsNonDecimalIDAsApplicationErrorWithoutOpeningDatab
 
 	result := runCommand(t, &fakeApplication{}, "add", "contained", "--project", "0x8", "--json")
 	if result.exitCode != 1 || result.opens != 0 || result.stdout != "" {
-		t.Errorf("result = %#v, want stderr-only invalid_argument without open", result)
+		t.Errorf("result = %#v, want stderr-only exit 1 without open", result)
 	}
-	var envelope render.ErrorEnvelope
-	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if envelope.Error.Code != apperr.InvalidArgument {
-		t.Errorf("error code = %q, want invalid_argument", envelope.Error.Code)
-	}
+	requireCommandError(t, result, `invalid project ID "0x8"`)
 }
 
 func TestTaskProjectFlagConflictIsUsageWithoutOpeningDatabase(t *testing.T) {
@@ -533,9 +518,9 @@ func TestProjectTagCommandIDValidationDoesNotOpenApplication(t *testing.T) {
 	t.Parallel()
 
 	result := runProjectCommand(t, &fakeProjectApplication{}, "project", "tag", "nope", "Errands", "--json")
-	got := decodeProjectCommandError(t, result)
-	if result.opens != 0 || got.Code != apperr.InvalidArgument {
-		t.Errorf("result/error = %#v/%#v, want invalid_argument without application open", result, got)
+	requireCommandError(t, result, `invalid project ID "nope"`)
+	if result.opens != 0 {
+		t.Errorf("result = %#v, want validation without application open", result)
 	}
 }
 
@@ -644,7 +629,7 @@ func TestProjectAreaGrammarAndValidationHappenBeforeApplicationOpen(t *testing.T
 
 	invalid := runProjectCommand(t, &fakeProjectApplication{}, "projects", "add", "Kitchen", "--area", "0", "--json")
 	if invalid.exitCode != 1 || invalid.opens != 0 || invalid.stdout != "" {
-		t.Errorf("invalid result = %#v, want invalid_argument without open", invalid)
+		t.Errorf("invalid result = %#v, want exit 1 without open", invalid)
 	}
 	conflict := runProjectCommand(t, &fakeProjectApplication{}, "project", "edit", "1", "--area", "2", "--no-area", "--json")
 	if conflict.exitCode != 2 || conflict.opens != 0 || conflict.stdout != "" {
@@ -925,12 +910,9 @@ func TestProjectReorderApplicationErrorUsesOnlyStderr(t *testing.T) {
 
 	application := &fakeProjectApplication{reorderError: apperr.New(apperr.NotFound, "no project 99", nil)}
 	result := runProjectCommand(t, application, "project", "reorder", "99", "--last", "--json")
-	got := decodeProjectCommandError(t, result)
-	if got.Code != apperr.NotFound || got.Message != "no project 99" {
-		t.Errorf("error = %#v, want project not_found diagnostic", got)
-	}
-	if result.exitCode != 1 || result.stdout != "" || result.opens != 1 || result.closes != 1 {
-		t.Errorf("result = %#v, want stderr-only application failure and one factory lifecycle", result)
+	requireCommandError(t, result, "no project 99")
+	if result.opens != 1 || result.closes != 1 {
+		t.Errorf("result = %#v, want one factory lifecycle", result)
 	}
 }
 
@@ -1117,12 +1099,9 @@ func TestProjectEditWithoutFieldsFailsBeforeOpeningApplication(t *testing.T) {
 	t.Parallel()
 
 	result := runProjectCommand(t, &fakeProjectApplication{}, "project", "edit", "7", "--json")
-	got := decodeProjectCommandError(t, result)
+	requireCommandError(t, result, "project edit requires --title, --note, --area, --no-area, --board, or --no-board")
 	if result.opens != 0 {
 		t.Errorf("opens = %d, want flag validation before application open", result.opens)
-	}
-	if got.Code != apperr.InvalidArgument || !strings.Contains(got.Message, "--title") {
-		t.Errorf("error = %#v, want invalid_argument naming the edit flags", got)
 	}
 }
 
@@ -1135,12 +1114,9 @@ func TestProjectDeleteConflictAddsRecursiveGuidance(t *testing.T) {
 		nil,
 	)}
 	result := runProjectCommand(t, application, "project", "delete", "9", "--json")
-	got := decodeProjectCommandError(t, result)
 	want := "cannot delete project 9 while it contains tasks; " +
 		"use --recursive to delete the project and its tasks"
-	if got.Code != apperr.Conflict || got.Message != want {
-		t.Errorf("error = %#v, want conflict with --recursive recovery guidance", got)
-	}
+	requireCommandError(t, result, want)
 }
 
 func TestProjectLifecycleErrorUsesErrorStreamAndClosesApplication(t *testing.T) {
@@ -1152,10 +1128,7 @@ func TestProjectLifecycleErrorUsesErrorStreamAndClosesApplication(t *testing.T) 
 		nil,
 	)}
 	result := runProjectCommand(t, application, "project", "done", "7", "--json")
-	got := decodeProjectCommandError(t, result)
-	if got.Code != apperr.Conflict || got.Message != "project 7 is already done" {
-		t.Errorf("error = %#v, want project conflict diagnostic", got)
-	}
+	requireCommandError(t, result, "project 7 is already done")
 	if result.opens != 1 || result.closes != 1 {
 		t.Errorf("factory lifecycle = %#v, want one open and close", result)
 	}
@@ -1188,37 +1161,32 @@ func TestProjectValidationAndErrorsUseExpectedLifecycle(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
-		name string
-		args []string
+		name        string
+		wantMessage string
+		args        []string
 	}{
-		{name: "invalid show ID", args: []string{"project", "show", "0", "--json"}},
-		{name: "invalid done ID", args: []string{"project", "done", "0", "--json"}},
-		{name: "invalid cancel ID", args: []string{"project", "cancel", "+1", "--json"}},
-		{name: "invalid reopen ID", args: []string{"project", "reopen", "nope", "--json"}},
-		{name: "invalid delete ID", args: []string{"--json", "project", "delete", "--", "-1"}},
-		{name: "invalid status", args: []string{"projects", "list", "--status", "later", "--json"}},
+		{name: "invalid show ID", wantMessage: `invalid project ID "0"`, args: []string{"project", "show", "0", "--json"}},
+		{name: "invalid done ID", wantMessage: `invalid project ID "0"`, args: []string{"project", "done", "0", "--json"}},
+		{name: "invalid cancel ID", wantMessage: `invalid project ID "+1"`, args: []string{"project", "cancel", "+1", "--json"}},
+		{name: "invalid reopen ID", wantMessage: `invalid project ID "nope"`, args: []string{"project", "reopen", "nope", "--json"}},
+		{name: "invalid delete ID", wantMessage: `invalid project ID "-1"`, args: []string{"--json", "project", "delete", "--", "-1"}},
+		{name: "invalid status", wantMessage: `invalid project list status "later"`, args: []string{"projects", "list", "--status", "later", "--json"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
 			result := runProjectCommand(t, &fakeProjectApplication{}, test.args...)
-			got := decodeProjectCommandError(t, result)
+			requireCommandError(t, result, test.wantMessage)
 			if result.opens != 0 {
 				t.Errorf("opens = %d, want validation before application open", result.opens)
-			}
-			if got.Code != apperr.InvalidArgument {
-				t.Errorf("error code = %q, want invalid_argument", got.Code)
 			}
 		})
 	}
 
 	application := &fakeProjectApplication{showError: apperr.New(apperr.NotFound, "no project 99", nil)}
 	result := runProjectCommand(t, application, "project", "show", "99", "--json")
-	got := decodeProjectCommandError(t, result)
+	requireCommandError(t, result, "no project 99")
 	if result.opens != 1 || result.closes != 1 {
 		t.Errorf("factory lifecycle = %#v, want one open and close", result)
-	}
-	if got.Code != apperr.NotFound || got.Message != "no project 99" {
-		t.Errorf("error = %#v, want project not_found diagnostic", got)
 	}
 }
