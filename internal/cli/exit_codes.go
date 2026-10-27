@@ -5,7 +5,7 @@ import "github.com/spf13/cobra"
 func exitCodesTopic() *cobra.Command {
 	return newHelpTopic(
 		"exit-codes",
-		"Exit codes and error categories",
+		"Exit codes and failure reporting",
 		`gsd exits 0, 1, or 2. main.go returns the status that the root adapter in
 internal/cli/root.go picks from the error a command returns.
 
@@ -18,26 +18,21 @@ internal/cli/root.go picks from the error a command returns.
      current stage, a tui view that fails to load (the error shows in
      place and the session continues), and a capture or tui session
      left with esc, q, or ctrl+c.
-  1  Application error. The categories are not_found (no row for an ID
-     or name), invalid_argument (a bad ID, date, status, or search
-     expression, an edit with no field flags, or an invalid
-     configuration), conflict (a state rule, such as completing a task
-     twice, deleting an occupied project or area without --recursive,
-     a duplicate name, or a resolved project or archived area blocking
-     a change), and internal (an unexpected failure such as an
-     unreadable database). 'gsd: <message>' goes to stderr, or with
-     --json one line {"error":{"code":CODE,"message":TEXT}}; stdout
-     stays empty. Bad IDs, bad statuses, and missing field flags are
-     rejected before the database is opened.
+  1  Application error: a missing row, a bad ID, date, status, or search
+     expression, an edit with no field flags, an invalid configuration,
+     a state rule that blocks a change, or an unexpected failure such
+     as an unreadable database. Bad IDs, bad statuses, and missing field
+     flags are rejected before the database is opened.
   2  Usage error: an unknown command, flag, or operand, a wrong operand
      count, a flag needing a value, conflicting flags or a missing
      required flag group, --first=false or --last=false, a bare command
      group, --json on capture, config, or tui, and capture or tui
      without a terminal, with an unset or dumb TERM, or with operands.
-     'gsd: <message>' goes to stderr even with --json, stdout stays
-     empty, and the database is never opened.
+     The database is never opened.
 
---json never changes the exit status. This topic prints its text to stdout,
-needs no terminal or database, and never prompts.`,
+Every failure prints one 'gsd: <message>' line on stderr without usage
+text and leaves stdout empty, also with --json. --json never changes the
+exit status. This topic prints its text to stdout, needs no terminal or
+database, and never prompts.`,
 	)
 }

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/jmcampanini/gsd/internal/apperr"
-	"github.com/jmcampanini/gsd/internal/render"
 	"github.com/jmcampanini/gsd/internal/tag"
 )
 
@@ -247,10 +246,7 @@ func TestTagsApplicationErrorsUseStderrAndCloseOnce(t *testing.T) {
 			if result.exitCode != 1 || result.stdout != "" || result.opens != 1 || result.closes != 1 {
 				t.Fatalf("result = %#v, want stderr-only application error and one open/close", result)
 			}
-			envelope := decodeTagJSON[render.ErrorEnvelope](t, result.stderr)
-			if envelope.Error.Code != apperr.Conflict || envelope.Error.Message != "tag operation failed" {
-				t.Errorf("error = %#v, want conflict unchanged", envelope.Error)
-			}
+			requireCommandError(t, result, "tag operation failed")
 		})
 	}
 }

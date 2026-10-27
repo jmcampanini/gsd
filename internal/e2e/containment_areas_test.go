@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/task"
@@ -73,15 +72,15 @@ func TestAreaContainmentAcrossBinaryInvocations(t *testing.T) {
 		{"edit", fmt.Sprint(inboxTask.ID), "--project", fmt.Sprint(project.ID), "--area", fmt.Sprint(home.ID)},
 		{"list", "--project", fmt.Sprint(project.ID), "--area", fmt.Sprint(home.ID)},
 	} {
-		assertJSONError(t, runJSON(args...), apperr.InvalidArgument)
+		assertCommandError(t, runJSON(args...), "both")
 	}
 	flagConflict := runJSON("edit", fmt.Sprint(inboxTask.ID), "--area", fmt.Sprint(home.ID), "--no-area")
 	if flagConflict.exitCode != 2 || flagConflict.stdout != "" || flagConflict.stderr == "" {
 		t.Errorf("same-pair area flags = %#v, want stderr-only usage exit 2", flagConflict)
 	}
-	assertJSONError(t, runJSON("add", "Missing area", "--area", "99"), apperr.NotFound)
-	assertJSONError(t, runJSON("list", "--area", "99"), apperr.NotFound)
-	assertJSONError(t, runJSON("projects", "list", "--area", "99"), apperr.NotFound)
+	assertCommandError(t, runJSON("add", "Missing area", "--area", "99"), "no area 99")
+	assertCommandError(t, runJSON("list", "--area", "99"), "no area 99")
+	assertCommandError(t, runJSON("projects", "list", "--area", "99"), "no area 99")
 
 	movedToArea := decodeTaskEdition(t, runJSON("edit", fmt.Sprint(projectTask.ID), "--area", fmt.Sprint(home.ID))).Task
 	if movedToArea.ProjectID != nil || !pointsTo(movedToArea.AreaID, home.ID) || movedToArea.Position != loose.Position+1 {
@@ -218,7 +217,7 @@ func TestAreaArchiveAndDeletionAcrossBinaryInvocations(t *testing.T) {
 		{"done", fmt.Sprint(projectTask.ID)},
 		{"project", "done", fmt.Sprint(homeProject.ID)},
 	} {
-		assertJSONError(t, runJSON(args...), apperr.Conflict)
+		assertCommandError(t, runJSON(args...), "archived")
 	}
 	guardGuidance := runGSD(
 		t,
@@ -245,10 +244,10 @@ func TestAreaArchiveAndDeletionAcrossBinaryInvocations(t *testing.T) {
 	if unarchivedHome.ArchivedAt != nil || unarchivedHome.Position != home.Position {
 		t.Errorf("unarchived Home = %#v, want active at original position %d", unarchivedHome, home.Position)
 	}
-	assertJSONError(
+	assertCommandError(
 		t,
 		runJSON("area", "unarchive", fmt.Sprint(home.ID)),
-		apperr.Conflict,
+		fmt.Sprintf("cannot unarchive area %d while it is active", home.ID),
 	)
 	restoredAvailable := decodeJSON[[]task.ViewTask](t, runJSON("available"), "available")
 	if len(restoredAvailable) != 4 {
@@ -266,21 +265,21 @@ func TestAreaArchiveAndDeletionAcrossBinaryInvocations(t *testing.T) {
 		restoredAvailable[1].Title != editedTask.Title {
 		t.Errorf("restored governed tasks = %#v, want original positions and edited title", restoredAvailable[:2])
 	}
-	assertJSONError(t, runJSON("area", "delete", fmt.Sprint(home.ID)), apperr.Conflict)
+	assertCommandError(t, runJSON("area", "delete", fmt.Sprint(home.ID)), "use --recursive")
 
 	empty := decodeAreaRow(t, runJSON("areas", "add", "Empty"))
 	emptyDeletion := decodeAreaRow(t, runJSON("area", "delete", fmt.Sprint(empty.ID)))
 	if emptyDeletion.ID != empty.ID {
 		t.Errorf("empty area deletion = %#v, want deleted Empty area %#v", emptyDeletion, empty)
 	}
-	assertJSONError(t, runJSON("area", "show", fmt.Sprint(empty.ID)), apperr.NotFound)
+	assertCommandError(t, runJSON("area", "show", fmt.Sprint(empty.ID)), fmt.Sprintf("no area %d", empty.ID))
 
 	deletionResult := runJSON("area", "delete", fmt.Sprint(home.ID), "--recursive")
 	deletion := decodeJSON[area.Deletion](t, deletionResult, "recursive area deletion")
 	if deletion.Area.ID != home.ID || len(deletion.DeletedProjects) != 2 || len(deletion.DeletedTasks) != 3 {
 		t.Errorf("recursive deletion = %#v, want Home, two projects, and three tasks", deletion)
 	}
-	assertJSONError(t, runJSON("area", "show", fmt.Sprint(home.ID)), apperr.NotFound)
+	assertCommandError(t, runJSON("area", "show", fmt.Sprint(home.ID)), fmt.Sprintf("no area %d", home.ID))
 
 	narrated := decodeAreaRow(t, runJSON("areas", "add", "Narrated"))
 	narratedProject := decodeProject(t, runJSON(

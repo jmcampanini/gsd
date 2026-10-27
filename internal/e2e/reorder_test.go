@@ -7,7 +7,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -151,30 +150,30 @@ func TestReorderWorkflowAcrossBinaryInvocations(t *testing.T) {
 	}
 	assertAreaOrder(t, runJSON, []int64{errands.ID, work.ID, home.ID})
 
-	assertJSONError(t, runJSON(
+	assertCommandError(t, runJSON(
 		"reorder", fmt.Sprint(taskOpen.ID), "--before", fmt.Sprint(areaTask.ID),
-	), apperr.InvalidArgument)
-	assertJSONError(t, runJSON(
+	), "is in a different container")
+	assertCommandError(t, runJSON(
 		"reorder", fmt.Sprint(taskOpen.ID), "--after", fmt.Sprint(taskOpen.ID),
-	), apperr.InvalidArgument)
-	assertJSONError(t, runJSON("reorder", "99999", "--first"), apperr.NotFound)
+	), "relative to itself")
+	assertCommandError(t, runJSON("reorder", "99999", "--first"), "no task 99999")
 	assertTaskContainerOrder(t, runJSON, taskProject.ID, []int64{taskOpen.ID, taskDone.ID, taskCancelled.ID})
 
-	assertJSONError(t, runJSON(
+	assertCommandError(t, runJSON(
 		"project", "reorder", fmt.Sprint(projectOpen.ID), "--before", fmt.Sprint(standaloneReference.ID),
-	), apperr.InvalidArgument)
-	assertJSONError(t, runJSON(
+	), "is in a different container")
+	assertCommandError(t, runJSON(
 		"project", "reorder", fmt.Sprint(projectOpen.ID), "--after", fmt.Sprint(projectOpen.ID),
-	), apperr.InvalidArgument)
-	assertJSONError(t, runJSON(
+	), "relative to itself")
+	assertCommandError(t, runJSON(
 		"project", "reorder", fmt.Sprint(projectOpen.ID), "--after", "99999",
-	), apperr.NotFound)
+	), "no project 99999")
 	assertProjectContainerOrder(t, runJSON, home.ID, []int64{projectOpen.ID, projectDone.ID, projectCancelled.ID})
 
-	assertJSONError(t, runJSON(
+	assertCommandError(t, runJSON(
 		"area", "reorder", fmt.Sprint(home.ID), "--before", fmt.Sprint(home.ID),
-	), apperr.InvalidArgument)
-	assertJSONError(t, runJSON("area", "reorder", "99999", "--last"), apperr.NotFound)
+	), "relative to itself")
+	assertCommandError(t, runJSON("area", "reorder", "99999", "--last"), "no area 99999")
 	assertAreaOrder(t, runJSON, []int64{errands.ID, work.ID, home.ID})
 
 	if inboxTask.ProjectID != nil || inboxTask.AreaID != nil || areaTask.AreaID == nil {

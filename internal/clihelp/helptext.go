@@ -5,15 +5,13 @@
 package clihelp
 
 // OutputStreamsHelp states where output and errors go and how --json
-// changes them. The root composes it alone; data commands compose it
+// changes payloads. The root composes it alone; data commands compose it
 // through OutputContractHelp.
-const OutputStreamsHelp = `Output goes to stdout. Errors go to stderr as 'gsd: <message>' and leave
-stdout empty. Nothing prompts. --json writes one JSON value on a single
-line to stdout, newline-terminated and free of terminal escapes; an
-application error then goes to stderr as one line
-{"error":{"code":CODE,"message":TEXT}}, where CODE is not_found,
-invalid_argument, conflict, or internal, while usage errors stay
-human-readable. The exit status is the same with and without --json.`
+const OutputStreamsHelp = `Output goes to stdout. Errors go to stderr as one 'gsd: <message>' line
+without usage text and leave stdout empty, also with --json. Nothing
+prompts. --json writes one JSON value on a single line to stdout,
+newline-terminated and free of terminal escapes. The exit status is the
+same with and without --json.`
 
 // DatabaseUseHelp names the one path a data command creates and states that
 // it reads no other file.

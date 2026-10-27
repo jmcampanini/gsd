@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jmcampanini/gsd/internal/apperr"
 	"github.com/jmcampanini/gsd/internal/board"
 	"github.com/jmcampanini/gsd/internal/logbook"
 	"github.com/jmcampanini/gsd/internal/project"
@@ -62,8 +61,8 @@ func TestBoardAdministrationAcrossBinaryInvocations(t *testing.T) {
 
 	occupant := decodeProject(t, runJSON("projects", "add", "Occupant", "--board", "Software"))
 	decodeProject(t, runJSON("project", "move", fmt.Sprint(occupant.ID), "Design"))
-	assertJSONError(t, runJSON("stage", "delete", "Software", "Design"), apperr.Conflict)
-	assertJSONError(t, runJSON("board", "delete", "Software"), apperr.Conflict)
+	assertCommandError(t, runJSON("stage", "delete", "Software", "Design"), "contains")
+	assertCommandError(t, runJSON("board", "delete", "Software"), "contains")
 
 	laterDeferred := decodeTask(t, runJSON(
 		"add", "Delete clears this defer", "--project", fmt.Sprint(occupant.ID), "--defer-stage", "Later",
@@ -96,7 +95,7 @@ func TestBoardAdministrationAcrossBinaryInvocations(t *testing.T) {
 	if len(afterDelete) != 1 || afterDelete[0].ID != software.ID {
 		t.Errorf("boards after delete = %#v, want only Software", afterDelete)
 	}
-	assertJSONError(t, runJSON("board", "show", "Other"), apperr.NotFound)
+	assertCommandError(t, runJSON("board", "show", "Other"), "no board Other")
 }
 
 func TestBoardMembershipAndMovement(t *testing.T) {
@@ -361,17 +360,17 @@ func TestBoardPromotionAndOrthogonality(t *testing.T) {
 		t.Errorf("logbook after project reopen = %#v, want reopened project absent", afterReopenEntries)
 	}
 
-	assertJSONError(t, runJSON("board", "show", "Missing"), apperr.NotFound)
-	assertJSONError(t, runJSON("projects", "add", "Unknown board", "--board", "Missing"), apperr.NotFound)
-	assertJSONError(t, runJSON(
+	assertCommandError(t, runJSON("board", "show", "Missing"), "no board Missing")
+	assertCommandError(t, runJSON("projects", "add", "Unknown board", "--board", "Missing"), "no board Missing")
+	assertCommandError(t, runJSON(
 		"add", "Unknown stage", "--project", fmt.Sprint(planned.ID), "--defer-stage", "Absent",
-	), apperr.NotFound)
-	assertJSONError(t, runJSON(
+	), "Absent")
+	assertCommandError(t, runJSON(
 		"add", "Foreign stage", "--project", fmt.Sprint(planned.ID), "--defer-stage", "Shipping",
-	), apperr.InvalidArgument)
-	assertJSONError(t, runJSON(
+	), "Shipping")
+	assertCommandError(t, runJSON(
 		"project", "move", fmt.Sprint(planned.ID), "Absent",
-	), apperr.NotFound)
+	), "Absent")
 }
 
 func boardWorkspace(t *testing.T, name string) (string, func(args ...string) processResult) {

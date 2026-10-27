@@ -1,14 +1,10 @@
 package e2e
 
 import (
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
-
-	"github.com/jmcampanini/gsd/internal/apperr"
 )
 
 type tagRow struct {
@@ -53,14 +49,11 @@ func TestTagAdministrationAcrossBinaryInvocations(t *testing.T) {
 		t.Errorf("listed tags = %#v, want errands then home with zero usage", listed)
 	}
 
-	conflictMessage := decodeTagError(
+	assertCommandError(
 		t,
 		runJSON("tags", "add", "Errands"),
-		apperr.Conflict,
+		"tag already exists: "+errands.Title,
 	)
-	if !strings.Contains(conflictMessage, errands.Title) {
-		t.Errorf("conflict message = %q, want stored spelling %q", conflictMessage, errands.Title)
-	}
 
 	renamed := decodeTagRow(t, runJSON("tags", "rename", "errands", "out-and-about"))
 	if renamed.ID != errands.ID || renamed.Title != "out-and-about" || renamed.CreatedAt != errands.CreatedAt {
@@ -87,9 +80,9 @@ func TestTagAdministrationAcrossBinaryInvocations(t *testing.T) {
 		t.Errorf("tags after deletion = %#v, want only HOME", remaining)
 	}
 
-	decodeTagError(t, runJSON("tags", "rename", "ghost", "x"), apperr.NotFound)
-	decodeTagError(t, runJSON("tags", "delete", "ghost"), apperr.NotFound)
-	decodeTagError(t, runJSON("tags", "add", ""), apperr.InvalidArgument)
+	assertCommandError(t, runJSON("tags", "rename", "ghost", "x"), "no tag ghost")
+	assertCommandError(t, runJSON("tags", "delete", "ghost"), "no tag ghost")
+	assertCommandError(t, runJSON("tags", "add", ""), "title must not be blank")
 }
 
 func TestTagAttachmentWorkflowAcrossBinaryInvocations(t *testing.T) {
@@ -143,17 +136,17 @@ func TestTagAttachmentWorkflowAcrossBinaryInvocations(t *testing.T) {
 		{"list", "--tag", "ghost"},
 	}
 	for _, args := range unknownCommands {
-		assertJSONError(t, runJSON(args...), apperr.NotFound)
+		assertCommandError(t, runJSON(args...), "no tag ghost")
 	}
 	allTasks := decodeTasks(t, runJSON("list", "--status", "all"))
 	if len(allTasks) != 1 || allTasks[0].ID != todo.ID {
 		t.Errorf("tasks after unknown tagged add = %#v, want only original task %#v", allTasks, todo)
 	}
 
-	assertJSONError(
+	assertCommandError(
 		t,
 		runJSON("tag", fmt.Sprint(todo.ID), home.Title, "ghost"),
-		apperr.NotFound,
+		"no tag ghost",
 	)
 	persistedTodo := decodeTask(t, runJSON("show", fmt.Sprint(todo.ID)))
 	assertTags("task after mixed known/unknown attach", persistedTodo.Tags, []string{errands.Title})
@@ -304,19 +297,4 @@ func decodeListedTagRows(t *testing.T, result processResult) []listedTagRow {
 func decodeTagDeletion(t *testing.T, result processResult) tagDeletion {
 	t.Helper()
 	return decodeJSON[tagDeletion](t, result, "tag deletion")
-}
-
-func decodeTagError(t *testing.T, result processResult, wantCode apperr.Code) string {
-	t.Helper()
-	assertJSONError(t, result, wantCode)
-
-	var envelope struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
-		t.Fatalf("decode tag error: %v", err)
-	}
-	return envelope.Error.Message
 }

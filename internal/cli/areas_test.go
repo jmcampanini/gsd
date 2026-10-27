@@ -12,7 +12,6 @@ import (
 	"github.com/jmcampanini/gsd/internal/area"
 	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
-	"github.com/jmcampanini/gsd/internal/render"
 	"github.com/jmcampanini/gsd/internal/task"
 )
 
@@ -161,14 +160,6 @@ func decodeAreaJSON[T any](t *testing.T, output string) T {
 		t.Fatalf("decode area command output: %v", err)
 	}
 	return decoded
-}
-
-func decodeAreaCommandError(t *testing.T, result commandResult) render.ErrorPayload {
-	t.Helper()
-	if result.exitCode != 1 || result.stdout != "" {
-		t.Fatalf("result = %#v, want stderr-only application error", result)
-	}
-	return decodeAreaJSON[render.ErrorEnvelope](t, result.stderr).Error
 }
 
 func TestAreaAddAdaptsStdinNoteAndWritesCompleteJSONRow(t *testing.T) {
@@ -470,10 +461,7 @@ func TestAreaReorderApplicationErrorUsesOnlyStderr(t *testing.T) {
 
 	application := &fakeAreaApplication{reorderError: apperr.New(apperr.NotFound, "no area 99", nil)}
 	result := runAreaCommand(t, application, "area", "reorder", "99", "--last", "--json")
-	got := decodeAreaCommandError(t, result)
-	if got.Code != apperr.NotFound || got.Message != "no area 99" {
-		t.Errorf("error = %#v, want area not_found diagnostic", got)
-	}
+	requireCommandError(t, result, "no area 99")
 	if result.exitCode != 1 || result.stdout != "" || result.opens != 1 || result.closes != 1 {
 		t.Errorf("result = %#v, want stderr-only application failure and one factory lifecycle", result)
 	}
@@ -599,10 +587,7 @@ func TestAreaDeleteConflictAddsRecursiveRecovery(t *testing.T) {
 		nil,
 	)}
 	result := runAreaCommand(t, application, "area", "delete", "7", "--json")
-	got := decodeAreaCommandError(t, result)
-	if got.Code != apperr.Conflict || got.Message != "cannot delete area 7 while it contains projects or tasks; use --recursive to delete the area and its contents" {
-		t.Errorf("error = %#v, want recursive recovery guidance", got)
-	}
+	requireCommandError(t, result, "cannot delete area 7 while it contains projects or tasks; use --recursive to delete the area and its contents")
 	if application.deleteID != 7 || application.deleteRecursive || result.opens != 1 || result.closes != 1 {
 		t.Errorf("call/lifecycle = (%d, %t)/%#v, want nonrecursive call and one open/close", application.deleteID, application.deleteRecursive, result)
 	}
@@ -612,27 +597,25 @@ func TestAreaValidationFailsBeforeFactoryOpen(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
-		name string
-		args []string
+		name        string
+		wantMessage string
+		args        []string
 	}{
-		{name: "edit without fields", args: []string{"area", "edit", "7", "--json"}},
-		{name: "invalid show ID", args: []string{"area", "show", "0", "--json"}},
-		{name: "invalid edit ID", args: []string{"area", "edit", "nope", "--title", "x", "--json"}},
-		{name: "invalid archive ID", args: []string{"area", "archive", "0", "--json"}},
-		{name: "invalid unarchive ID", args: []string{"area", "unarchive", "nope", "--json"}},
-		{name: "invalid delete ID", args: []string{"area", "delete", "+1", "--json"}},
-		{name: "invalid tag ID", args: []string{"area", "tag", "0", "name", "--json"}},
-		{name: "invalid untag ID", args: []string{"area", "untag", "nope", "name", "--json"}},
+		{name: "edit without fields", wantMessage: `area edit requires --title or --note`, args: []string{"area", "edit", "7", "--json"}},
+		{name: "invalid show ID", wantMessage: `invalid area ID "0"`, args: []string{"area", "show", "0", "--json"}},
+		{name: "invalid edit ID", wantMessage: `invalid area ID "nope"`, args: []string{"area", "edit", "nope", "--title", "x", "--json"}},
+		{name: "invalid archive ID", wantMessage: `invalid area ID "0"`, args: []string{"area", "archive", "0", "--json"}},
+		{name: "invalid unarchive ID", wantMessage: `invalid area ID "nope"`, args: []string{"area", "unarchive", "nope", "--json"}},
+		{name: "invalid delete ID", wantMessage: `invalid area ID "+1"`, args: []string{"area", "delete", "+1", "--json"}},
+		{name: "invalid tag ID", wantMessage: `invalid area ID "0"`, args: []string{"area", "tag", "0", "name", "--json"}},
+		{name: "invalid untag ID", wantMessage: `invalid area ID "nope"`, args: []string{"area", "untag", "nope", "name", "--json"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			result := runAreaCommand(t, &fakeAreaApplication{}, test.args...)
-			got := decodeAreaCommandError(t, result)
+			requireCommandError(t, result, test.wantMessage)
 			if result.opens != 0 {
 				t.Errorf("opens = %d, want validation before factory open", result.opens)
-			}
-			if got.Code != apperr.InvalidArgument {
-				t.Errorf("error = %#v, want invalid_argument", got)
 			}
 		})
 	}
@@ -643,10 +626,7 @@ func TestAreaApplicationErrorUsesStderrAndClosesOnce(t *testing.T) {
 
 	application := &fakeAreaApplication{showError: apperr.New(apperr.NotFound, "area 99 not found", nil)}
 	result := runAreaCommand(t, application, "area", "show", "99", "--json")
-	got := decodeAreaCommandError(t, result)
-	if got.Code != apperr.NotFound || got.Message != "area 99 not found" {
-		t.Errorf("error = %#v, want area not_found diagnostic", got)
-	}
+	requireCommandError(t, result, "area 99 not found")
 	if result.stderr == "" || result.stdout != "" || result.opens != 1 || result.closes != 1 {
 		t.Errorf("result = %#v, want stderr and one open/close", result)
 	}

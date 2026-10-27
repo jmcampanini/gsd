@@ -16,7 +16,6 @@ import (
 	"github.com/jmcampanini/gsd/internal/clierror"
 	"github.com/jmcampanini/gsd/internal/domain"
 	"github.com/jmcampanini/gsd/internal/project"
-	"github.com/jmcampanini/gsd/internal/render"
 	"github.com/jmcampanini/gsd/internal/task"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -177,6 +176,17 @@ type commandResult struct {
 	configExplicit bool
 	opens          int
 	closes         int
+}
+
+func requireCommandError(t *testing.T, result commandResult, wantMessage string) {
+	t.Helper()
+	if result.exitCode != 1 || result.stdout != "" {
+		t.Fatalf("result = %#v, want stderr-only exit 1", result)
+	}
+	want := "gsd: " + wantMessage + "\n"
+	if result.stderr != want {
+		t.Errorf("stderr = %q, want %q", result.stderr, want)
+	}
 }
 
 func humanFields(output string) string {
@@ -352,7 +362,7 @@ func TestNormalizeApplicationErrorComposesReopenBeforeUnarchiveGuidance(t *testi
 	}
 }
 
-func TestTypedArchivedAreaErrorWritesJSONGuidanceToStderr(t *testing.T) {
+func TestTypedArchivedAreaErrorWritesGuidanceToStderrWithJSON(t *testing.T) {
 	t.Parallel()
 
 	application := &fakeApplication{doneError: apperr.New(
@@ -364,14 +374,7 @@ func TestTypedArchivedAreaErrorWritesJSONGuidanceToStderr(t *testing.T) {
 	if result.exitCode != 1 || result.stdout != "" || result.opens != 1 || result.closes != 1 {
 		t.Fatalf("result = %#v, want stderr-only conflict and one open/close", result)
 	}
-	var envelope render.ErrorEnvelope
-	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
-		t.Fatalf("decode stderr: %v", err)
-	}
-	want := "cannot complete task 7 while its governing area is archived; unarchive first: gsd area unarchive 3"
-	if envelope.Error.Code != apperr.Conflict || envelope.Error.Message != want {
-		t.Errorf("error = %#v, want typed unarchive guidance", envelope.Error)
-	}
+	requireCommandError(t, result, "cannot complete task 7 while its governing area is archived; unarchive first: gsd area unarchive 3")
 }
 
 func TestJSONCommandOutput(t *testing.T) {
@@ -563,13 +566,7 @@ func TestNoteStdinReadFailureIsInternalWithoutOpeningApplication(t *testing.T) {
 	if result.exitCode != 1 || result.stdout != "" || result.opens != 0 {
 		t.Errorf("result = %#v, want stderr-only internal error without application open", result)
 	}
-	var envelope render.ErrorEnvelope
-	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if envelope.Error.Code != apperr.Internal {
-		t.Errorf("error code = %q, want internal", envelope.Error.Code)
-	}
+	requireCommandError(t, result, "read note: stdin failed")
 }
 
 func TestEditAdaptsFieldsAndHumanOutput(t *testing.T) {
@@ -761,14 +758,7 @@ func TestEditWithoutFieldsFailsBeforeOpeningApplication(t *testing.T) {
 	if result.exitCode != 1 || result.stdout != "" || result.opens != 0 {
 		t.Errorf("result = %#v, want stderr-only error before opening the application", result)
 	}
-	var envelope render.ErrorEnvelope
-	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if envelope.Error.Code != apperr.InvalidArgument ||
-		!strings.Contains(envelope.Error.Message, "--title") {
-		t.Errorf("error = %#v, want invalid_argument naming the edit flags", envelope.Error)
-	}
+	requireCommandError(t, result, "edit requires --title, --note, --due, --no-due, --defer, --no-defer, --defer-stage, --no-defer-stage, --project, --no-project, --area, --no-area, --promotes, or --no-promotes")
 }
 
 func TestEmptyInboxJSONIsArray(t *testing.T) {
@@ -1140,25 +1130,26 @@ func TestReorderIDValidationDoesNotOpenApplications(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
-		name string
-		run  func(*testing.T) commandResult
+		name        string
+		wantMessage string
+		run         func(*testing.T) commandResult
 	}{
-		{name: "task ID", run: func(t *testing.T) commandResult {
+		{name: "task ID", wantMessage: `invalid task ID "nope"`, run: func(t *testing.T) commandResult {
 			return runCommand(t, &fakeApplication{}, "reorder", "nope", "--first", "--json")
 		}},
-		{name: "task reference", run: func(t *testing.T) commandResult {
+		{name: "task reference", wantMessage: `invalid task ID "0"`, run: func(t *testing.T) commandResult {
 			return runCommand(t, &fakeApplication{}, "reorder", "7", "--after", "0", "--json")
 		}},
-		{name: "project ID", run: func(t *testing.T) commandResult {
+		{name: "project ID", wantMessage: `invalid project ID "nope"`, run: func(t *testing.T) commandResult {
 			return runProjectCommand(t, &fakeProjectApplication{}, "project", "reorder", "nope", "--first", "--json")
 		}},
-		{name: "project reference", run: func(t *testing.T) commandResult {
+		{name: "project reference", wantMessage: `invalid project ID "0"`, run: func(t *testing.T) commandResult {
 			return runProjectCommand(t, &fakeProjectApplication{}, "project", "reorder", "7", "--before", "0", "--json")
 		}},
-		{name: "area ID", run: func(t *testing.T) commandResult {
+		{name: "area ID", wantMessage: `invalid area ID "nope"`, run: func(t *testing.T) commandResult {
 			return runAreaCommand(t, &fakeAreaApplication{}, "area", "reorder", "nope", "--last", "--json")
 		}},
-		{name: "area reference", run: func(t *testing.T) commandResult {
+		{name: "area reference", wantMessage: `invalid area ID "0"`, run: func(t *testing.T) commandResult {
 			return runAreaCommand(t, &fakeAreaApplication{}, "area", "reorder", "7", "--after", "0", "--json")
 		}},
 	} {
@@ -1169,13 +1160,7 @@ func TestReorderIDValidationDoesNotOpenApplications(t *testing.T) {
 			if result.exitCode != 1 || result.opens != 0 || result.closes != 0 || result.stdout != "" || result.stderr == "" {
 				t.Errorf("result = %#v, want stderr-only invalid_argument without application lifecycle", result)
 			}
-			var envelope render.ErrorEnvelope
-			if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
-				t.Fatalf("decode error JSON: %v", err)
-			}
-			if envelope.Error.Code != apperr.InvalidArgument {
-				t.Errorf("error code = %q, want invalid_argument", envelope.Error.Code)
-			}
+			requireCommandError(t, result, test.wantMessage)
 		})
 	}
 }
@@ -1188,13 +1173,7 @@ func TestTaskReorderApplicationErrorUsesOnlyStderr(t *testing.T) {
 	if result.exitCode != 1 || result.stdout != "" || result.opens != 1 || result.closes != 1 {
 		t.Fatalf("result = %#v, want stderr-only application failure and one factory lifecycle", result)
 	}
-	var envelope render.ErrorEnvelope
-	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
-		t.Fatalf("decode error JSON: %v", err)
-	}
-	if envelope.Error.Code != apperr.NotFound || envelope.Error.Message != "no task 99" {
-		t.Errorf("error = %#v, want task not_found diagnostic", envelope.Error)
-	}
+	requireCommandError(t, result, "no task 99")
 }
 
 func TestLifecycleCommandsAdaptIDsAndHumanActions(t *testing.T) {
@@ -1386,14 +1365,15 @@ func TestLifecycleValidationDoesNotOpenDatabase(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		args []string
+		name        string
+		wantMessage string
+		args        []string
 	}{
-		{name: "invalid status", args: []string{"list", "--status", "later", "--json"}},
-		{name: "done ID", args: []string{"done", "0", "--json"}},
-		{name: "cancel ID", args: []string{"--json", "cancel", "--", "-1"}},
-		{name: "reopen ID", args: []string{"reopen", "+1", "--json"}},
-		{name: "delete ID", args: []string{"delete", "nope", "--json"}},
+		{name: "invalid status", wantMessage: `invalid list status "later"`, args: []string{"list", "--status", "later", "--json"}},
+		{name: "done ID", wantMessage: `invalid task ID "0"`, args: []string{"done", "0", "--json"}},
+		{name: "cancel ID", wantMessage: `invalid task ID "-1"`, args: []string{"--json", "cancel", "--", "-1"}},
+		{name: "reopen ID", wantMessage: `invalid task ID "+1"`, args: []string{"reopen", "+1", "--json"}},
+		{name: "delete ID", wantMessage: `invalid task ID "nope"`, args: []string{"delete", "nope", "--json"}},
 	}
 
 	for _, test := range tests {
@@ -1404,13 +1384,7 @@ func TestLifecycleValidationDoesNotOpenDatabase(t *testing.T) {
 			if result.exitCode != 1 || result.opens != 0 || result.stdout != "" {
 				t.Errorf("result = %#v, want stderr-only invalid_argument without open", result)
 			}
-			var envelope render.ErrorEnvelope
-			if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
-				t.Fatalf("decode error: %v", err)
-			}
-			if envelope.Error.Code != apperr.InvalidArgument {
-				t.Errorf("error code = %q, want invalid_argument", envelope.Error.Code)
-			}
+			requireCommandError(t, result, test.wantMessage)
 		})
 	}
 }
@@ -1547,88 +1521,59 @@ func TestHumanOutputEscapesTerminalControls(t *testing.T) {
 	}
 }
 
-func TestJSONErrorsUseStableCodesAndStreams(t *testing.T) {
+func TestApplicationErrorsUseOneDiagnosticLineInEveryOutputMode(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	for _, test := range []struct {
 		name        string
 		application *fakeApplication
 		args        []string
-		wantCode    apperr.Code
 		wantMessage string
-		wantExit    int
 	}{
 		{
-			name: "not found",
-			application: &fakeApplication{showError: apperr.New(
-				apperr.NotFound,
-				"no task 99",
-				nil,
-			)},
-			args:        []string{"show", "99", "--json"},
-			wantCode:    apperr.NotFound,
+			name:        "not found",
+			application: &fakeApplication{showError: apperr.New(apperr.NotFound, "no task 99", nil)},
+			args:        []string{"show", "99"},
 			wantMessage: "no task 99",
-			wantExit:    1,
 		},
 		{
-			name: "conflict",
-			application: &fakeApplication{doneError: apperr.New(
-				apperr.Conflict,
-				"task 1 is not open",
-				nil,
-			)},
-			args:        []string{"done", "1", "--json"},
-			wantCode:    apperr.Conflict,
+			name:        "invalid argument",
+			application: &fakeApplication{addError: apperr.New(apperr.InvalidArgument, "title must not be blank", nil)},
+			args:        []string{"add", " "},
+			wantMessage: "title must not be blank",
+		},
+		{
+			name:        "conflict",
+			application: &fakeApplication{doneError: apperr.New(apperr.Conflict, "task 1 is not open", nil)},
+			args:        []string{"done", "1"},
 			wantMessage: "task 1 is not open",
-			wantExit:    1,
 		},
 		{
 			name:        "internal",
 			application: &fakeApplication{inboxError: errors.New("open database: permission denied")},
-			args:        []string{"inbox", "--json"},
-			wantCode:    apperr.Internal,
+			args:        []string{"inbox"},
 			wantMessage: "open database: permission denied",
-			wantExit:    1,
 		},
-	}
-
-	for _, test := range tests {
+		{
+			name:        "control characters",
+			application: &fakeApplication{inboxError: errors.New("read database:\nline\r\t\x1b[31m")},
+			args:        []string{"inbox"},
+			wantMessage: `read database:\nline\r\t\x1b[31m`,
+		},
+	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-
-			result := runCommand(t, test.application, test.args...)
-			if result.exitCode != test.wantExit {
-				t.Errorf("exit code = %d, want %d", result.exitCode, test.wantExit)
-			}
-			if result.stdout != "" {
-				t.Errorf("stdout = %q, want empty", result.stdout)
-			}
-			var envelope render.ErrorEnvelope
-			if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
-				t.Fatalf("decode stderr: %v", err)
-			}
-			if envelope.Error.Code != test.wantCode {
-				t.Errorf("error code = %q, want %q", envelope.Error.Code, test.wantCode)
-			}
-			if envelope.Error.Message != test.wantMessage {
-				t.Errorf("error message = %q, want diagnostic %q", envelope.Error.Message, test.wantMessage)
+			for _, mode := range []string{"text", "json"} {
+				t.Run(mode, func(t *testing.T) {
+					args := append([]string{}, test.args...)
+					if mode == "json" {
+						args = append(args, "--json")
+					}
+					result := runCommand(t, test.application, args...)
+					requireCommandError(t, result, test.wantMessage)
+				})
 			}
 		})
-	}
-}
-
-func TestHumanInternalErrorRetainsDiagnosticContext(t *testing.T) {
-	t.Parallel()
-
-	result := runCommand(t, &fakeApplication{inboxError: errors.New("open database: permission denied")}, "inbox")
-	if result.exitCode != 1 {
-		t.Errorf("exit code = %d, want 1", result.exitCode)
-	}
-	if result.stdout != "" {
-		t.Errorf("stdout = %q, want empty", result.stdout)
-	}
-	if result.stderr != "gsd: open database: permission denied\n" {
-		t.Errorf("stderr = %q, want actionable diagnostic", result.stderr)
 	}
 }
 
@@ -1642,22 +1587,17 @@ func TestInvalidIDIsApplicationErrorWithoutOpeningDatabase(t *testing.T) {
 	if result.opens != 0 {
 		t.Errorf("factory opens = %d, want 0", result.opens)
 	}
-	var envelope render.ErrorEnvelope
-	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
-		t.Fatalf("decode stderr: %v", err)
-	}
-	if envelope.Error.Code != apperr.InvalidArgument {
-		t.Errorf("error code = %q, want invalid_argument", envelope.Error.Code)
-	}
+	requireCommandError(t, result, `invalid task ID "0"`)
 }
 
-func TestUsageErrorsAreHumanReadableEvenWithJSON(t *testing.T) {
+func TestUsageErrorsUseOneDiagnosticLineInEveryOutputMode(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
 		args []string
 	}{
+		{name: "text", args: []string{"--unknown"}},
 		{name: "json unparsed", args: []string{"--unknown", "--json", "--config", "/nonexistent.toml"}},
 		{name: "json parsed", args: []string{"--json", "--config", "/nonexistent.toml", "--unknown"}},
 	}
@@ -1676,11 +1616,8 @@ func TestUsageErrorsAreHumanReadableEvenWithJSON(t *testing.T) {
 			if result.stdout != "" {
 				t.Errorf("stdout = %q, want empty", result.stdout)
 			}
-			if strings.HasPrefix(result.stderr, "{") {
-				t.Errorf("stderr = %q, want human-readable diagnostic, not JSON", result.stderr)
-			}
-			if !strings.Contains(result.stderr, "unknown flag: --unknown") {
-				t.Errorf("stderr = %q, want parse diagnostic", result.stderr)
+			if result.stderr != "gsd: unknown flag: --unknown\n" {
+				t.Errorf("stderr = %q, want one prefixed usage diagnostic", result.stderr)
 			}
 		})
 	}
@@ -1714,8 +1651,8 @@ func TestExitCodesTopicListsEveryStatusAndTheStderrFormat(t *testing.T) {
 		"\n  0  ",
 		"\n  1  ",
 		"\n  2  ",
-		"'gsd: <message>' goes to stderr",
-		"--json never changes the exit status",
+		"one 'gsd: <message>' line on stderr without usage",
+		"--json never changes the\nexit status",
 	} {
 		if !strings.Contains(result.stdout, want) {
 			t.Errorf("exit-codes help missing %q:\n%s", want, result.stdout)

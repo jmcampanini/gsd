@@ -3,13 +3,11 @@ package e2e
 import (
 	"bytes"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/jmcampanini/gsd/internal/apperr"
 	_ "modernc.org/sqlite"
 )
 
@@ -68,10 +66,9 @@ func TestMigrationWorkflow(t *testing.T) {
 	}
 
 	const futureMessage = "gsd is older than this database (database revision 2, this gsd supports up to 1); upgrade gsd"
-	assertMigrationJSONError(
+	assertMigrationError(
 		t,
 		runGSD(t, "inbox", "--db", futurePath, "--json"),
-		apperr.Conflict,
 		futureMessage,
 	)
 
@@ -113,10 +110,9 @@ PRAGMA user_version = 1;
 	if err != nil {
 		t.Fatalf("read foreign database before refusal: %v", err)
 	}
-	assertMigrationJSONError(
+	assertMigrationError(
 		t,
 		runGSD(t, "inbox", "--db", foreignPath, "--json"),
-		apperr.Conflict,
 		"database does not belong to gsd",
 	)
 	after, err := os.ReadFile(foreignPath)
@@ -128,24 +124,15 @@ PRAGMA user_version = 1;
 	}
 }
 
-func assertMigrationJSONError(
+func assertMigrationError(
 	t *testing.T,
 	result processResult,
-	wantCode apperr.Code,
 	wantMessage string,
 ) {
 	t.Helper()
-	assertJSONError(t, result, wantCode)
-
-	var envelope struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal([]byte(result.stderr), &envelope); err != nil {
-		t.Fatalf("decode migration error: %v", err)
-	}
-	if envelope.Error.Message != wantMessage {
-		t.Errorf("migration error message = %q, want %q", envelope.Error.Message, wantMessage)
+	assertCommandError(t, result, wantMessage)
+	want := "gsd: " + wantMessage + "\n"
+	if result.stderr != want {
+		t.Errorf("migration stderr = %q, want %q", result.stderr, want)
 	}
 }
