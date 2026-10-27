@@ -65,8 +65,8 @@ Any other value is an error (exit 1).`
 const PlacementHelp = `--first, --last, --after ID, and --before ID choose the new position and
 are mutually exclusive; --first=false and --last=false are usage errors
 (exit 2). Siblings are renumbered from zero in the new order. A reference
-that is the row itself, is not a sibling, or is unknown is an error (exit
-1).`
+that is the row itself, is not a sibling, or is unknown is an error
+(exit 1).`
 
 // NamedPlacementHelp describes the name-addressed placement flags used by
 // board and stage reorder commands.

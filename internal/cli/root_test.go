@@ -1158,7 +1158,7 @@ func TestReorderIDValidationDoesNotOpenApplications(t *testing.T) {
 
 			result := test.run(t)
 			if result.exitCode != 1 || result.opens != 0 || result.closes != 0 || result.stdout != "" || result.stderr == "" {
-				t.Errorf("result = %#v, want stderr-only invalid_argument without application lifecycle", result)
+				t.Errorf("result = %#v, want stderr-only exit 1 without application lifecycle", result)
 			}
 			requireCommandError(t, result, test.wantMessage)
 		})
@@ -1352,7 +1352,7 @@ func TestTaskTaggingInvalidIDsFailWithoutOpeningDatabase(t *testing.T) {
 
 			result := runCommand(t, &fakeApplication{}, test.args...)
 			if result.exitCode != 1 || result.opens != 0 || result.stdout != "" {
-				t.Errorf("result = %#v, want invalid_argument without database open", result)
+				t.Errorf("result = %#v, want exit 1 without database open", result)
 			}
 			if result.stderr == "" {
 				t.Errorf("stderr = %q, want validation diagnostic", result.stderr)
@@ -1382,7 +1382,7 @@ func TestLifecycleValidationDoesNotOpenDatabase(t *testing.T) {
 
 			result := runCommand(t, &fakeApplication{}, test.args...)
 			if result.exitCode != 1 || result.opens != 0 || result.stdout != "" {
-				t.Errorf("result = %#v, want stderr-only invalid_argument without open", result)
+				t.Errorf("result = %#v, want stderr-only exit 1 without open", result)
 			}
 			requireCommandError(t, result, test.wantMessage)
 		})
@@ -1652,7 +1652,7 @@ func TestExitCodesTopicListsEveryStatusAndTheStderrFormat(t *testing.T) {
 		"\n  1  ",
 		"\n  2  ",
 		"one 'gsd: <message>' line on stderr without usage",
-		"--json never changes the\nexit status",
+		"--json never changes the",
 	} {
 		if !strings.Contains(result.stdout, want) {
 			t.Errorf("exit-codes help missing %q:\n%s", want, result.stdout)

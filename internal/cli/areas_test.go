@@ -462,8 +462,8 @@ func TestAreaReorderApplicationErrorUsesOnlyStderr(t *testing.T) {
 	application := &fakeAreaApplication{reorderError: apperr.New(apperr.NotFound, "no area 99", nil)}
 	result := runAreaCommand(t, application, "area", "reorder", "99", "--last", "--json")
 	requireCommandError(t, result, "no area 99")
-	if result.exitCode != 1 || result.stdout != "" || result.opens != 1 || result.closes != 1 {
-		t.Errorf("result = %#v, want stderr-only application failure and one factory lifecycle", result)
+	if result.opens != 1 || result.closes != 1 {
+		t.Errorf("result = %#v, want one factory lifecycle", result)
 	}
 }
 

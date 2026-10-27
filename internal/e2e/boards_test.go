@@ -61,8 +61,8 @@ func TestBoardAdministrationAcrossBinaryInvocations(t *testing.T) {
 
 	occupant := decodeProject(t, runJSON("projects", "add", "Occupant", "--board", "Software"))
 	decodeProject(t, runJSON("project", "move", fmt.Sprint(occupant.ID), "Design"))
-	assertCommandError(t, runJSON("stage", "delete", "Software", "Design"), "contains")
-	assertCommandError(t, runJSON("board", "delete", "Software"), "contains")
+	assertCommandError(t, runJSON("stage", "delete", "Software", "Design"), "while it contains")
+	assertCommandError(t, runJSON("board", "delete", "Software"), "while it contains")
 
 	laterDeferred := decodeTask(t, runJSON(
 		"add", "Delete clears this defer", "--project", fmt.Sprint(occupant.ID), "--defer-stage", "Later",
@@ -364,13 +364,13 @@ func TestBoardPromotionAndOrthogonality(t *testing.T) {
 	assertCommandError(t, runJSON("projects", "add", "Unknown board", "--board", "Missing"), "no board Missing")
 	assertCommandError(t, runJSON(
 		"add", "Unknown stage", "--project", fmt.Sprint(planned.ID), "--defer-stage", "Absent",
-	), "Absent")
+	), "no stage Absent on board Software")
 	assertCommandError(t, runJSON(
 		"add", "Foreign stage", "--project", fmt.Sprint(planned.ID), "--defer-stage", "Shipping",
-	), "Shipping")
+	), "stage Shipping is not on project")
 	assertCommandError(t, runJSON(
 		"project", "move", fmt.Sprint(planned.ID), "Absent",
-	), "Absent")
+	), "no stage Absent on board Software")
 }
 
 func boardWorkspace(t *testing.T, name string) (string, func(args ...string) processResult) {

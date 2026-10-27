@@ -563,7 +563,7 @@ func TestBoardEditWithoutFieldsAndApplicationErrorsMapToOwnedExits(t *testing.T)
 
 	noFields := runBoardCommand(t, &fakeBoardApplication{}, "board", "edit", "software", "--json")
 	if noFields.exitCode != 1 || noFields.opens != 0 || noFields.closes != 0 || noFields.stdout != "" {
-		t.Fatalf("no-fields result = %#v, want invalid_argument before open", noFields)
+		t.Fatalf("no-fields result = %#v, want exit 1 before open", noFields)
 	}
 	requireCommandError(t, noFields, "board edit requires --title or --note")
 

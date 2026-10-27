@@ -20,10 +20,11 @@ internal/cli/root.go picks from the error a command returns.
      left with esc, q, or ctrl+c.
   1  Application error: no row for an ID or name; a bad ID, date,
      status, or search expression, an edit with no field flags, or an
-     invalid configuration; a state rule, such as completing a task
-     twice, deleting an occupied project or area without --recursive,
-     a duplicate name, or a resolved project or archived area blocking
-     a change; or an unexpected failure such as an unreadable database.
+     invalid configuration; a conflict with a state rule, such as
+     completing a task twice, deleting an occupied project or area
+     without --recursive, a duplicate name, or a resolved project or
+     archived area blocking a change; or an unexpected failure such as
+     an unreadable database.
      The message names the cause. Bad IDs, bad statuses, and missing
      field flags are rejected before the database is opened.
   2  Usage error: an unknown command, flag, or operand, a wrong operand

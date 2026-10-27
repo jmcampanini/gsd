@@ -30,7 +30,7 @@ source or destination area is a conflict (exit 1), while a resolved
 project may be refiled. --board NAME and --no-board put the project on a
 board, in its first stage and last among the projects there, or take it
 off its board; a project already on NAME stays where it is. A board move
-refuses a resolved project or an archived area (a conflict, exit 1), needs
+refuses a resolved project or an archived area (conflict, exit 1), needs
 a board with at least one stage, and clears every stage defer on the
 project's tasks, listing each cleared task. --area with --no-area and
 --board with --no-board are mutually exclusive, and --no-area and

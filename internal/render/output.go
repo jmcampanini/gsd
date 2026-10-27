@@ -183,7 +183,7 @@ func LogbookWriter(location *time.Location) func(HumanOutput, []logbook.Entry) e
 	}
 }
 
-// diagnosticPrefix starts every human failure line so a reader can tell
+// diagnosticPrefix starts every failure line so a reader can tell
 // which program on a pipeline failed.
 const diagnosticPrefix = "gsd: "
 

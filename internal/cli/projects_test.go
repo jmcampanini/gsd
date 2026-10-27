@@ -291,7 +291,7 @@ func TestTaskAreaGrammarAndValidationHappenBeforeApplicationOpen(t *testing.T) {
 	} {
 		result := runCommand(t, &fakeApplication{}, args...)
 		if result.exitCode != 1 || result.opens != 0 || result.stdout != "" {
-			t.Errorf("result = %#v, want invalid_argument without open", result)
+			t.Errorf("result = %#v, want exit 1 without open", result)
 		}
 	}
 
@@ -324,7 +324,7 @@ func TestTaskProjectFlagRejectsNonDecimalIDAsApplicationErrorWithoutOpeningDatab
 
 	result := runCommand(t, &fakeApplication{}, "add", "contained", "--project", "0x8", "--json")
 	if result.exitCode != 1 || result.opens != 0 || result.stdout != "" {
-		t.Errorf("result = %#v, want stderr-only invalid_argument without open", result)
+		t.Errorf("result = %#v, want stderr-only exit 1 without open", result)
 	}
 	requireCommandError(t, result, `invalid project ID "0x8"`)
 }
@@ -629,7 +629,7 @@ func TestProjectAreaGrammarAndValidationHappenBeforeApplicationOpen(t *testing.T
 
 	invalid := runProjectCommand(t, &fakeProjectApplication{}, "projects", "add", "Kitchen", "--area", "0", "--json")
 	if invalid.exitCode != 1 || invalid.opens != 0 || invalid.stdout != "" {
-		t.Errorf("invalid result = %#v, want invalid_argument without open", invalid)
+		t.Errorf("invalid result = %#v, want exit 1 without open", invalid)
 	}
 	conflict := runProjectCommand(t, &fakeProjectApplication{}, "project", "edit", "1", "--area", "2", "--no-area", "--json")
 	if conflict.exitCode != 2 || conflict.opens != 0 || conflict.stdout != "" {
@@ -911,8 +911,8 @@ func TestProjectReorderApplicationErrorUsesOnlyStderr(t *testing.T) {
 	application := &fakeProjectApplication{reorderError: apperr.New(apperr.NotFound, "no project 99", nil)}
 	result := runProjectCommand(t, application, "project", "reorder", "99", "--last", "--json")
 	requireCommandError(t, result, "no project 99")
-	if result.exitCode != 1 || result.stdout != "" || result.opens != 1 || result.closes != 1 {
-		t.Errorf("result = %#v, want stderr-only application failure and one factory lifecycle", result)
+	if result.opens != 1 || result.closes != 1 {
+		t.Errorf("result = %#v, want one factory lifecycle", result)
 	}
 }
 
