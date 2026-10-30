@@ -66,7 +66,6 @@ mise run build
 | `gsd search "milk OR bread" --json` | Search titles, tags, and notes and print the hits as JSON. |
 | `gsd logbook` | List done and cancelled tasks and projects. |
 | `gsd tui` | Browse everything in the terminal without changing it. |
-| `gsd config --provenance` | Print the effective configuration and where each value came from. |
 
 The canonical reference is `gsd --help`, each command's `--help`, and the help topic `gsd help exit-codes`.
 
